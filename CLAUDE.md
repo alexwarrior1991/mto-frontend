@@ -61,7 +61,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   tolerantes), `mergePatch.js` (`buildMergePatch`), `dates.js`, `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
-  `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…).
+  `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
+  `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
+  `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
+  `lovEntryWithEnabled`).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -78,10 +81,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   sondas, pendiente, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
   `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `ErrorNotice.jsx`),
-  `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`. Cada fase añade aquí
-  lo que comparte (`ServerDataTable`, `OffsetPager`, `RevisionsModal`, `LazyTabs`…).
+  `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
+  (el aviso verde de tres segundos) y `ConfirmModal.jsx` (confirmar lo que no se deshace). Cada fase
+  añade aquí lo que comparte (`ServerDataTable`, `OffsetPager`, `RevisionsModal`, `LazyTabs`…).
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
-  `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`.
+  `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
+  de `ui/lov`:
+  - `CataloguePage`, con `key` por recurso para que cambiar de catálogo empiece de cero;
+  - `CatalogueTable`, `CatalogueEditorModal` (`@mantine/form`) y `CatalogueBulkCreateModal`;
+  - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar) y
+    `useCatalogue.js` (la clave `['configuration', 'lovs', recurso]` y las escrituras que releen).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -149,6 +158,17 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `versionNumber` leído; maestros editados sobre una copia y devueltos enteros, con las colecciones
   hijas a `null` salvo que se toquen; usuarios con un `PUT` parcial (`null` no toca, `''` vacía);
   mantenimiento con `PATCH` merge-patch y la `version` leída (`buildMergePatch`).
+- **Una entrada de catálogo se modifica entera, con la versión leída.**
+  - El `PUT` de `mto-configuration` sustituye la entrada, así que viaja la fila leída con lo cambiado
+    encima (`changedLovEntry`): `drawingNumber`, el tipo y lo desconocido vuelven tal cual.
+  - El `versionNumber` es el bloqueo optimista: si otra persona guardó antes, 409 `CON-001`, el
+    diálogo sigue abierto con lo escrito y el aviso pide recargar. En un lote, una sola fila vieja
+    rechaza el lote entero.
+  - El alta solo lleva lo escrito. Tres catálogos exigen su tipo (`parent` en `lovResources.js`), que
+    viaja como `{id}`.
+  - El borrado es físico, y una entrada en uso no se borra (409 `BUS-002`): la confirmación lo dice.
+  - La pantalla no compara versiones ni reimplementa reglas. El catálogo llega entero, así que
+    filtrar (sin mayúsculas ni tildes) y ordenar son locales.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **La configuración del entorno llega en tiempo de ejecución** (`/config.json`): una imagen vale
@@ -170,8 +190,8 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
-- `src/test/viewLayer.<módulo>.test.jsx` — las pantallas con la tabla de rutas real
-  (`renderRoute(path, {session})` en `render.jsx`, con `createMemoryRouter` y Mantine en
+- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`) — las pantallas con la tabla de
+  rutas real (`renderRoute(path, {session})` en `render.jsx`, con `createMemoryRouter` y Mantine en
   `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
   son los de `ViewLayerTest` del backoffice, portados por fase. Se busca por rol y nombre

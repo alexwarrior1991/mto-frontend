@@ -1,3 +1,4 @@
+import CataloguePage from '../features/catalogues/CataloguePage.jsx'
 import HomePage from './pages/HomePage.jsx'
 
 /**
@@ -6,4 +7,5 @@ import HomePage from './pages/HomePage.jsx'
  */
 export const PAGES = Object.freeze({
     home: HomePage,
+    catalogues: CataloguePage,
 })

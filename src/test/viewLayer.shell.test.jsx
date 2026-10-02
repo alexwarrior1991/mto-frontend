@@ -116,10 +116,13 @@ describe('rutas: las mismas que el backoffice', () => {
         expect(link.getAttribute('rel')).toContain('noopener')
     })
 
-    it('un catalogo lleva su titulo, y uno que no existe no existe', async () => {
+    it('un catalogo lleva su titulo y ya no esta pendiente, y uno que no existe no existe', async () => {
+        server.use(http.get('/api/configuration/pole-types', () => HttpResponse.json([])))
         const first = renderRoute('/catalogos/pole-types', {session: loginAs('config.lector')})
         expect(await screen.findByRole('heading', {name: 'Tipos de poste'})).toBeInTheDocument()
-        expect(screen.getByText('Llega en la fase 1')).toBeInTheDocument()
+        expect(await screen.findByText('El catálogo está vacío.')).toBeInTheDocument()
+        expect(screen.queryByText(/Llega en la fase/)).not.toBeInTheDocument()
+        await waitFor(() => expect(document.title).toBe('Tipos de poste · MTO'))
         first.unmount()
 
         renderRoute('/catalogos/no-existe', {session: loginAs('config.lector')})

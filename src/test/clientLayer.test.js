@@ -1,6 +1,18 @@
 import {MutationObserver} from '@tanstack/react-query'
 import {delay, http, HttpResponse} from 'msw'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {findLovResource, LOV_RESOURCES} from '../api/configuration/lovResources.js'
+import {
+    bulkCreateLovs,
+    bulkUpdateLovs,
+    changedLovEntry,
+    createLov,
+    deleteLov,
+    listLovs,
+    lovEntryWithEnabled,
+    newLovEntry,
+    updateLov,
+} from '../api/configuration/lovs.js'
 import {fileNameFromDisposition, downloadFile} from '../api/download.js'
 import {endOfDayInstant, startOfDayInstant, toInstantParam, toLocalDateParam, toYearMonthParam} from '../api/dates.js'
 import {defineEnum, UNKNOWN} from '../api/enums.js'
@@ -21,7 +33,7 @@ import {apiFetch, buildUrl, configureHttp} from '../api/http.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
 import {hasNextOffsetPage, sortParam, toPage, toPageParams, toUsersPage} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
-import {EXPECTED_AUDIENCES, SERVICES} from '../api/services.js'
+import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {createQueryClient} from '../app/queryClient.js'
 import {errorMessage} from '../ui/errors/messages.js'
 import {applyServerErrors, toFormPath} from '../ui/errors/serverValidation.js'
@@ -591,6 +603,12 @@ describe('services.js y probes.js: los servicios del dominio en un solo sitio', 
         }
     })
 
+    it('el prefijo de cada servicio sale de aqui, y uno que no existe no se inventa', () => {
+        expect(prefixOf('mto-configuration')).toBe('/api/configuration')
+        expect(SERVICES.map((service) => prefixOf(service.name))).toEqual(SERVICES.map((service) => service.prefix))
+        expect(() => prefixOf('mto-field')).toThrow('Servicio desconocido: mto-field')
+    })
+
     it('una sonda es una lectura a traves del gateway', async () => {
         useToken()
         const requests = record('get', '/api/users', () => HttpResponse.json({content: [], first: 0, max: 1, total: 0}))
@@ -620,5 +638,91 @@ describe('queryClient.js: un fallo se avisa en un solo sitio', () => {
         expect(retry(0, new NetworkError(0))).toBe(true)
         expect(retry(1, new NetworkError(0))).toBe(false)
         expect(retry(0, new UnavailableError(503))).toBe(false)
+    })
+})
+
+describe('configuration/lovs.js: los catalogos de mto-configuration', () => {
+    const json = (request) => JSON.parse(request.body)
+
+    it('los seis endpoints por recurso, con su verbo y su cuerpo JSON; borrar es un 204 sin cuerpo', async () => {
+        useToken()
+        const lists = record('get', '/api/configuration/pole-types', () => HttpResponse.json([{id: 1, code: 'PT1'}]))
+        const creates = record('post', '/api/configuration/pole-types', () => HttpResponse.json({id: 2}, {status: 201}))
+        const updates = record('put', '/api/configuration/pole-types/2', () => HttpResponse.json({id: 2, versionNumber: 4}))
+        const deletes = record('delete', '/api/configuration/pole-types/2', () => new HttpResponse(null, {status: 204}))
+        const bulkCreates = record('post', '/api/configuration/pole-types/bulk', () => HttpResponse.json([{id: 3}], {status: 201}))
+        const bulkUpdates = record('put', '/api/configuration/pole-types/bulk', () => HttpResponse.json([{id: 2}]))
+
+        await expect(listLovs('pole-types')).resolves.toEqual([{id: 1, code: 'PT1'}])
+        await expect(createLov('pole-types', {code: 'PT2', description: 'Dos', enabled: true})).resolves.toEqual({id: 2})
+        await expect(updateLov('pole-types', {id: 2, code: 'PT2', versionNumber: 3})).resolves.toEqual({id: 2, versionNumber: 4})
+        await expect(deleteLov('pole-types', 2)).resolves.toBeNull()
+        await expect(bulkCreateLovs('pole-types', [{code: 'PT3', description: 'Tres', enabled: true}])).resolves.toEqual([{id: 3}])
+        await expect(bulkUpdateLovs('pole-types', [{id: 2, enabled: false, versionNumber: 4}])).resolves.toEqual([{id: 2}])
+
+        expect(lists).toHaveLength(1)
+        expect(json(creates[0])).toEqual({code: 'PT2', description: 'Dos', enabled: true})
+        expect(creates[0].headers.get('content-type')).toBe('application/json')
+        expect(json(updates[0])).toEqual({id: 2, code: 'PT2', versionNumber: 3})
+        expect(deletes[0].body).toBe('')
+        expect(json(bulkCreates[0])).toEqual([{code: 'PT3', description: 'Tres', enabled: true}])
+        expect(json(bulkUpdates[0])).toEqual([{id: 2, enabled: false, versionNumber: 4}])
+        for (const request of [...lists, ...creates, ...updates, ...deletes, ...bulkCreates, ...bulkUpdates]) {
+            expect(request.headers.get('authorization')).toBe('Bearer token-1')
+        }
+    })
+
+    it('el alta lleva solo lo escrito; una modificacion, la fila leida entera con su version y lo que no se ensena', () => {
+        const poleTypes = findLovResource('pole-types')
+        const read = {
+            id: 42, code: 'PT9', description: 'Nueve', type: null, enabled: true, versionNumber: 3,
+            versionDate: '2026-09-30T08:15:00', versionUser: 'ana', drawingNumber: 77, keyAddedTomorrow: {a: 1},
+        }
+
+        expect(newLovEntry(poleTypes, {code: 'PT9', description: 'Nueve', enabled: true}))
+            .toEqual({code: 'PT9', description: 'Nueve', enabled: true})
+        expect(changedLovEntry(poleTypes, read, {code: 'PT9', description: 'Nueve (baja)', enabled: false}))
+            .toEqual({...read, description: 'Nueve (baja)', enabled: false})
+        expect(lovEntryWithEnabled(read, false)).toEqual({...read, enabled: false})
+    })
+
+    it('en los tres catalogos con tipo, el tipo viaja como referencia por su id, y sin elegir otro vuelve el leido', () => {
+        expect(LOV_RESOURCES.filter((resource) => resource.parent)
+            .map(({path, parent}) => [path, parent.field, parent.path])).toEqual([
+            ['anchorage-foundations', 'anchorageFoundationType', 'anchorage-foundation-types'],
+            ['foundations', 'foundationType', 'foundation-types'],
+            ['portals', 'portalType', 'portal-types'],
+        ])
+        for (const resource of LOV_RESOURCES.filter((entry) => entry.parent)) {
+            expect(findLovResource(resource.parent.path), resource.path).not.toBeNull()
+        }
+
+        const foundations = findLovResource('foundations')
+        const read = {id: 12, code: 'Z', description: 'Zapata', enabled: true, versionNumber: 3, drawingNumber: 1234,
+            foundationType: {id: 4, code: 'FT1', versionNumber: 1}}
+        const values = {code: 'Z', description: 'Zapata', enabled: true}
+
+        expect(newLovEntry(foundations, {...values, parentId: '5'})).toEqual({...values, foundationType: {id: 5}})
+        expect(changedLovEntry(foundations, read, {...values, parentId: '5'})).toEqual({...read, foundationType: {id: 5}})
+        expect(changedLovEntry(foundations, read, values)).toEqual(read)
+    })
+
+    it('los dos 409 se distinguen por su codigo: una version vieja (CON-001) y un valor repetido o en uso (BUS-002)', async () => {
+        useToken()
+        const conflict = (code) => () => HttpResponse.json({title: 'Conflicto', status: 409, code, traceId: `t-${code}`},
+            {status: 409, headers: {'Content-Type': 'application/problem+json'}})
+        server.use(
+            http.put('/api/configuration/pole-types/42', conflict('CON-001')),
+            http.delete('/api/configuration/pole-types/42', conflict('BUS-002')),
+        )
+
+        const stale = await failure(updateLov('pole-types', {id: 42, code: 'PT9', versionNumber: 2}))
+        const inUse = await failure(deleteLov('pole-types', 42))
+
+        expect(stale).toBeInstanceOf(ConflictError)
+        expect([stale.code, stale.reference]).toEqual(['CON-001', 't-CON-001'])
+        expect([inUse.code, inUse.reference]).toEqual(['BUS-002', 't-BUS-002'])
+        expect(errorMessage(stale)).toBe('Conflicto con otro cambio: recarga y vuelve a intentarlo.')
+        expect(errorMessage(inUse)).not.toContain('recarga')
     })
 })

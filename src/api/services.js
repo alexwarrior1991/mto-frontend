@@ -51,3 +51,12 @@ export const SERVICES = Object.freeze([
 
 /** Las audiencias que un mismo access token tiene que llevar para valer en todo el dominio. */
 export const EXPECTED_AUDIENCES = Object.freeze([...SERVICES.map((service) => service.clientId), GATEWAY_AUDIENCE])
+
+/** El prefijo publico de un servicio en el gateway (/api/configuration), para que siga viviendo solo aqui. */
+export function prefixOf(name) {
+    const service = SERVICES.find((entry) => entry.name === name)
+    if (!service) {
+        throw new Error(`Servicio desconocido: ${name}`)
+    }
+    return service.prefix
+}
