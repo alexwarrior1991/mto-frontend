@@ -1,0 +1,51 @@
+{
+  "source": "keycloak/*-partial-import.json de mto-configuration, mto-users, mto-stock, mto-maintenance y mto-notification (roles de cliente)",
+  "clients": {
+    "mto-configuration-api": [
+      "config-audit",
+      "config-delete",
+      "config-import",
+      "config-read",
+      "config-write",
+      "lov-manage",
+      "ops-metrics",
+      "ops-write"
+    ],
+    "mto-maintenance-api": [
+      "maintenance-delete",
+      "maintenance-read",
+      "maintenance-supervise",
+      "maintenance-write",
+      "ops-metrics",
+      "ops-write"
+    ],
+    "mto-notification-api": [
+      "notification-access-read",
+      "notification-activity-read",
+      "notification-admin",
+      "notification-inbox",
+      "ops-metrics",
+      "ops-write"
+    ],
+    "mto-stock-api": [
+      "ops-metrics",
+      "ops-write",
+      "stock-adjust",
+      "stock-delete",
+      "stock-read",
+      "stock-write"
+    ],
+    "mto-users-api": [
+      "ops-metrics",
+      "ops-write",
+      "users-credentials-write",
+      "users-delete",
+      "users-password-reset",
+      "users-profiles-write",
+      "users-read",
+      "users-roles-write",
+      "users-sessions-write",
+      "users-write"
+    ]
+  }
+}

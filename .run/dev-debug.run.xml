@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Desarrollo + depurar" type="CompoundRunConfigurationType">
+    <toRun name="Arrancar (dev)" type="js.build_tools.npm" />
+    <toRun name="Depurar en Chrome" type="JavascriptDebugType" />
+    <method v="2" />
+  </configuration>
+</component>

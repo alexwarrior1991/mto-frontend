@@ -1,0 +1,8 @@
+# LF en todo el repositorio. Un .sh o una plantilla de nginx con CRLF rompen el contenedor
+# (mto-platform ya lo sufrio con sus .sh), y en Windows Git convierte al hacer checkout si no se
+# le dice lo contrario.
+* text=auto eol=lf
+*.sh text eol=lf
+*.template text eol=lf
+*.png binary
+*.ico binary

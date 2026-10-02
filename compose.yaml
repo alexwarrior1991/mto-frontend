@@ -1,0 +1,34 @@
+# Solo la aplicacion. Keycloak, el gateway y el resto de la infraestructura los levanta mto-platform:
+#
+#   cd ../mto-platform && docker compose --profile all up -d && ./keycloak/apply-partials.sh
+#   docker compose up -d --build      # este repositorio, contra esa infraestructura
+#
+# Lo habitual en desarrollo es no usar este fichero: `npm run dev` sirve en el 4200 con recarga en
+# caliente. Este sirve para probar la imagen de produccion (nginx, la CSP, la configuracion por
+# variables) contra la plataforma. Tambien se puede con `docker compose --profile frontend up -d
+# --build frontend` desde mto-platform.
+#
+# Se une a la red de mto-platform porque nginx resuelve el gateway por su nombre de servicio (el
+# resolver de nginx no lee /etc/hosts, asi que host.docker.internal no serviria).
+services:
+  app:
+    build:
+      context: .
+    image: mto-frontend:${APP_IMAGE_TAG:-latest}
+    container_name: mto-frontend
+    ports:
+      # 4200 no es libre: es el redirect URI de mto-frontend en el realm. Ni a la vez que `npm run dev`.
+      - '${APP_PORT:-4200}:8080'
+    environment:
+      MTO_OIDC_AUTHORITY: ${MTO_OIDC_AUTHORITY:-http://auth.mto.local:8082/realms/mto}
+      MTO_OIDC_CLIENT_ID: ${MTO_OIDC_CLIENT_ID:-mto-frontend}
+      MTO_GATEWAY_URL: ${MTO_GATEWAY_URL:-http://gateway:8090}
+      MTO_ENVIRONMENT: ${MTO_ENVIRONMENT:-local}
+      MTO_BACKOFFICE_URL: ${MTO_BACKOFFICE_URL:-http://localhost:8085}
+    networks: [platform]
+    restart: unless-stopped
+
+networks:
+  platform:
+    name: mto-platform_default
+    external: true

@@ -1,0 +1,13 @@
+# Las cabeceras de seguridad. Se incluyen en cada location porque nginx no hereda add_header en una
+# location que declara alguno.
+#
+# La CSP solo deja ejecutar los scripts de la propia aplicacion y solo deja llamar a su origen y al
+# realm de Keycloak (el descubrimiento, el token y su renovacion). Mantine inyecta <style> en tiempo
+# de ejecucion: de ahi 'unsafe-inline' en style-src. frame-src 'none' deja fijado que no se renueva
+# con un iframe.
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${MTO_OIDC_AUTHORITY}/; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'none'; manifest-src 'self'" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header X-Frame-Options "DENY" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
