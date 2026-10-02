@@ -101,9 +101,10 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `auth.mto.local` las cookies de terceros están bloqueadas. Así, además, la inactividad de la
   sesión SSO de Keycloak cuenta de verdad.
 - **`/api` va por el mismo origen y el proxy quita `Origin`** (Vite en desarrollo, nginx en la
-  imagen). Nunca se llama a la URL del gateway. El gateway reenvía `Origin` y cada servicio tiene su
-  propio CORS (solo 4200): sin `Origin`, ni uno ni otros ven una petición CORS. Es seguro porque la
-  API se autentica con Bearer y no con cookies (nginx quita también las cookies).
+  imagen). Nunca se llama a la URL del gateway. El gateway es la única autoridad CORS (a los
+  servicios no les reenvía `Origin`), y sin `Origin` tampoco él ve una petición CORS: la SPA no
+  depende de su lista de orígenes y una misma imagen vale para cualquier dominio. Es seguro porque
+  la API se autentica con Bearer y no con cookies (nginx quita también las cookies).
 - **Los permisos son roles de cliente de los cinco clientes de API**, leídos del **access token**
   (`resource_access`), y solo los del catálogo de cada cliente. Un rol de realm nunca concede nada,
   aunque se llame como un permiso; los nombres no se repiten entre clientes. `securityLayer.test.js`

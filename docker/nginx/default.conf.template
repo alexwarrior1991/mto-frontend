@@ -29,9 +29,10 @@ server {
         return 200 '{"oidc":{"authority":"${MTO_OIDC_AUTHORITY}","clientId":"${MTO_OIDC_CLIENT_ID}"},"environment":"${MTO_ENVIRONMENT}","backofficeUrl":"${MTO_BACKOFFICE_URL}"}';
     }
 
-    # La API, al gateway por el mismo origen. Sin Origin, ni el gateway ni los servicios ven una
-    # peticion CORS (cada servicio tiene su propio CORS y el gateway reenvia la cabecera). La API se
-    # autentica con Bearer, asi que ni Origin ni las cookies tienen nada que hacer alli.
+    # La API, al gateway por el mismo origen. Sin Origin, el gateway no ve una peticion CORS y la SPA
+    # no depende de su lista de origenes (a los servicios no les llega en ningun caso: el gateway se
+    # lo quita). La API se autentica con Bearer, asi que ni Origin ni las cookies tienen nada que
+    # hacer alli.
     location /api/ {
         set $mto_gateway "${MTO_GATEWAY_URL}";
         # Con una variable y sin ruta, la URI viaja tal cual: /api/stock/... llega como /api/stock/...

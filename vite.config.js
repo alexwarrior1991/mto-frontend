@@ -8,8 +8,9 @@ const PORT = 4200
 /**
  * El navegador solo habla con su origen: /api llega al gateway a traves de este proxy, sin CORS.
  *
- * Se quita Origin porque el gateway lo reenvia y cada servicio tiene su propio CORS (solo admite el
- * 4200): sin Origin, ni el gateway ni el servicio ven una peticion CORS. La API se autentica con
+ * Se quita Origin, que el navegador manda en cada POST, PUT, PATCH o DELETE aunque sea a su mismo
+ * origen: sin el, el gateway no ve una peticion CORS y la SPA no depende de su lista de origenes. A
+ * los servicios no les llega en ningun caso, porque el gateway se lo quita. La API se autentica con
  * Bearer y no con cookies, asi que quitarlo no abre nada. nginx hace lo mismo en el contenedor.
  */
 export function apiProxy(target) {
