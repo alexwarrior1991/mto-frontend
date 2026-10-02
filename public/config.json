@@ -1,0 +1,8 @@
+{
+  "oidc": {
+    "authority": "http://auth.mto.local:8082/realms/mto",
+    "clientId": "mto-frontend"
+  },
+  "environment": "local",
+  "backofficeUrl": "http://localhost:8085"
+}

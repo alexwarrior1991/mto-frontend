@@ -1,0 +1,71 @@
+# El servidor de la SPA dentro de la imagen. El entrypoint de nginx genera
+# /etc/nginx/conf.d/default.conf desde esta plantilla con envsubst al arrancar; NGINX_ENVSUBST_FILTER
+# deja pasar solo MTO_* y NGINX_*, asi que las $variables propias de nginx no se tocan.
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    # El gateway se resuelve en cada peticion: nginx arranca aunque el gateway no este y, si se
+    # recrea, no se queda con una IP vieja. NGINX_LOCAL_RESOLVERS sale de /etc/resolv.conf.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 'ok';
+    }
+
+    # La configuracion de este entorno, que la SPA lee al arrancar: una misma imagen para todos los
+    # entornos. Gana a la copia de desarrollo que viaja en dist.
+    location = /config.json {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "no-store" always;
+        default_type application/json;
+        return 200 '{"oidc":{"authority":"${MTO_OIDC_AUTHORITY}","clientId":"${MTO_OIDC_CLIENT_ID}"},"environment":"${MTO_ENVIRONMENT}","backofficeUrl":"${MTO_BACKOFFICE_URL}"}';
+    }
+
+    # La API, al gateway por el mismo origen. Sin Origin, ni el gateway ni los servicios ven una
+    # peticion CORS (cada servicio tiene su propio CORS y el gateway reenvia la cabecera). La API se
+    # autentica con Bearer, asi que ni Origin ni las cookies tienen nada que hacer alli.
+    location /api/ {
+        set $mto_gateway "${MTO_GATEWAY_URL}";
+        # Con una variable y sin ruta, la URI viaja tal cual: /api/stock/... llega como /api/stock/...
+        proxy_pass $mto_gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Origin "";
+        proxy_set_header Cookie "";
+        # Las importaciones de mto-configuration admiten hasta 20 MB; el 1 MB por defecto las cortaria.
+        client_max_body_size 20m;
+        proxy_connect_timeout 5s;
+        # El gateway corta a los 15 s y su circuito a los 20 s: esto no debe adelantarse.
+        proxy_read_timeout 30s;
+        # Solo los fallos del propio nginx (el gateway no contesta); un 502 o 503 del gateway pasa tal cual.
+        error_page 502 504 = @gateway_unavailable;
+    }
+
+    location @gateway_unavailable {
+        default_type application/problem+json;
+        add_header Retry-After 5 always;
+        add_header Cache-Control "no-store" always;
+        return 503 '{"title":"Service Unavailable","status":503,"detail":"El gateway no responde.","service":"mto-gateway"}';
+    }
+
+    # Los ficheros con hash en el nombre no cambian nunca.
+    location /assets/ {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # Cualquier otra ruta es de la SPA: index.html, que nunca se guarda en cache.
+    location / {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri /index.html;
+    }
+}

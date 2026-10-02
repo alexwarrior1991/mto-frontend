@@ -1,0 +1,25 @@
+{
+  "source": "mto-notification/src/main/resources/notification-rules.yml (las plantillas link de cada regla)",
+  "links": [
+    "/actividad/accesos?#{payload.dimension == 'username' ? 'username' : 'ipAddress'}=#{payload.value}",
+    "/actividad/accesos?username=#{event.actorUsername}",
+    "/notificaciones",
+    "/actividad?category=CONFIGURATION&type=#{event.type}",
+    "/actividad?category=CONFIGURATION&subjectType=#{payload.entityName}&subjectId=#{event.subjectId}",
+    "/almacen/proyectos",
+    "/trabajos",
+    "/usuarios/#{payload.targetUserId}",
+    "/actividad?category=USERS&subjectType=user&subjectId=#{payload.targetUserId}",
+    "/actividad?category=USERS&type=#{event.type}",
+    "/mantenimiento/ordenes/#{event.subjectId}",
+    "/mantenimiento/defectos/#{event.subjectId}",
+    "/mantenimiento/inspecciones/#{event.subjectId}",
+    "/mantenimiento/ordenes/#{payload.orderId}",
+    "/mantenimiento/turnos/#{event.subjectId}",
+    "/mantenimiento/activos",
+    "/almacen/materiales",
+    "/almacen/reservas",
+    "/almacen/movimientos",
+    "/actividad?category=SYSTEM"
+  ]
+}

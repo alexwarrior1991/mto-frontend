@@ -11,8 +11,15 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
 
-# Editor directories and files
+# Informes de las pruebas
+coverage
+reports
+playwright-report
+test-results
+
+# Editor directories and files (las configuraciones de ejecucion compartidas viven en .run/, que si entra)
 .vscode/*
 !.vscode/extensions.json
 .idea

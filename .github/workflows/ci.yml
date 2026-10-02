@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      # Todo en Node, sin Docker, ni Keycloak, ni gateway. MSW simula el gateway y la sesion
+      # es un token sin firmar que pasa por el mapeo de permisos real.
+      - name: Test
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-reports
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  image:
+    name: Build image
+    needs: test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Solo hace falta para publicar. En un pull_request desde un fork el token es de solo lectura de
+      # todas formas, por eso el login y el push van condicionados mas abajo.
+      packages: write
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # La imagen se construye SIEMPRE, tambien en los pull request: un Dockerfile roto se ve antes de
+      # fusionar. Lo que sigue condicionado es la publicacion.
+      - name: Log in to GHCR
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Una rama de trabajo no debe publicar una imagen que alguien pueda desplegar por error.
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          load: ${{ github.event_name != 'push' || github.ref != 'refs/heads/master' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Construir no prueba que el contenedor arranque ni que nginx haga lo que debe. Esto lo comprueba
+      # de verdad, sin Keycloak ni gateway detras: la configuracion sale de las variables, la CSP esta,
+      # cualquier ruta es la SPA, /api sin gateway es un 503 que la SPA sabe leer y, sin su
+      # configuracion, el contenedor no arranca.
+      - name: Smoke test the image
+        if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/master' }}
+        run: |
+          set -eu
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          BASE=http://localhost:4200
+          docker run -d --name mto-frontend-smoke -p 4200:8080 \
+            -e MTO_OIDC_AUTHORITY=http://localhost:8082/realms/mto \
+            -e MTO_GATEWAY_URL=http://127.0.0.1:9 \
+            -e MTO_ENVIRONMENT=smoke \
+            "$IMAGE"
+          trap 'docker logs mto-frontend-smoke || true; docker rm -f mto-frontend-smoke > /dev/null 2>&1 || true' EXIT
+
+          for i in $(seq 1 30); do
+            if curl -fsS "$BASE/healthz" > /dev/null; then break; fi
+            if [ "$i" = 30 ]; then echo "El contenedor no responde en /healthz"; exit 1; fi
+            sleep 1
+          done
+
+          # Sin tuberias hacia grep -q: con pipefail, el SIGPIPE de quien escribe tumbaria el paso al azar.
+          echo "config.json sale de las variables"
+          curl -fsS "$BASE/config.json" > /tmp/config.json
+          grep -q '"authority":"http://localhost:8082/realms/mto"' /tmp/config.json
+          grep -q '"environment":"smoke"' /tmp/config.json
+
+          echo "la CSP solo deja ejecutar lo propio y llamar al origen y al realm"
+          curl -fsSI "$BASE/" > /tmp/index.headers
+          grep -i '^content-security-policy:' /tmp/index.headers > /tmp/csp.txt
+          grep -q "script-src 'self';" /tmp/csp.txt
+          grep -q "connect-src 'self' http://localhost:8082/realms/mto/;" /tmp/csp.txt
+
+          echo "cualquier ruta es la SPA"
+          curl -fsS "$BASE/mantenimiento/ordenes/123" > /tmp/spa.html
+          grep -q 'id="root"' /tmp/spa.html
+
+          echo "los assets con hash son inmutables"
+          ASSET=$(grep -o -m 1 '/assets/[^"]*[.]js' /tmp/spa.html)
+          curl -fsSI "$BASE$ASSET" > /tmp/asset.headers
+          grep -qi 'immutable' /tmp/asset.headers
+
+          echo "/api sin gateway es un 503 problem+json"
+          RESULT=$(curl -s -o /tmp/api.json -w '%{http_code} %{content_type}' "$BASE/api/stock/materials")
+          if [ "$RESULT" != "503 application/problem+json" ]; then echo "Respuesta: $RESULT"; exit 1; fi
+          grep -q '"service":"mto-gateway"' /tmp/api.json
+
+          echo "sin su configuracion no arranca"
+          set +e
+          timeout 30 docker run --name mto-frontend-missing -e MTO_OIDC_AUTHORITY=http://localhost:8082/realms/mto \
+            "$IMAGE" > /tmp/missing.log 2>&1
+          STATUS=$?
+          set -e
+          docker rm -f mto-frontend-missing > /dev/null 2>&1 || true
+          cat /tmp/missing.log
+          if [ "$STATUS" = 0 ] || [ "$STATUS" = 124 ]; then echo "El contenedor arranco sin MTO_GATEWAY_URL"; exit 1; fi
+          grep -q 'falta la variable MTO_GATEWAY_URL' /tmp/missing.log
+          echo "Prueba de humo superada"

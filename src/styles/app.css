@@ -1,0 +1,10 @@
+/* El orden de las capas: lo propio de la aplicacion gana a Mantine sin necesidad de !important. */
+@layer mantine, mantine-datatable, app;
+
+@layer app {
+    html,
+    body,
+    #root {
+        min-height: 100%;
+    }
+}
