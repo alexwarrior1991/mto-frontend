@@ -64,7 +64,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
   `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
-  `lovEntryWithEnabled`).
+  `lovEntryWithEnabled`) y `configuration/masters.js` (los seis maestros: `filterMasters`, el CRUD,
+  `trackSchematic`, `listBusinessEntities`, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
+  `lovRef`, `CLEARED_LOV_REF`).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -82,8 +84,11 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
   `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `ErrorNotice.jsx`),
   `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
-  (el aviso verde de tres segundos) y `ConfirmModal.jsx` (confirmar lo que no se deshace). Cada fase
-  añade aquí lo que comparte (`ServerDataTable`, `OffsetPager`, `RevisionsModal`, `LazyTabs`…).
+  (el aviso verde de tres segundos), `ConfirmModal.jsx` (confirmar lo que no se deshace),
+  `ServerDataTable.jsx` (la lista paginada en el servidor: orden de una columna asc → desc → sin
+  orden, `Pagination` y acciones por fila) y `RowActionButton.jsx` (una acción de fila con su nombre
+  completo, «Modificar VIA 1»). Cada fase añade aquí lo que comparte (`OffsetPager`,
+  `RevisionsModal`, `LazyTabs`…).
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
   `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
   de `ui/lov`:
@@ -91,6 +96,20 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `CatalogueTable`, `CatalogueEditorModal` (`@mantine/form`) y `CatalogueBulkCreateModal`;
   - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar) y
     `useCatalogue.js` (la clave `['configuration', 'lovs', recurso]` y las escrituras que releen).
+
+  `infrastructure/` es el port de `ui/master`:
+  - `MasterPage` (el port de `MasterView`): la lista de un maestro con su búsqueda, sus filtros, sus
+    columnas, «Modificado» y la columna de acciones siempre presente; una página por maestro
+    (`ExecutionPackagesPage`, `StationsPage`, `TracksPage`, `ProfilesPage`, `DisconnectorsPage`,
+    `SectionInsulatorsPage`) pone columnas, filtros y editor;
+  - `MasterEditorModal` (el marco de cada editor) y un editor por maestro sobre `@mantine/form`, con
+    las propiedades llamadas como los campos del servicio;
+  - `ChildrenTable` (los hijos que el editor gestiona), `CantileverModal`, `SwitchModal` y
+    `ProfilePicker` (un perfil buscado en el servidor);
+  - `TrackSchematicModal`, `SchematicSvg` y `schematicLayout.js` (las cuentas puras del dibujo);
+  - `masterResources.js`, `references.js` (nombres de las referencias y `#id`), `formValues.js` (de
+    DTO a formulario y vuelta), `useMasters.js` (listas, escrituras y referencias) y
+    `useCatalogues.js` (varios catálogos para los desplegables, con la caché de `catalogues/`).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -143,7 +162,7 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **Una sesión caducada no deja un diálogo muerto ni redirige sola**: sale `SessionExpiredModal`
   con «Volver a entrar» (que conserva la URL) y «Cerrar» (para copiar lo que haya sin guardar).
 - **Ningún dato se convierte en HTML.** ESLint prohíbe `dangerouslySetInnerHTML`, `innerHTML`,
-  `insertAdjacentHTML` y `document.write`. El esquema de vía será SVG de React y el `payload` de la
+  `insertAdjacentHTML` y `document.write`. El esquema de vía es SVG de React y el `payload` de la
   actividad, texto. Un enlace que llega de un servicio: si es interno empieza por una sola `/`; si es
   `http(s)` se abre en otra pestaña con `noopener`; cualquier otro esquema se descarta.
 - **Los enumerados que se leen de un servicio toleran lo desconocido** (`defineEnum`): `UNKNOWN`
@@ -169,6 +188,20 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - El borrado es físico, y una entrada en uso no se borra (409 `BUS-002`): la confirmación lo dice.
   - La pantalla no compara versiones ni reimplementa reglas. El catálogo llega entero, así que
     filtrar (sin mayúsculas ni tildes) y ordenar son locales.
+- **Un maestro se edita sobre la fila leída y se devuelve entero** (`masterBody`).
+  - Viaja la fila de la lista (sin pedir el detalle) con lo cambiado encima: el `versionNumber` y lo
+    que la pantalla no conoce vuelven tal cual, y una versión vieja es 409 `CON-001` con el diálogo
+    abierto.
+  - Una colección de hijos que el editor no toca viaja a `null` («de esta no digo nada»), y la que
+    toca va entera, porque el hijo que falta se borra.
+  - Una referencia a catálogo viaja como `{id, code}`, porque el servicio la resuelve por código. Si
+    no se toca, vuelve la leída; si se vacía una opcional del perfil, viaja `{}` (`null` es «no la
+    toques»).
+  - El seccionador de un perfil se enseña pero no se cambia desde el perfil, y viaja como se leyó: el
+    vínculo es del seccionador y se cambia en su editor (su `profileId`, obligatorio).
+  - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
+    servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
+    filas) solo para nombrar las referencias.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **La configuración del entorno llega en tiempo de ejecución** (`/config.json`): una imagen vale
@@ -190,7 +223,7 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
-- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`) — las pantallas con la tabla de
+- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`) — las pantallas con la tabla de
   rutas real (`renderRoute(path, {session})` en `render.jsx`, con `createMemoryRouter` y Mantine en
   `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos

@@ -35,12 +35,12 @@ export const ROUTES = Object.freeze([
 
     {path: 'catalogos/:resource', title: 'Catálogos', page: 'catalogues', requires: CONFIG, phase: 1},
 
-    {path: 'infraestructura/paquetes', title: 'Paquetes de ejecución', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 10, icon: 'packages'}},
-    {path: 'infraestructura/estaciones', title: 'Estaciones', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 11, icon: 'stations'}},
-    {path: 'infraestructura/vias', title: 'Vías', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 12, icon: 'tracks'}},
-    {path: 'infraestructura/perfiles', title: 'Perfiles', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 13, icon: 'profiles'}},
-    {path: 'infraestructura/seccionadores', title: 'Seccionadores', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 14, icon: 'disconnectors'}},
-    {path: 'infraestructura/aisladores', title: 'Aisladores de sección', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 15, icon: 'insulators'}},
+    {path: 'infraestructura/paquetes', title: 'Paquetes de ejecución', page: 'executionPackages', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 10, icon: 'packages'}},
+    {path: 'infraestructura/estaciones', title: 'Estaciones', page: 'stations', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 11, icon: 'stations'}},
+    {path: 'infraestructura/vias', title: 'Vías', page: 'tracks', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 12, icon: 'tracks'}},
+    {path: 'infraestructura/perfiles', title: 'Perfiles', page: 'profiles', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 13, icon: 'profiles'}},
+    {path: 'infraestructura/seccionadores', title: 'Seccionadores', page: 'disconnectors', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 14, icon: 'disconnectors'}},
+    {path: 'infraestructura/aisladores', title: 'Aisladores de sección', page: 'sectionInsulators', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 15, icon: 'insulators'}},
 
     {path: 'trabajos', title: 'Trabajos', requires: CONFIG, phase: 3, menu: {order: 30, icon: 'jobs'}},
 
