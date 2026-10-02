@@ -39,16 +39,19 @@ test('el token no se guarda en el navegador y la API va por el mismo origen', as
             apiHosts.add(url.host)
         }
     })
+    const tokenResponse = page.waitForResponse((response) => response.url().endsWith('/protocol/openid-connect/token'))
     await page.goto('/')
     await signIn(page, 'config.responsable')
+    const tokens = await (await tokenResponse).json()
 
     const configuration = page.locator('[data-service="mto-configuration"]')
     await configuration.getByRole('button', {name: 'Comprobar'}).click()
     await expect(configuration.getByText('Responde')).toBeVisible()
 
-    const storage = await page.evaluate(() => ({local: Object.keys(window.localStorage), session: Object.keys(window.sessionStorage)}))
-    expect(storage.local).toEqual([])
-    expect(storage.session.filter((key) => key.startsWith('oidc.user'))).toEqual([])
+    // Ni el access token ni el refresh token, por su valor, en ningun almacenamiento del navegador.
+    const stored = await page.evaluate(() => [...Object.values(window.localStorage), ...Object.values(window.sessionStorage)])
+    expect(tokens.access_token).toBeTruthy()
+    expect(stored.filter((value) => value.includes(tokens.access_token) || value.includes(tokens.refresh_token))).toEqual([])
     expect([...apiHosts]).toEqual([new URL(page.url()).host])
 })
 
