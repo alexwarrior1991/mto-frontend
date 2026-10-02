@@ -27,13 +27,21 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 0
+## Estado: fase 1
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
   backoffice** registradas, la pantalla de Inicio con el diagnóstico del token (audiencias y
   permisos) y una comprobación de cada servicio a través del gateway, los avisos de error con su
   «Referencia», la imagen con nginx, el CI y la integración con WebStorm.
+- **Fase 1 · Catálogos**: los 17 catálogos de `mto-configuration` en una sola pantalla
+  (`catalogos/:resource`).
+  - Leer y filtrar, sin distinguir mayúsculas ni tildes, y ordenar.
+  - Dar de alta, modificar con la versión leída y borrar con confirmación.
+  - Activar y desactivar en lote, y el alta múltiple pegando líneas.
+  - El tipo de cimentación, de pórtico o de cimentación de anclaje en los tres catálogos que lo
+    exigen.
+  - Necesita `mto-configuration` con la versión en el JSON de los catálogos.
 - Las pantallas que aún no han llegado dicen en qué fase llegan y ofrecen **«Abrir en el
   backoffice»** con la misma ruta. Los enlaces de las notificaciones ya resuelven.
 
@@ -152,7 +160,7 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
    Sirve en http://localhost:4200 y es la forma de probar nginx, la CSP y la configuración por
    variables. También vale `docker compose up -d --build` desde este repositorio.
 4. **De punta a punta en un navegador real.** Con la plataforma y la SPA levantadas, `npm run e2e`
-   (Playwright) abre Chromium, entra por Keycloak y recorre la fase 0. La primera vez,
+   (Playwright) abre Chromium, entra por Keycloak y recorre lo que ya está hecho. La primera vez,
    `npx playwright install chromium` baja el navegador.
 
 ### Qué deberías ver
@@ -166,6 +174,14 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
 - Un enlace profundo (por ejemplo http://localhost:4200/actividad/accesos?username=x) sobrevive a
   la entrada: después de Keycloak vuelves a él.
 - **Salir** cierra la sesión de Keycloak: volver a entrar pide la contraseña.
+- **Catálogos** (con `config.responsable`):
+  - Cualquiera de los 17 se lee, se filtra y se ordena.
+  - «Nuevo», el lápiz y la papelera de cada fila dan de alta, modifican y borran. Las columnas
+    «Modificado» y «Por» dicen quién la tocó.
+  - Si otra persona ha guardado la misma entrada desde que la abriste, sale «Conflicto con otro
+    cambio: recarga y vuelve a intentarlo» y el diálogo sigue abierto.
+  - Una entrada que algún registro usa no se borra: hay que desactivarla.
+  - Con `config.lector` no hay ningún botón de escritura.
 
 ### Usuarios de desarrollo
 
@@ -195,6 +211,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 | «Port 4200 is already in use» | El contenedor `frontend` (`docker compose stop frontend`) u otro `npm run dev` |
 | Aviso «El servicio no está disponible ahora mismo» | Ese servicio, o el gateway, no está levantado; la «Referencia» del aviso se busca en `docker compose logs gateway` |
 | Aviso «El servicio no acepta tu token» | Al token le falta la audiencia de ese servicio: míralo en Inicio |
+| En un catálogo, «Modificado» y «Por» salen vacíos, o modificar una cimentación, un pórtico o una cimentación de anclaje falla | `mto-configuration` es anterior a la versión que publica la versión de los catálogos: `docker compose pull configuration && docker compose up -d configuration` en `mto-platform` |
 | Al recargar la página hay un parpadeo | Es lo esperado: el token vive solo en memoria y recargar es volver a entrar por el SSO |
 
 ## Cómo funciona (mapa para quien viene del backoffice)
@@ -203,7 +220,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 |---|---|
 | `client/**` (las interfaces `@HttpExchange`) y `client/error` | `src/api/`: un módulo por servicio, `http.js` y `errors.js` |
 | `configuration/security` (roles del access token) | `src/auth/` |
-| `ui/**/…View` | `src/features/<módulo>/` (desde la fase 1) |
+| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov` |
 | `MainLayout` y `@Menu` | `src/app/layout/` y `src/app/routeTable.js` |
 | `@RolesAllowed` | `requires` en `routeTable.js` y `RequirePermission` (solo experiencia: manda el 403) |
 | `SharedPolling` y `@Push` | `refetchInterval` de React Query |
@@ -258,11 +275,11 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 
 | Fichero | Qué cubre |
 |---|---|
-| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas y los textos de los avisos |
+| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real: Inicio, el menú, sin permiso, pendientes, las sondas y la sesión caducada |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada) y los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
-| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local) |
+| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, y un catálogo de punta a punta con entradas de usar y tirar |
 
 ## Puertos
 

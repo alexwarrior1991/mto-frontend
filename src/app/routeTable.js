@@ -33,7 +33,7 @@ const MAINTENANCE = [P.MAINTENANCE_READ]
 export const ROUTES = Object.freeze([
     {path: '', title: 'Inicio', page: 'home', menu: {order: 0, icon: 'home'}},
 
-    {path: 'catalogos/:resource', title: 'Catálogos', requires: CONFIG, phase: 1},
+    {path: 'catalogos/:resource', title: 'Catálogos', page: 'catalogues', requires: CONFIG, phase: 1},
 
     {path: 'infraestructura/paquetes', title: 'Paquetes de ejecución', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 10, icon: 'packages'}},
     {path: 'infraestructura/estaciones', title: 'Estaciones', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 11, icon: 'stations'}},
