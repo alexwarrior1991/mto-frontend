@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 1
+## Estado: fase 2
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -42,6 +42,17 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
   - El tipo de cimentación, de pórtico o de cimentación de anclaje en los tres catálogos que lo
     exigen.
   - Necesita `mto-configuration` con la versión en el JSON de los catálogos.
+- **Fase 2 · Infraestructura**: los seis maestros de `mto-configuration` (`infraestructura/*`):
+  paquetes de ejecución, estaciones, vías, perfiles, seccionadores y aisladores de sección.
+  - Listas paginadas, buscadas, filtradas y ordenadas en el servicio, con los nombres de sus
+    referencias.
+  - Alta, modificación sobre la fila leída (con su versión) y borrado (lógico) con confirmación.
+  - Las ménsulas de un perfil, con su brazo de atirantado, y las agujas de un aislador.
+  - El esquema de una vía, en una llamada.
+  - El seccionador de un perfil se cambia desde el editor del seccionador; en el perfil se enseña,
+    pero no se cambia.
+  - Las listas de seccionadores y aisladores necesitan `mto-configuration` con su arreglo
+    (alexwarrior1991/mto-configuration#30): sin él, con datos, responden 500.
 - Las pantallas que aún no han llegado dicen en qué fase llegan y ofrecen **«Abrir en el
   backoffice»** con la misma ruta. Los enlaces de las notificaciones ya resuelven.
 
@@ -182,6 +193,16 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     cambio: recarga y vuelve a intentarlo» y el diálogo sigue abierto.
   - Una entrada que algún registro usa no se borra: hay que desactivarla.
   - Con `config.lector` no hay ningún botón de escritura.
+- **Infraestructura** (con `config.responsable`):
+  - Cada lista se pide al servicio por páginas de 50: «Buscar», los filtros y el orden de las
+    columnas vuelven a pedirla.
+  - Las referencias salen por su nombre («VIA 1 (EP4)»), y `#id` si no se conocen.
+  - En **Vías**, el icono de cada fila abre el **esquema**, también con `config.lector`: un poste
+    por perfil, con sus ménsulas, su seccionador y los aisladores entre sus vecinos por KP. El
+    detalle de cada elemento sale al pasar por encima.
+  - En **Perfiles**, las ménsulas (hasta tres) se añaden, modifican y quitan dentro del editor y se
+    guardan con el perfil; en **Aisladores de sección**, igual con las agujas.
+  - En **Seccionadores**, el perfil se busca escribiendo su identificador.
 
 ### Usuarios de desarrollo
 
@@ -220,7 +241,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 |---|---|
 | `client/**` (las interfaces `@HttpExchange`) y `client/error` | `src/api/`: un módulo por servicio, `http.js` y `errors.js` |
 | `configuration/security` (roles del access token) | `src/auth/` |
-| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov` |
+| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov`, e `infrastructure/` es `ui/master` |
 | `MainLayout` y `@Menu` | `src/app/layout/` y `src/app/routeTable.js` |
 | `@RolesAllowed` | `requires` en `routeTable.js` y `RequirePermission` (solo experiencia: manda el 403) |
 | `SharedPolling` y `@Push` | `refetchInterval` de React Query |
@@ -275,11 +296,11 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 
 | Fichero | Qué cubre |
 |---|---|
-| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409) |
+| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada) y los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
-| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, y un catálogo de punta a punta con entradas de usar y tirar |
+| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, y un paquete, una estación y una vía de usar y tirar con su esquema |
 
 ## Puertos
 

@@ -13,6 +13,20 @@ import {
     newLovEntry,
     updateLov,
 } from '../api/configuration/lovs.js'
+import {
+    CLEARED_LOV_REF,
+    createMaster,
+    deleteMaster,
+    filterMasters,
+    getMaster,
+    listBusinessEntities,
+    lovRef,
+    MASTER_CHILDREN,
+    masterBody,
+    masterFilter,
+    trackSchematic,
+    updateMaster,
+} from '../api/configuration/masters.js'
 import {fileNameFromDisposition, downloadFile} from '../api/download.js'
 import {endOfDayInstant, startOfDayInstant, toInstantParam, toLocalDateParam, toYearMonthParam} from '../api/dates.js'
 import {defineEnum, UNKNOWN} from '../api/enums.js'
@@ -724,5 +738,98 @@ describe('configuration/lovs.js: los catalogos de mto-configuration', () => {
         expect([inUse.code, inUse.reference]).toEqual(['BUS-002', 't-BUS-002'])
         expect(errorMessage(stale)).toBe('Conflicto con otro cambio: recarga y vuelve a intentarlo.')
         expect(errorMessage(inUse)).not.toContain('recarga')
+    })
+})
+
+describe('configuration/masters.js: los maestros de infraestructura', () => {
+    const json = (request) => JSON.parse(request.body)
+    const page = (content, number, size, totalElements) =>
+        ({content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size)}})
+
+    it('la lista es un POST /filter con la pagina del servicio (desde 0), el tamano, el orden y el cuerpo limpio', async () => {
+        useToken()
+        const filters = record('post', '/api/configuration/stations/filter', (request, count) => HttpResponse.json(count === 1
+            ? page([{id: 4, name: 'ATOCHA', executionPackageId: 100, tracks: null, versionNumber: 3, brandNewField: 'x'}], 1, 20, 21)
+            : page([], 0, 50, 0)))
+
+        const second = await filterMasters('stations', {
+            page: 2, size: 20, sort: {field: 'name', direction: 'asc'},
+            filter: {searchText: ' ato ', enabled: null, name: '  ', onLoad: false, trackId: 3},
+        })
+        const plain = await filterMasters('stations')
+
+        expect(filters[0].url.search).toBe('?page=1&size=20&sort=name%2Casc')
+        expect(json(filters[0])).toEqual({searchText: 'ato', onLoad: false, trackId: 3})
+        expect(second).toMatchObject({number: 1, size: 20, totalElements: 21, totalPages: 2})
+        expect(second.content[0]).toEqual({id: 4, name: 'ATOCHA', executionPackageId: 100, tracks: null, versionNumber: 3,
+            brandNewField: 'x'})
+        expect(filters[1].url.search).toBe('?page=0&size=50')
+        expect(json(filters[1])).toEqual({})
+        expect(plain.totalElements).toBe(0)
+        expect(masterFilter(undefined)).toEqual({})
+    })
+
+    it('leer, dar de alta (201), modificar con PUT /{id} y borrar (204, logico); el esquema y las empresas', async () => {
+        useToken()
+        const reads = record('get', '/api/configuration/tracks/3', () => HttpResponse.json({id: 3, name: 'VIA 1'}))
+        const creates = record('post', '/api/configuration/profiles', () => HttpResponse.json({id: 99}, {status: 201}))
+        const updates = record('put', '/api/configuration/tracks/3', () => HttpResponse.json({id: 3, versionNumber: 8}))
+        const deletes = record('delete', '/api/configuration/tracks/3', () => new HttpResponse(null, {status: 204}))
+        const schematics = record('get', '/api/configuration/tracks/3/schematic', () => HttpResponse.json({
+            trackId: 3, trackName: 'VIA 1', enabled: true, executionPackageName: 'EP4', stations: ['ATOCHA'],
+            profiles: [{id: 7, code: 'P-007', kp: '12.345', cantilevers: [{id: 21, type: 'PT1', cwHeight: '5.300'}],
+                disconnector: {id: 40, name: 'SEC-40'}}],
+            sectionInsulators: [],
+        }))
+        const companies = record('get', '/api/configuration/business-entities', () => HttpResponse.json([
+            {id: 1, identificationNumber: 'A12345678', name: 'Constructora Norte', code: 'CN'},
+        ]))
+
+        await expect(getMaster('tracks', 3)).resolves.toEqual({id: 3, name: 'VIA 1'})
+        await expect(createMaster('profiles', {profileId: 'P-9', kp: '10.500'})).resolves.toEqual({id: 99})
+        await expect(updateMaster('tracks', {id: 3, name: 'VIA PRINCIPAL', versionNumber: 7})).resolves.toEqual({id: 3, versionNumber: 8})
+        await expect(deleteMaster('tracks', 3)).resolves.toBeNull()
+        const schematic = await trackSchematic(3)
+        const entities = await listBusinessEntities()
+
+        expect(reads).toHaveLength(1)
+        expect(json(creates[0])).toEqual({profileId: 'P-9', kp: '10.500'})
+        expect(json(updates[0])).toEqual({id: 3, name: 'VIA PRINCIPAL', versionNumber: 7})
+        expect(deletes[0].body).toBe('')
+        expect(schematics).toHaveLength(1)
+        expect(schematic.profiles[0].cantilevers[0].cwHeight).toBe('5.300')
+        expect(schematic.profiles[0].disconnector.name).toBe('SEC-40')
+        expect(entities[0].identificationNumber).toBe('A12345678')
+        expect(companies[0].headers.get('authorization')).toBe('Bearer token-1')
+    })
+
+    it('una modificacion es la fila leida entera: lo desconocido y la version vuelven, y los hijos sin tocar van a null', () => {
+        const track = {id: 3, name: 'VIA 1', enabled: true, executionPackageId: 100, stationIds: [12, 13], profiles: null,
+            versionNumber: 7, createUser: 'importador', fieldOfTomorrow: {deep: [1, 2]}}
+        const profile = {id: 7, profileId: 'P-007', kp: '12.345', trackId: 3, versionNumber: 2, orderInTrack: 4,
+            cantilevers: [{id: 21, cwHeight: 5.3, steadyArm: {id: 31, length: 1200}}],
+            disconnector: {id: 5, name: 'SEC-1', versionNumber: 6}}
+
+        expect(masterBody('tracks', track, {name: 'VIA PRINCIPAL'})).toEqual({...track, name: 'VIA PRINCIPAL', profiles: null})
+        const untouched = masterBody('profiles', profile, {kp: '12.500'})
+        expect(untouched).toEqual({...profile, kp: '12.500', cantilevers: null})
+        expect(untouched.disconnector).toEqual({id: 5, name: 'SEC-1', versionNumber: 6})
+        const edited = [...profile.cantilevers, {cwHeight: 6}]
+        expect(masterBody('profiles', profile, {}, {cantilevers: edited}).cantilevers).toEqual(edited)
+        expect(masterBody('stations', {}, {name: 'NUEVA'})).toEqual({name: 'NUEVA', tracks: null, disconnectors: null,
+            sectionInsulators: null})
+        expect(masterBody('disconnectors', {id: 5, name: 'SEC-1', profileId: 7}, {onLoad: true}))
+            .toEqual({id: 5, name: 'SEC-1', profileId: 7, onLoad: true})
+        expect(Object.keys(MASTER_CHILDREN)).toEqual(['execution-packages', 'stations', 'tracks', 'profiles', 'disconnectors',
+            'section-insulators'])
+        expect(MASTER_CHILDREN['section-insulators']).toEqual(['switches'])
+    })
+
+    it('una referencia a catalogo viaja como {id, code}; quitar una opcional de un perfil es {}, porque null no la toca', () => {
+        expect(lovRef({id: 5, code: 'PT1', description: 'Poste tipo 1', enabled: true, versionNumber: 3}))
+            .toEqual({id: 5, code: 'PT1'})
+        expect(lovRef(null)).toBeNull()
+        expect(JSON.stringify({poleType: CLEARED_LOV_REF, portal: null})).toBe('{"poleType":{},"portal":null}')
+        expect(Object.isFrozen(CLEARED_LOV_REF)).toBe(true)
     })
 })
