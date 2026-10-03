@@ -45,6 +45,17 @@ export function toPageParams({page = 1, size = 50} = {}) {
     return {page: Math.max(0, Math.trunc(page) - 1), size}
 }
 
+/**
+ * De la pagina de la pantalla (empieza en 1) a first y max, al estilo de Keycloak (mto-users). max no
+ * pasa de 200, el tope del servicio.
+ */
+export function toOffsetParams({page = 1, size}) {
+    if (!Number.isInteger(size) || size < 1 || size > USERS_MAX_PAGE) {
+        throw new Error(`Una pagina de mto-users tiene de 1 a ${USERS_MAX_PAGE} filas: ${size}`)
+    }
+    return {first: (Math.max(1, Math.trunc(page)) - 1) * size, max: size}
+}
+
 /** sort=campo,dir solo si se eligio un orden: sin el, ordena el servicio. */
 export function sortParam(sort) {
     if (!sort?.field) {

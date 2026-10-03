@@ -1,15 +1,22 @@
 import {MutationCache, QueryCache, QueryClient} from '@tanstack/react-query'
-import {NetworkError} from '../api/errors.js'
+import {NetworkError, NotFoundError} from '../api/errors.js'
 import {notifyApiError} from '../ui/errors/notifyError.js'
 
 /**
  * El cliente de React Query: la cache de lo leido y el sitio unico donde un fallo se convierte en
  * aviso. Una consulta o una mutacion que trata ella misma su error lo dice con meta.notifyError=false:
  * la campana (un fallo deja el numero como estaba) o un formulario (los errores van a sus campos).
+ *
+ * Una ficha que no existe («No existe el usuario …») lo dice con meta.notFoundMessage: un 404 de esa
+ * consulta se avisa con ese texto, una sola vez, y la pantalla vuelve a su lista.
  */
 export function createQueryClient({notify = notifyApiError} = {}) {
     const report = (error, meta) => {
         if (meta?.notifyError === false) {
+            return
+        }
+        if (meta?.notFoundMessage && error instanceof NotFoundError) {
+            notify(error, {message: meta.notFoundMessage})
             return
         }
         notify(error)

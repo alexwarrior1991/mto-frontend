@@ -68,9 +68,57 @@ import {
 } from '../api/errors.js'
 import {apiFetch, buildUrl, configureHttp} from '../api/http.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
-import {hasNextOffsetPage, sortParam, toPage, toPageParams, toUsersPage} from '../api/paging.js'
+import {hasNextOffsetPage, sortParam, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
+import {
+    assignProfile,
+    getProfile,
+    getUserProfiles,
+    listProfileMembers,
+    listProfiles,
+    removeProfile,
+} from '../api/users/profiles.js'
+import {
+    addClientRoles,
+    clientLabel,
+    getUserRoles,
+    listClientRoleMembers,
+    listClientRoles,
+    listClients,
+    removeClientRoles,
+    toUserRoles,
+} from '../api/users/roles.js'
+import {
+    changedUserRequest,
+    createUser,
+    credentialTypeLabel,
+    deleteCredential,
+    deleteUser,
+    fullNameOf,
+    getUser,
+    isAttributeFilter,
+    isPasswordCredential,
+    listCredentials,
+    listOfflineSessions,
+    listSessions,
+    newUserRequest,
+    REQUIRED_ACTION,
+    requiredActionLabel,
+    resetPassword,
+    revokeOfflineSession,
+    revokeOfflineSessions,
+    revokeSession,
+    revokeSessions,
+    sameAttributes,
+    searchUsers,
+    sendActionsEmail,
+    setUserEnabled,
+    TAKE_OUT_STEPS,
+    takeOut,
+    toUser,
+    updateUser,
+} from '../api/users/users.js'
 import {createQueryClient} from '../app/queryClient.js'
 import {errorMessage} from '../ui/errors/messages.js'
 import {applyServerErrors, toFormPath} from '../ui/errors/serverValidation.js'
@@ -159,17 +207,19 @@ describe('http.js: la puerta hacia la API', () => {
         useToken()
         const posts = record('post', '/api/configuration/pole-types', () => HttpResponse.json({id: 1}, {status: 201}))
         const patches = record('patch', '/api/maintenance/orders/o1', () => HttpResponse.json({id: 'o1', version: 4}))
-        const deletes = record('delete', '/api/users/u1/roles/clients/c1', () => new HttpResponse(null, {status: 204}))
+        const deletes = record('delete', '/api/users/u1/roles/clients/c1', () => HttpResponse.json({realmRoles: [], clientRoles: []}))
 
         await expect(apiFetch('/api/configuration/pole-types', {method: 'POST', json: {code: 'P1'}})).resolves.toEqual({id: 1})
         await apiFetch('/api/maintenance/orders/o1', {method: 'PATCH', json: {title: null, version: 3}, contentType: MERGE_PATCH})
-        await expect(apiFetch('/api/users/u1/roles/clients/c1', {method: 'DELETE', json: [{name: 'stock-read'}]})).resolves.toBeNull()
+        await expect(apiFetch('/api/users/u1/roles/clients/c1', {method: 'DELETE', json: {roles: ['stock-read']}}))
+            .resolves.toEqual({realmRoles: [], clientRoles: []})
 
         expect(posts[0].headers.get('content-type')).toBe('application/json')
         expect(JSON.parse(posts[0].body)).toEqual({code: 'P1'})
         expect(patches[0].headers.get('content-type')).toBe('application/merge-patch+json')
         expect(JSON.parse(patches[0].body)).toEqual({title: null, version: 3})
-        expect(JSON.parse(deletes[0].body)).toEqual([{name: 'stock-read'}])
+        expect(deletes[0].headers.get('content-type')).toBe('application/json')
+        expect(JSON.parse(deletes[0].body)).toEqual({roles: ['stock-read']})
     })
 
     it('un 202 o un 204 sin cuerpo dan null, y un fichero llega como Blob con sus cabeceras', async () => {
@@ -438,6 +488,19 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde.')
     })
 
+    it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'USR-409', detail: 'User exists with same username'})})))
+            .toBe('Ya existe un usuario con ese nombre de usuario o ese email. User exists with same username')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'SES-404', detail: 'Session s-9 not found'})})))
+            .toBe('Esa sesión ya no existe o no es de este usuario.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'CRED-404'})})))
+            .toBe('Esa credencial ya no existe o no es de este usuario.')
+        expect(errorMessage(new ValidationError(400, {problem: problem({code: 'KC-400', detail: 'invalidPasswordMinLengthMessage'})})))
+            .toBe('Keycloak ha rechazado la petición. invalidPasswordMinLengthMessage')
+        expect(errorMessage(new ValidationError(400, {problem: problem({code: 'KC-400', errors: [{field: 'email', code: null, message: 'no vale'}]})})))
+            .toBe('Datos no válidos: email no vale')
+    })
+
     it('el resto de casos', () => {
         expect(errorMessage(new NotFoundError(404, {problem: problem({detail: 'Orden o1'})}))).toBe('No se ha encontrado lo que se pedía. Orden o1')
         expect(errorMessage(new SessionExpiredError(401))).toBe('La sesión ha caducado. Hay que volver a entrar.')
@@ -497,9 +560,15 @@ describe('paging.js: las tres formas de paginar', () => {
         expect(toPage(null)).toEqual({content: [], number: 0, size: 0, totalElements: 0, totalPages: 0})
     })
 
-    it('la de mto-users, con first, max y total', () => {
+    it('la de mto-users, con first, max y total; la pantalla cuenta páginas desde 1 y el servicio pide desde qué fila', () => {
         expect(toUsersPage({content: [{id: 'u'}], first: 200, max: 200, total: 201}))
             .toEqual({content: [{id: 'u'}], first: 200, max: 200, total: 201})
+        expect(toOffsetParams({page: 1, size: 50})).toEqual({first: 0, max: 50})
+        expect(toOffsetParams({page: 3, size: 50})).toEqual({first: 100, max: 50})
+        expect(toOffsetParams({page: 0, size: 20})).toEqual({first: 0, max: 20})
+        expect(toOffsetParams({page: 2, size: USERS_MAX_PAGE})).toEqual({first: 200, max: 200})
+        expect(() => toOffsetParams({page: 1, size: 201})).toThrow(/200/)
+        expect(() => toOffsetParams({page: 1})).toThrow(/200/)
     })
 
     it('una lista sin total solo tiene siguiente si llego llena; la pantalla cuenta desde 1 y el servicio desde 0', () => {
@@ -670,6 +739,19 @@ describe('queryClient.js: un fallo se avisa en un solo sitio', () => {
         await new MutationObserver(client, {mutationFn: fail, meta: {notifyError: false}}).mutate().catch(() => {})
 
         expect(notify).toHaveBeenCalledTimes(2)
+    })
+
+    it('un 404 de una consulta con notFoundMessage se dice con ese texto, una vez; cualquier otro fallo, con el suyo', async () => {
+        const notify = vi.fn()
+        const client = createQueryClient({notify})
+        const missing = new NotFoundError(404, {problem: {...emptyProblem(), code: 'USR-404'}})
+        const unavailable = new UnavailableError(503)
+        const meta = {notFoundMessage: 'No existe el usuario u-9'}
+
+        await client.fetchQuery({queryKey: ['u', 'u-9'], queryFn: () => Promise.reject(missing), retry: false, meta}).catch(() => {})
+        await client.fetchQuery({queryKey: ['u', 'u-8'], queryFn: () => Promise.reject(unavailable), retry: false, meta}).catch(() => {})
+
+        expect(notify.mock.calls).toEqual([[missing, {message: 'No existe el usuario u-9'}], [unavailable]])
     })
 
     it('solo se reintenta lo que no llego a ningun sitio, y una vez', () => {
@@ -1062,5 +1144,277 @@ describe('configuration/jobs.js: los trabajos en segundo plano', () => {
         expect(JOB_STATUS.label('COMPLETED_WITH_ERRORS')).toBe('Terminado con errores')
         expect(JOB_TYPE.selectable().map((option) => option.value)).not.toContain(UNKNOWN)
         expect(JOB_STATUS.selectable()).toHaveLength(6)
+    })
+})
+
+describe('users/*.js: usuarios, roles y perfiles de mto-users', () => {
+    const ANA = {
+        id: 'u-1', username: 'ana.nueva', firstName: 'Ana', lastName: 'Nueva', email: 'ana@mto.local', emailVerified: true,
+        enabled: true, createdAt: '2026-09-21T10:00:00Z', attributes: {dept: ['taller']}, requiredActions: ['UPDATE_PASSWORD'],
+        unknownTomorrow: 1,
+    }
+    const ROLES = {realmRoles: ['mto-users-viewer'], clientRoles: [{clientId: 'mto-users-api', roles: ['users-write']}]}
+    const noContent = () => new HttpResponse(null, {status: 204})
+    const json = (request) => JSON.parse(request.body)
+
+    it('la búsqueda pide first y max al estilo de Keycloak, sin orden, y lee la página con su total', async () => {
+        useToken()
+        const searches = record('get', '/api/users', () => HttpResponse.json({
+            content: [ANA, {id: 'u-2', username: 'sin.nada', attributes: null}], first: 50, max: 50, total: 123,
+        }))
+
+        const page = await searchUsers({search: ' ana ', enabled: true, first: 50, max: 50})
+
+        expect(searches[0].url.search).toBe('?search=ana&enabled=true&first=50&max=50')
+        expect(page).toMatchObject({first: 50, max: 50, total: 123})
+        expect(page.content[0]).toEqual(ANA)
+        expect(page.content[1]).toEqual({id: 'u-2', username: 'sin.nada', attributes: {}, requiredActions: []})
+        expect(page.content.map(fullNameOf)).toEqual(['Ana Nueva', 'sin.nada'])
+        expect(fullNameOf({username: 'x', firstName: ' ', lastName: 'Ruiz'})).toBe('Ruiz')
+    })
+
+    it('el atributo repite el parámetro, codificado, y nunca viaja con la búsqueda; lo que el servicio rechazaría no sale', async () => {
+        useToken()
+        const searches = record('get', '/api/users', () => HttpResponse.json({content: [], first: 0, max: 20, total: 0}))
+
+        await expect(searchUsers({attributes: ['dept:taller', 'turno:noche']})).resolves.toEqual({content: [], first: 0, max: 20, total: 0})
+        await searchUsers({search: '  ', attributes: ['dept:']})
+        await expect(searchUsers({search: 'ana', attributes: ['dept:taller']})).rejects.toThrow(/SEARCH-400/)
+        await expect(searchUsers({attributes: ['dept:taller', 'dept:almacen']})).rejects.toThrow(/SEARCH-400/)
+        await expect(searchUsers({max: USERS_MAX_PAGE + 1})).rejects.toThrow(/max/)
+        await expect(searchUsers({max: 0})).rejects.toThrow(/max/)
+
+        expect(searches.map((request) => request.url.search))
+            .toEqual(['?attribute=dept%3Ataller&attribute=turno%3Anoche&first=0&max=20', '?attribute=dept%3A&first=0&max=20'])
+        expect(['dept:taller', 'dept:', 'dept:a:b'].map(isAttributeFilter)).toEqual([true, true, true])
+        expect(['dept', ':taller', 'dept taller:x', 'dept: x', ''].map(isAttributeFilter)).toEqual([false, false, false, false, false])
+    })
+
+    it('leer, dar de alta (201), modificar con un PUT parcial, activar con su PATCH y borrar (204); los ids van codificados', async () => {
+        useToken()
+        const FEDERATED = 'f:ldap:ana'
+        const reads = record('get', '/api/users/:userId', () => HttpResponse.json({...ANA, id: FEDERATED}))
+        const posts = record('post', '/api/users', () => HttpResponse.json(ANA, {status: 201, headers: {Location: '/api/v1/users/u-1'}}))
+        const puts = record('put', '/api/users/:userId', () => HttpResponse.json({...ANA, firstName: 'Anabel', email: null}))
+        const patches = record('patch', '/api/users/:userId/enabled', () => HttpResponse.json({...ANA, enabled: false}))
+        const deletes = record('delete', '/api/users/:userId', noContent)
+
+        const read = await getUser(FEDERATED)
+        const created = await createUser(newUserRequest({username: ' ana.nueva ', email: 'ana@mto.local', temporaryPassword: ' Cambiame.123',
+            requiredActions: ['UPDATE_PASSWORD']}))
+        const updated = await updateUser('u-1', {firstName: 'Anabel', email: ''})
+        const disabled = await setUserEnabled('u-1', false)
+        await expect(deleteUser('u-1')).resolves.toBeNull()
+
+        expect(reads[0].url.pathname).toBe('/api/users/f%3Aldap%3Aana')
+        expect(read.id).toBe(FEDERATED)
+        expect(json(posts[0])).toEqual({username: 'ana.nueva', email: 'ana@mto.local', emailVerified: false, enabled: true,
+            temporaryPassword: ' Cambiame.123', requiredActions: ['UPDATE_PASSWORD']})
+        expect(created).toMatchObject({id: 'u-1', username: 'ana.nueva'})
+        expect(json(puts[0])).toEqual({firstName: 'Anabel', email: ''})
+        expect(updated).toMatchObject({firstName: 'Anabel', email: null})
+        expect(json(patches[0])).toEqual({enabled: false})
+        expect(disabled.enabled).toBe(false)
+        expect(deletes[0].url.pathname).toBe('/api/users/u-1')
+        expect(deletes[0].body).toBe('')
+    })
+
+    it('un alta lleva lo escrito, recortado, con activo y «email verificado» siempre; una modificación, solo lo que cambió', () => {
+        expect(newUserRequest({username: ' ana ', firstName: ' ', lastName: ' Nueva ', email: '', temporaryPassword: '  ', attributes: {},
+            requiredActions: []}))
+            .toEqual({username: 'ana', lastName: 'Nueva', emailVerified: false, enabled: true})
+        expect(newUserRequest({username: 'ana', emailVerified: true, enabled: false, attributes: {dept: ['taller']}}))
+            .toEqual({username: 'ana', emailVerified: true, enabled: false, attributes: {dept: ['taller']}})
+
+        const read = toUser(ANA)
+        const same = {firstName: 'Ana', lastName: 'Nueva', email: 'ana@mto.local', emailVerified: true, attributes: {dept: ['taller']}}
+        expect(changedUserRequest(read, same)).toBeNull()
+        expect(changedUserRequest(read, {...same, firstName: ' Ana ', email: ''})).toEqual({email: ''})
+        expect(changedUserRequest(read, {...same, firstName: 'Anabel'})).toEqual({firstName: 'Anabel'})
+        expect(changedUserRequest(read, {...same, emailVerified: false})).toEqual({emailVerified: false})
+        expect(changedUserRequest(read, {...same, attributes: {dept: ['taller'], turno: ['noche']}}))
+            .toEqual({attributes: {dept: ['taller'], turno: ['noche']}})
+        expect(changedUserRequest(read, {...same, attributes: {}})).toEqual({attributes: {}})
+        expect(changedUserRequest(toUser({...ANA, lastName: null}), {...same, lastName: '  '})).toBeNull()
+    })
+
+    it('dos mapas de atributos son el mismo sin mirar el orden de las claves, pero sí el de los valores', () => {
+        expect(sameAttributes({a: ['1'], b: ['2', '3']}, {b: ['2', '3'], a: ['1']})).toBe(true)
+        expect(sameAttributes({b: ['3', '2']}, {b: ['2', '3']})).toBe(false)
+        expect(sameAttributes({a: ['1']}, {a: ['1'], b: []})).toBe(false)
+        expect(sameAttributes({a: ['1']}, {b: ['1']})).toBe(false)
+        expect(sameAttributes({}, {})).toBe(true)
+    })
+
+    it('la contraseña y el correo de acciones mandan su cuerpo; sin validez, vale la del realm', async () => {
+        useToken()
+        const resets = record('post', '/api/users/u-1/reset-password', noContent)
+        const emails = record('post', '/api/users/u-1/execute-actions-email', () => new HttpResponse(null, {status: 202}))
+
+        await expect(resetPassword('u-1', {password: ' Secreta.123', temporary: true})).resolves.toBeNull()
+        await resetPassword('u-1', {password: 'Secreta.123'})
+        await expect(sendActionsEmail('u-1', {actions: ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], lifespanSeconds: 3600})).resolves.toBeNull()
+        await sendActionsEmail('u-1', {actions: ['VERIFY_EMAIL'], lifespanSeconds: ''})
+
+        expect(resets.map(json)).toEqual([{password: ' Secreta.123', temporary: true}, {password: 'Secreta.123', temporary: false}])
+        expect(emails.map(json)).toEqual([{actions: ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], lifespanSeconds: 3600}, {actions: ['VERIFY_EMAIL']}])
+    })
+
+    it('sesiones normales y offline, y credenciales: listarlas, cerrar una o todas y quitar una, cada cosa en su ruta', async () => {
+        useToken()
+        const SESSION = {id: 's-1', username: 'ana.nueva', ipAddress: '10.0.0.7', startedAt: '2026-09-21T09:00:00Z',
+            lastAccessAt: '2026-09-21T09:30:00Z', clients: ['mto-backoffice', 'mto-frontend']}
+        server.use(
+            http.get('/api/users/u-1/sessions', () => HttpResponse.json([SESSION])),
+            http.get('/api/users/u-1/offline-sessions', () => HttpResponse.json([])),
+            http.get('/api/users/u-1/credentials', () => HttpResponse.json([
+                {id: 'c-1', type: 'otp', userLabel: 'móvil', createdAt: '2026-09-21T09:00:00Z'},
+                {id: 'c-2', type: 'password', userLabel: null, createdAt: '2026-09-20T09:00:00Z'},
+            ])),
+        )
+        const deletes = record('delete', '/api/users/u-1/*', noContent)
+
+        await expect(listSessions('u-1')).resolves.toEqual([SESSION])
+        await expect(listOfflineSessions('u-1')).resolves.toEqual([])
+        const credentials = await listCredentials('u-1')
+        await revokeSessions('u-1')
+        await revokeSession('u-1', 's-1')
+        await revokeOfflineSessions('u-1')
+        await revokeOfflineSession('u-1', 'o-9')
+        await deleteCredential('u-1', 'c-1')
+
+        expect(deletes.map((request) => request.url.pathname)).toEqual([
+            '/api/users/u-1/sessions', '/api/users/u-1/sessions/s-1', '/api/users/u-1/offline-sessions',
+            '/api/users/u-1/offline-sessions/o-9', '/api/users/u-1/credentials/c-1',
+        ])
+        expect(credentials.map((credential) => credentialTypeLabel(credential.type))).toEqual(['Segundo factor (OTP)', 'Contraseña'])
+        expect(credentials.map(isPasswordCredential)).toEqual([false, true])
+        expect(credentialTypeLabel('recovery-authn-codes')).toBe('recovery-authn-codes')
+        expect(credentialTypeLabel(null)).toBe('')
+    })
+
+    it('cerrar una sesión que no es de esa persona es un 404 SES-404, que se lee por sus alias y se dice así', async () => {
+        useToken()
+        server.use(http.delete('/api/users/u-1/sessions/s-9', () => HttpResponse.json(
+            {status: 404, title: 'Not Found', detail: 'Session s-9 not found for user u-1', errorCode: 'SES-404', correlationId: 'corr-ses'},
+            {status: 404, headers: {'Content-Type': 'application/problem+json'}},
+        )))
+
+        const error = await failure(revokeSession('u-1', 's-9'))
+
+        expect(error).toBeInstanceOf(NotFoundError)
+        expect(error.code).toBe('SES-404')
+        expect(error.reference).toBe('corr-ses')
+        expect(errorMessage(error)).toBe('Esa sesión ya no existe o no es de este usuario.')
+    })
+
+    it('los roles de cliente: añadir es un PUT con {roles}, quitar un DELETE con el mismo cuerpo, y los dos devuelven cómo quedan', async () => {
+        useToken()
+        const puts = record('put', '/api/users/u-1/roles/clients/mto-users-api', () => HttpResponse.json(ROLES))
+        const deletes = record('delete', '/api/users/u-1/roles/clients/mto-users-api', () => HttpResponse.json({realmRoles: ['mto-users-viewer']}))
+        server.use(http.get('/api/users/u-1/roles', () => HttpResponse.json(ROLES)))
+
+        const added = await addClientRoles('u-1', 'mto-users-api', ['users-write'])
+        const removed = await removeClientRoles('u-1', 'mto-users-api', ['users-read'])
+        const current = await getUserRoles('u-1')
+
+        expect(json(puts[0])).toEqual({roles: ['users-write']})
+        expect(deletes[0].headers.get('content-type')).toBe('application/json')
+        expect(json(deletes[0])).toEqual({roles: ['users-read']})
+        expect(added).toEqual(ROLES)
+        expect(removed).toEqual({realmRoles: ['mto-users-viewer'], clientRoles: []})
+        expect(current).toEqual(ROLES)
+        expect(toUserRoles({clientRoles: [{clientId: 'x'}]})).toEqual({realmRoles: [], clientRoles: [{clientId: 'x', roles: []}]})
+    })
+
+    it('los perfiles: asignar es un PUT sin cuerpo y quitar un DELETE; los dos devuelven los perfiles de la persona', async () => {
+        useToken()
+        const PROFILES = [{name: 'mto-users-viewer', description: 'Lectura'}]
+        const puts = record('put', '/api/users/u-1/profiles/mto-users-viewer', () => HttpResponse.json(PROFILES))
+        const deletes = record('delete', '/api/users/u-1/profiles/mto-users-viewer', () => HttpResponse.json([]))
+        server.use(http.get('/api/users/u-1/profiles', () => HttpResponse.json(PROFILES)))
+
+        await expect(assignProfile('u-1', 'mto-users-viewer')).resolves.toEqual(PROFILES)
+        await expect(removeProfile('u-1', 'mto-users-viewer')).resolves.toEqual([])
+        await expect(getUserProfiles('u-1')).resolves.toEqual(PROFILES)
+
+        expect(puts[0].body).toBe('')
+        expect(puts[0].headers.get('content-type')).toBeNull()
+        expect(deletes[0].body).toBe('')
+    })
+
+    it('los catálogos de clientes, roles y perfiles se leen tal cual; sus miembros son listas sin total, con first y max', async () => {
+        useToken()
+        server.use(
+            http.get('/api/users/roles/clients', () => HttpResponse.json([
+                {clientId: 'mto-users-api', name: '', description: 'Usuarios'},
+                {clientId: 'mto-configuration-api', name: 'Configuración', description: null},
+            ])),
+            http.get('/api/users/roles/clients/mto-users-api', () => HttpResponse.json([{name: 'users-read', description: 'Consulta', composite: false}])),
+            http.get('/api/users/profiles', () => HttpResponse.json([{name: 'mto-users-admin', description: 'Todo'}])),
+            http.get('/api/users/profiles/mto-users-admin', () => HttpResponse.json({
+                name: 'mto-users-admin', description: 'Todo', clientRoles: [{clientId: 'mto-users-api', roles: ['users-read', 'users-delete']}],
+                realmRoles: null,
+            })),
+        )
+        const roleMembers = record('get', '/api/users/roles/clients/mto-users-api/users-read/users', () => HttpResponse.json([ANA]))
+        const profileMembers = record('get', '/api/users/profiles/mto-users-admin/users', () => HttpResponse.json([]))
+
+        const clients = await listClients()
+        await expect(listClientRoles('mto-users-api')).resolves.toEqual([{name: 'users-read', description: 'Consulta', composite: false}])
+        await expect(listProfiles()).resolves.toEqual([{name: 'mto-users-admin', description: 'Todo'}])
+        const admin = await getProfile('mto-users-admin')
+        const holders = await listClientRoleMembers('mto-users-api', 'users-read')
+        await expect(listProfileMembers('mto-users-admin', {first: 50, max: 50})).resolves.toEqual([])
+
+        expect(clients.map(clientLabel)).toEqual(['mto-users-api', 'Configuración'])
+        expect(admin).toEqual({
+            name: 'mto-users-admin', description: 'Todo', realmRoles: [],
+            clientRoles: [{clientId: 'mto-users-api', roles: ['users-read', 'users-delete']}],
+        })
+        expect(holders.map((user) => user.username)).toEqual(['ana.nueva'])
+        expect(roleMembers[0].url.search).toBe('?first=0&max=50')
+        expect(profileMembers[0].url.search).toBe('?first=50&max=50')
+    })
+
+    it('sacar a la persona son tres llamadas en este orden; para en la primera que falla y dice cuál, con su error', async () => {
+        useToken()
+        const calls = []
+        const logged = (respond) => async ({request}) => {
+            calls.push(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`.trim())
+            return respond()
+        }
+        server.use(
+            http.patch('/api/users/:userId/enabled', logged(() => HttpResponse.json({...ANA, enabled: false}))),
+            http.delete('/api/users/u-1/sessions', logged(noContent)),
+            http.delete('/api/users/:userId/offline-sessions', logged(noContent)),
+            http.delete('/api/users/u-2/sessions', logged(() => HttpResponse.json(
+                {status: 503, title: 'Service Unavailable', detail: 'Keycloak no responde', errorCode: 'KC-503', correlationId: 'corr-kc'},
+                {status: 503, headers: {'Content-Type': 'application/problem+json', 'Retry-After': '10'}},
+            ))),
+        )
+
+        const out = await takeOut('u-1')
+        const halfway = await takeOut('u-2')
+
+        expect(TAKE_OUT_STEPS).toEqual(['disable', 'sessions', 'offline'])
+        expect(out).toEqual({done: ['disable', 'sessions', 'offline'], failed: null, error: null})
+        expect(calls).toEqual([
+            'PATCH /api/users/u-1/enabled {"enabled":false}', 'DELETE /api/users/u-1/sessions', 'DELETE /api/users/u-1/offline-sessions',
+            'PATCH /api/users/u-2/enabled {"enabled":false}', 'DELETE /api/users/u-2/sessions',
+        ])
+        expect(halfway).toMatchObject({done: ['disable'], failed: 'sessions'})
+        expect(halfway.error).toBeInstanceOf(UnavailableError)
+        expect(halfway.error.code).toBe('KC-503')
+        expect(halfway.error.retryAfterSeconds).toBe(10)
+        expect(errorMessage(halfway.error)).toBe('El servicio no está disponible ahora mismo. Inténtalo en 10 s.')
+    })
+
+    it('una acción requerida se nombra si se conoce; una que el servicio estrene se enseña tal cual y no se ofrece', () => {
+        expect(requiredActionLabel('UPDATE_PASSWORD')).toBe('Cambiar la contraseña')
+        expect(requiredActionLabel('CUSTOM_ACTION')).toBe('CUSTOM_ACTION')
+        expect(requiredActionLabel(null)).toBe('')
+        expect(REQUIRED_ACTION.selectable().map((option) => option.value))
+            .toEqual(['UPDATE_PASSWORD', 'VERIFY_EMAIL', 'UPDATE_PROFILE', 'CONFIGURE_TOTP', 'TERMS_AND_CONDITIONS'])
     })
 })

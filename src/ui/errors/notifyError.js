@@ -10,8 +10,11 @@ const DURATION_MS = 8000
 /**
  * El aviso de un fallo de la API: rojo, abajo a la izquierda, ocho segundos y con su «Referencia».
  * Una sesion caducada no es un aviso: abre el dialogo de volver a entrar.
+ *
+ * Una pantalla que tiene algo mas concreto que decir («No existe el usuario …», el paso que fallo al
+ * sacar a una persona) pasa su texto en message, y la referencia sigue saliendo.
  */
-export function notifyApiError(error) {
+export function notifyApiError(error, {message = null} = {}) {
     if (error instanceof SessionExpiredError) {
         sessionExpired.open()
         return
@@ -20,7 +23,7 @@ export function notifyApiError(error) {
         color: 'red',
         autoClose: DURATION_MS,
         message: createElement(ErrorNotice, {
-            message: errorMessage(error),
+            message: message ?? errorMessage(error),
             reference: error instanceof ApiError ? error.reference : null,
         }),
     })

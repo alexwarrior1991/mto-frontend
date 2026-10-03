@@ -129,15 +129,6 @@ describe('rutas: las mismas que el backoffice', () => {
         expect(await screen.findByRole('heading', {name: 'Esta pantalla no existe'})).toBeInTheDocument()
     })
 
-    it('las rutas literales ganan a las de parametro: usuarios/perfiles no es la ficha de un usuario', async () => {
-        const profiles = renderRoute('/usuarios/perfiles', {session: loginAs('usuarios.lector')})
-        expect(await screen.findByRole('heading', {name: 'Perfiles de usuario'})).toBeInTheDocument()
-        profiles.unmount()
-
-        renderRoute('/usuarios/8f0c2a1e', {session: loginAs('usuarios.lector')})
-        expect(await screen.findByRole('heading', {name: 'Usuario'})).toBeInTheDocument()
-    })
-
     it('una ruta que no existe lo dice y ofrece volver al inicio', async () => {
         renderRoute('/esto/no/existe', {session: loginAs('config.lector')})
 

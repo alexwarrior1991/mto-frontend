@@ -6,6 +6,10 @@ import SectionInsulatorsPage from '../features/infrastructure/SectionInsulatorsP
 import StationsPage from '../features/infrastructure/StationsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
+import ClientRolesPage from '../features/users/ClientRolesPage.jsx'
+import UserDetailPage from '../features/users/UserDetailPage.jsx'
+import UserProfilesPage from '../features/users/UserProfilesPage.jsx'
+import UsersPage from '../features/users/UsersPage.jsx'
 import HomePage from './pages/HomePage.jsx'
 
 /**
@@ -22,4 +26,8 @@ export const PAGES = Object.freeze({
     disconnectors: DisconnectorsPage,
     sectionInsulators: SectionInsulatorsPage,
     jobs: JobsPage,
+    users: UsersPage,
+    userProfiles: UserProfilesPage,
+    clientRoles: ClientRolesPage,
+    user: UserDetailPage,
 })

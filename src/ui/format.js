@@ -6,6 +6,7 @@
  * - Día y hora con segundos (cuándo se lanzó un trabajo): DD/MM HH:mm:ss, también en esa zona.
  * - Fecha (un LocalDate del servicio): DD/MM/YYYY, sin pasar por ninguna zona.
  * - Porcentaje: el servicio manda una fraccion (0.4500) y aqui solo se multiplica por cien.
+ * - Un booleano en una columna: «Sí» o «No».
  */
 
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -65,6 +66,11 @@ export function formatPercent(ratio) {
     }
     // Redondear a dos decimales evita el 45.00000000000001 de la coma flotante.
     return `${Math.round(number * 10000) / 100} %`
+}
+
+/** Un booleano en una columna: «Sí» o «No» (también lo que no viene). */
+export function yesNo(value) {
+    return value === true ? 'Sí' : 'No'
 }
 
 function toDate(value) {

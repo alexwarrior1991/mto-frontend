@@ -1,10 +1,10 @@
 import {Select} from '@mantine/core'
-import {formatQuantity} from '../../ui/format.js'
+import {formatQuantity, yesNo} from '../../ui/format.js'
+import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import {INSTALLATION_TYPES, installationLabel} from './installationTypes.js'
-import {MASTERS, yesNo} from './masterResources.js'
+import {MASTERS} from './masterResources.js'
 import MasterPage from './MasterPage.jsx'
 import SectionInsulatorEditor from './SectionInsulatorEditor.jsx'
-import TriStateFilter from './TriStateFilter.jsx'
 import {useReferenceCatalog} from './useMasters.js'
 
 /**
