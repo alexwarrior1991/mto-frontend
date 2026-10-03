@@ -3,6 +3,7 @@
  *
  * - Cantidades y KP: sin ceros de mas y con punto decimal, sin separador de miles (12.500 es 12.5).
  * - Fecha y hora: DD/MM/YYYY HH:mm en la zona del navegador.
+ * - Día y hora con segundos (cuándo se lanzó un trabajo): DD/MM HH:mm:ss, también en esa zona.
  * - Fecha (un LocalDate del servicio): DD/MM/YYYY, sin pasar por ninguna zona.
  * - Porcentaje: el servicio manda una fraccion (0.4500) y aqui solo se multiplica por cien.
  */
@@ -29,6 +30,15 @@ export function formatDateTime(value) {
         return ''
     }
     return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** Día y hora con segundos, sin año: DD/MM HH:mm:ss en la zona del navegador (cuándo se lanzó un trabajo). */
+export function formatDayTime(value) {
+    const date = toDate(value)
+    if (!date) {
+        return ''
+    }
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 export function formatDate(value) {

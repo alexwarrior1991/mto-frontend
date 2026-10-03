@@ -4,6 +4,7 @@ import process from 'node:process'
 import {matchRoutes} from 'react-router'
 import {describe, expect, it, vi} from 'vitest'
 import {apiProxy, gatewayUnavailable} from '../../vite.config.js'
+import {MAX_UPLOAD_BYTES} from '../api/configuration/jobs.js'
 import {LOV_RESOURCES} from '../api/configuration/lovResources.js'
 import {appRoutes} from '../app/routes.js'
 import {ROUTES} from '../app/routeTable.js'
@@ -117,6 +118,8 @@ describe('/api por el mismo origen y sin Origin', () => {
         expect(server).toContain('proxy_set_header Origin "";')
         expect(server).toContain('proxy_set_header Cookie "";')
         expect(server).toContain('client_max_body_size 20m;')
+        // El tope que comprueba la pantalla de trabajos antes de subir un fichero es el mismo.
+        expect(MAX_UPLOAD_BYTES).toBe(20 * 1024 * 1024)
         expect(server).toContain('try_files $uri /index.html;')
         expect(server).toMatch(/location \/assets\/[\s\S]*immutable/)
         expect(server).toMatch(/location = \/config\.json[\s\S]*no-store/)

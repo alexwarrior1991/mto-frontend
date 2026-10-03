@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 2
+## Estado: fase 3
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -53,6 +53,15 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     pero no se cambia.
   - Las listas de seccionadores y aisladores necesitan `mto-configuration` con su arreglo
     (alexwarrior1991/mto-configuration#30): sin él, con datos, responden 500.
+- **Fase 3 · Trabajos**: los trabajos en segundo plano de `mto-configuration` (`trabajos`).
+  - Exportar los perfiles de una vía, importar el maestro de perfiles o el catálogo de LOV (de
+    verdad o en simulación) y republicar datos maestros, cada uno tras su permiso.
+  - El historial es el del servicio, paginado y filtrado por tipo y estado. Se vuelve a pedir cada
+    dos segundos mientras haya algo en curso, y nunca con la pestaña oculta.
+  - Un trabajo lanzado desde la pestaña avisa al terminar, también si no está en la página que se
+    ve. Si el servicio no tiene hueco (429), se apunta como rechazado y dice cuándo reintentar.
+  - El fichero de una exportación y el informe de una importación se descargan con el token. Los
+    errores por elemento se piden al detalle del trabajo.
 - Las pantallas que aún no han llegado dicen en qué fase llegan y ofrecen **«Abrir en el
   backoffice»** con la misma ruta. Los enlaces de las notificaciones ya resuelven.
 
@@ -203,6 +212,15 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - En **Perfiles**, las ménsulas (hasta tres) se añaden, modifican y quitan dentro del editor y se
     guardan con el perfil; en **Aisladores de sección**, igual con las agujas.
   - En **Seccionadores**, el perfil se busca escribiendo su identificador.
+- **Trabajos** (con `config.responsable`):
+  - «Exportar» con una vía sale como «Trabajo encolado» y como fila del historial. La fila avanza
+    sola hasta «Terminado» y entonces ofrece «Descargar».
+  - Importar `profile-master.xlsx` o `lov-master.xlsx` (están en `mto-configuration/data/`), mejor
+    primero en «Simulación», deja un informe para descargar. «Errores» enseña los primeros fallos
+    por fila.
+  - Con `config.lector` solo se puede exportar. El catálogo de LOV pide además `lov-manage`.
+  - Si el servicio ya no admite más trabajos a la vez, el nuevo sale «Rechazado», y el aviso dice
+    cuándo volver a intentarlo.
 
 ### Usuarios de desarrollo
 
@@ -241,10 +259,12 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 |---|---|
 | `client/**` (las interfaces `@HttpExchange`) y `client/error` | `src/api/`: un módulo por servicio, `http.js` y `errors.js` |
 | `configuration/security` (roles del access token) | `src/auth/` |
-| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov`, e `infrastructure/` es `ui/master` |
+| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov`, `infrastructure/` es `ui/master` y `jobs/` es `ui/jobs` |
 | `MainLayout` y `@Menu` | `src/app/layout/` y `src/app/routeTable.js` |
 | `@RolesAllowed` | `requires` en `routeTable.js` y `RequirePermission` (solo experiencia: manda el 403) |
-| `SharedPolling` y `@Push` | `refetchInterval` de React Query |
+| `SharedPolling` y `@Push` | `refetchInterval` de React Query, solo con la pantalla abierta y la pestaña visible |
+| `JobLog` (en la `VaadinSession`) | `src/features/jobs/sessionJobs.js` (en memoria, por pestaña) |
+| `Downloads` y `DownloadHandler` | `src/api/download.js`: `fetch` con el Bearer y un `Blob` |
 | `UiErrors` y `ServerValidation` | `src/ui/errors/` |
 | `ViewLayerTest` (Karibu) | `src/test/viewLayer.*.test.jsx` (Testing Library + MSW) |
 
@@ -296,11 +316,11 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 
 | Fichero | Qué cubre |
 |---|---|
-| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas) |
+| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
-| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, y un paquete, una estación y una vía de usar y tirar con su esquema |
+| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, y una exportación hasta su descarga y la simulación del catálogo de LOV |
 
 ## Puertos
 
