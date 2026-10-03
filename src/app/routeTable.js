@@ -42,7 +42,7 @@ export const ROUTES = Object.freeze([
     {path: 'infraestructura/seccionadores', title: 'Seccionadores', page: 'disconnectors', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 14, icon: 'disconnectors'}},
     {path: 'infraestructura/aisladores', title: 'Aisladores de sección', page: 'sectionInsulators', requires: CONFIG, phase: 2, menu: {group: 'infraestructura', order: 15, icon: 'insulators'}},
 
-    {path: 'trabajos', title: 'Trabajos', requires: CONFIG, phase: 3, menu: {order: 30, icon: 'jobs'}},
+    {path: 'trabajos', title: 'Trabajos', page: 'jobs', requires: CONFIG, phase: 3, menu: {order: 30, icon: 'jobs'}},
 
     {path: 'usuarios', title: 'Usuarios', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 40, icon: 'users'}},
     {path: 'usuarios/perfiles', title: 'Perfiles de usuario', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 41, icon: 'userProfiles'}},

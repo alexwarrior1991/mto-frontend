@@ -1,6 +1,29 @@
 import {MutationObserver} from '@tanstack/react-query'
 import {delay, http, HttpResponse} from 'msw'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {
+    downloadJobFile,
+    exportProfiles,
+    fallbackFileName,
+    familyOf,
+    getJob,
+    hasErrorReport,
+    importLovs,
+    importProfiles,
+    isDownloadable,
+    isTerminal,
+    JOB_FAMILIES,
+    JOB_STATUS,
+    JOB_TYPE,
+    JOBS_PAGE_SIZE,
+    listJobs,
+    MAPPER_TYPES,
+    rejectedJobOf,
+    REPUBLISH_TARGETS,
+    republish,
+    toJob,
+    XLSX_MIME,
+} from '../api/configuration/jobs.js'
 import {findLovResource, LOV_RESOURCES} from '../api/configuration/lovResources.js'
 import {
     bulkCreateLovs,
@@ -51,7 +74,7 @@ import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {createQueryClient} from '../app/queryClient.js'
 import {errorMessage} from '../ui/errors/messages.js'
 import {applyServerErrors, toFormPath} from '../ui/errors/serverValidation.js'
-import {formatDate, formatDateTime, formatPercent, formatQuantity} from '../ui/format.js'
+import {formatDate, formatDateTime, formatDayTime, formatPercent, formatQuantity} from '../ui/format.js'
 import {server} from './server.js'
 
 /**
@@ -599,6 +622,8 @@ describe('format.js: cifras y fechas', () => {
     it('fechas como DD/MM/YYYY, un LocalDate sin pasar por ninguna zona, y porcentajes desde una fraccion', () => {
         expect(formatDate('2026-10-01')).toBe('01/10/2026')
         expect(formatDateTime(new Date(2026, 9, 1, 8, 5))).toBe('01/10/2026 08:05')
+        expect(formatDayTime(new Date(2026, 7, 27, 9, 2, 3))).toBe('27/08 09:02:03')
+        expect(formatDayTime(null)).toBe('')
         expect(formatDateTime('no es una fecha')).toBe('')
         expect(formatPercent('0.4500')).toBe('45 %')
         expect(formatPercent(0.4567)).toBe('45.67 %')
@@ -831,5 +856,211 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(lovRef(null)).toBeNull()
         expect(JSON.stringify({poleType: CLEARED_LOV_REF, portal: null})).toBe('{"poleType":{},"portal":null}')
         expect(Object.isFrozen(CLEARED_LOV_REF)).toBe(true)
+    })
+})
+
+describe('configuration/jobs.js: los trabajos en segundo plano', () => {
+    const JOB = '6f1c0000-0000-4000-8000-000000000001'
+    const accepted = (type, extra = {}) => HttpResponse.json(
+        {id: JOB, type, status: 'PENDING', createdAt: '2026-08-27T09:12:03Z', processedItems: 0, successfulItems: 0, failedItems: 0, ...extra},
+        {status: 202, headers: {Location: `/api/v1/jobs/${JOB}`}},
+    )
+
+    it('las dos importaciones son un multipart con la parte file y su nombre, y dryRun viaja siempre en la query', async () => {
+        useToken()
+        const profiles = record('post', '/api/configuration/profiles/jobs/import', () => accepted('PROFILE_IMPORT'))
+        const lovs = record('post', '/api/configuration/lovs/jobs/import', () => accepted('LOV_IMPORT'))
+        // En jsdom, el Request de Vitest rehace el FormData para Node sin el nombre de cada fichero (lo
+        // manda como «blob»). El nombre se comprueba donde la aplicación lo pone, en append; en un
+        // navegador viaja en la parte tal cual.
+        const parts = vi.spyOn(FormData.prototype, 'append')
+        const profileMaster = new File(['PK-xlsx'], 'profile-master.xlsx', {type: XLSX_MIME})
+        const lovMaster = new File(['PK-lov'], 'lov-master.xlsx', {type: XLSX_MIME})
+
+        const profileJob = await importProfiles(profileMaster, {dryRun: true})
+        await importLovs(lovMaster)
+
+        expect(parts.mock.calls).toEqual([['file', profileMaster, 'profile-master.xlsx'], ['file', lovMaster, 'lov-master.xlsx']])
+        expect(profiles[0].url.search).toBe('?dryRun=true')
+        expect(lovs[0].url.search).toBe('?dryRun=false')
+        expect(profiles[0].headers.get('content-type')).toMatch(/^multipart\/form-data; boundary=/)
+        expect(profiles[0].body).toContain('Content-Disposition: form-data; name="file"; filename=')
+        expect(profiles[0].body).toContain(`Content-Type: ${XLSX_MIME}`)
+        expect(profiles[0].body).toContain('PK-xlsx')
+        expect(lovs[0].body).toContain('PK-lov')
+        expect(profiles[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(profileJob).toMatchObject({id: JOB, type: 'PROFILE_IMPORT', status: 'PENDING', itemErrors: []})
+        expect(profileJob).not.toHaveProperty('totalItems')
+    })
+
+    it('exportar lleva la vía y el formato; republicar, lo que se republica y su filtro, y sin barra final', async () => {
+        useToken()
+        const exports = record('post', '/api/configuration/profiles/jobs/export', () => accepted('PROFILE_EXPORT'))
+        // Con barra final la ruta no casa con este manejador: la llamada fallaría por no tenerlo.
+        const republished = record('post', '/api/configuration/master-data/republish', () => accepted('MASTER_DATA_REPUBLISH'))
+
+        await exportProfiles({trackId: 3, mapperType: 'technical'})
+        await exportProfiles({trackId: 4})
+        await republish({entity: 'profile', trackId: 3})
+        await republish({entity: 'disconnector', stationId: 12})
+        await republish({entity: 'all'})
+
+        expect(exports.map((request) => request.url.search)).toEqual(['?trackId=3&mapperType=technical', '?trackId=4&mapperType=basic'])
+        expect(republished.map((request) => request.url.search)).toEqual(['?entity=profile&trackId=3', '?entity=disconnector&stationId=12',
+            '?entity=all'])
+        expect(exports[0].body).toBe('')
+        expect(MAPPER_TYPES).toEqual(['basic', 'default', 'technical'])
+        expect(REPUBLISH_TARGETS.map((target) => [target.value, target.scope])).toEqual([
+            ['profile', 'track'], ['disconnector', 'station'], ['section-insulator', 'station'], ['all', null]])
+    })
+
+    it('la lista pide la página del servicio (desde 0), 20 filas y los filtros, sin sort: ordena el servicio', async () => {
+        useToken()
+        const lists = record('get', '/api/configuration/jobs', (_request, count) => HttpResponse.json(count === 1
+            ? {
+                content: [{id: JOB, type: 'LOV_IMPORT', status: 'COMPLETED', createdAt: '2026-08-27T09:12:03Z', totalItems: 17,
+                    processedItems: 17, successfulItems: 17, failedItems: 0}],
+                page: {number: 1, size: 20, totalElements: 21, totalPages: 2, first: false, last: true},
+            }
+            : {content: [], page: {number: 0, size: 20, totalElements: 0, totalPages: 0}}))
+
+        const second = await listJobs({page: 2, type: 'LOV_IMPORT', status: 'COMPLETED'})
+        const first = await listJobs()
+
+        expect(lists[0].url.search).toBe('?page=1&size=20&type=LOV_IMPORT&status=COMPLETED')
+        expect(lists[1].url.search).toBe('?page=0&size=20')
+        expect(second).toMatchObject({number: 1, size: 20, totalElements: 21, totalPages: 2})
+        expect(second.content[0]).toMatchObject({id: JOB, totalItems: 17, itemErrors: []})
+        expect(first.content).toEqual([])
+        expect(JOBS_PAGE_SIZE).toBe(20)
+    })
+
+    it('el detalle se pide a la familia de su tipo, con sus errores por elemento; uno de tipo desconocido vuelve sin llamar', async () => {
+        useToken()
+        const detail = (type, extra = {}) => () => HttpResponse.json({id: JOB, type, status: 'COMPLETED_WITH_ERRORS', processedItems: 100,
+            successfulItems: 98, failedItems: 2, ...extra})
+        const profiles = record('get', `/api/configuration/profiles/jobs/${JOB}`, detail('PROFILE_IMPORT', {
+            itemErrors: [{index: 118, operation: 'create', code: 'ValidationException', message: 'kp obligatorio [kp]'}],
+        }))
+        const lovs = record('get', `/api/configuration/lovs/jobs/${JOB}`, detail('LOV_IMPORT'))
+        const republishes = record('get', `/api/configuration/master-data/republish/${JOB}`, detail('MASTER_DATA_REPUBLISH'))
+
+        const imported = await getJob({id: JOB, type: 'PROFILE_IMPORT'})
+        await getJob({id: JOB, type: 'PROFILE_BULK_UPDATE'})
+        await getJob({id: JOB, type: 'LOV_IMPORT'})
+        await getJob({id: JOB, type: 'MASTER_DATA_REPUBLISH'})
+        const unknown = {id: JOB, type: 'PROFILE_REPAIR', status: 'RUNNING'}
+
+        await expect(getJob(unknown)).resolves.toBe(unknown)
+        expect(profiles).toHaveLength(2)
+        expect(lovs).toHaveLength(1)
+        expect(republishes).toHaveLength(1)
+        expect(imported.itemErrors).toEqual([{index: 118, operation: 'create', code: 'ValidationException', message: 'kp obligatorio [kp]'}])
+        expect(familyOf({type: 'PROFILE_EXPORT'})).toBe(JOB_FAMILIES.profiles)
+        expect(familyOf({type: 'PROFILE_REPAIR'})).toBeNull()
+        expect(JOB_FAMILIES.republish.producesFile).toBe(false)
+    })
+
+    describe('el fichero', () => {
+        afterEach(() => {
+            delete URL.createObjectURL
+            delete URL.revokeObjectURL
+        })
+
+        it('se pide por familia e id con el token, con el nombre del servicio o el de reserva; lo que no se descarga no se pide', async () => {
+            useToken('token-files')
+            const exportFile = record('get', `/api/configuration/profiles/jobs/${JOB}/file`, () => new HttpResponse('a;b', {
+                headers: {'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="perfiles-VIA-1-basic.csv"'},
+            }))
+            const report = record('get', `/api/configuration/lovs/jobs/${JOB}/file`, () => HttpResponse.json({errors: []}))
+            Object.defineProperty(URL, 'createObjectURL', {value: vi.fn(() => 'blob:mto/1'), configurable: true})
+            Object.defineProperty(URL, 'revokeObjectURL', {value: vi.fn(), configurable: true})
+            const saved = []
+            vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click() {
+                saved.push(this.download)
+            })
+
+            await expect(downloadJobFile({id: JOB, type: 'PROFILE_EXPORT', status: 'COMPLETED', trackId: 3}))
+                .resolves.toBe('perfiles-VIA-1-basic.csv')
+            await expect(downloadJobFile({id: JOB, type: 'LOV_IMPORT', status: 'COMPLETED_WITH_ERRORS'}))
+                .resolves.toBe(`informe-catalogo-lov-${JOB}.json`)
+            await expect(downloadJobFile({id: JOB, type: 'PROFILE_EXPORT', status: 'RUNNING', trackId: 3})).rejects.toThrow('no tiene fichero')
+            await expect(downloadJobFile({id: JOB, type: 'MASTER_DATA_REPUBLISH', status: 'COMPLETED'})).rejects.toThrow('no tiene fichero')
+            await expect(downloadJobFile({id: JOB, type: 'PROFILE_REPAIR', status: 'COMPLETED'})).rejects.toThrow('no tiene fichero')
+
+            expect(exportFile).toHaveLength(1)
+            expect(exportFile[0].headers.get('authorization')).toBe('Bearer token-files')
+            expect(report).toHaveLength(1)
+            expect(saved).toEqual(['perfiles-VIA-1-basic.csv', `informe-catalogo-lov-${JOB}.json`])
+        })
+
+        it('un 410 es un fichero que ya no está: se pide relanzar el trabajo', async () => {
+            useToken()
+            server.use(http.get(`/api/configuration/profiles/jobs/${JOB}/file`, () => HttpResponse.json(
+                {status: 410, detail: `El fichero del trabajo ${JOB} ya no esta disponible`},
+                {status: 410, headers: {'Content-Type': 'application/problem+json'}},
+            )))
+
+            const error = await failure(downloadJobFile({id: JOB, type: 'PROFILE_IMPORT', status: 'COMPLETED'}))
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.status).toBe(410)
+            expect(errorMessage(error)).toBe('El fichero ya no está en el servicio: vuelve a lanzar el trabajo.')
+        })
+    })
+
+    it('un 429 trae el trabajo rechazado y cuándo reintentar; un cuerpo que no es un trabajo no se convierte en uno', async () => {
+        useToken()
+        server.use(http.post('/api/configuration/profiles/jobs/export', () => HttpResponse.json(
+            {id: JOB, type: 'PROFILE_EXPORT', status: 'REJECTED', createdAt: '2026-08-27T09:12:03Z', trackId: 3, mapperType: 'basic',
+                processedItems: 0, successfulItems: 0, failedItems: 0},
+            {status: 429, headers: {'Retry-After': '30'}},
+        )))
+
+        const error = await failure(exportProfiles({trackId: 3}))
+
+        expect(error).toBeInstanceOf(TooManyRequestsError)
+        expect(error.retryAfterSeconds).toBe(30)
+        expect(rejectedJobOf(error)).toMatchObject({id: JOB, type: 'PROFILE_EXPORT', status: 'REJECTED', trackId: 3, itemErrors: []})
+        expect(rejectedJobOf(new TooManyRequestsError(429, {body: {message: 'rate limit'}}))).toBeNull()
+        expect(rejectedJobOf(new TooManyRequestsError(429))).toBeNull()
+        expect(rejectedJobOf(new ValidationError(400, {body: {id: JOB}}))).toBeNull()
+    })
+
+    it('qué está terminado y qué se descarga, en cada tipo y en cada estado', () => {
+        const job = (type, status) => ({id: JOB, type, status, trackId: 3})
+
+        expect(['PENDING', 'RUNNING', 'COMPLETED', 'COMPLETED_WITH_ERRORS', 'FAILED', 'REJECTED', 'PAUSED', null]
+            .map((status) => isTerminal(job('PROFILE_EXPORT', status))))
+            .toEqual([false, false, true, true, true, true, true, true])
+        expect(isDownloadable(job('PROFILE_EXPORT', 'COMPLETED'))).toBe(true)
+        expect(isDownloadable(job('PROFILE_EXPORT', 'COMPLETED_WITH_ERRORS'))).toBe(false)
+        expect(isDownloadable(job('PROFILE_IMPORT', 'COMPLETED'))).toBe(true)
+        expect(isDownloadable(job('PROFILE_IMPORT', 'COMPLETED_WITH_ERRORS'))).toBe(true)
+        expect(isDownloadable(job('LOV_IMPORT', 'COMPLETED_WITH_ERRORS'))).toBe(true)
+        expect(isDownloadable(job('LOV_IMPORT', 'FAILED'))).toBe(false)
+        expect(isDownloadable(job('PROFILE_BULK_CREATE', 'COMPLETED'))).toBe(false)
+        expect(isDownloadable(job('MASTER_DATA_REPUBLISH', 'COMPLETED'))).toBe(false)
+        expect(isDownloadable(job('PROFILE_REPAIR', 'COMPLETED'))).toBe(false)
+        expect(isDownloadable(job('PROFILE_EXPORT', 'PAUSED'))).toBe(false)
+        expect(hasErrorReport(job('PROFILE_IMPORT', 'COMPLETED_WITH_ERRORS'))).toBe(true)
+        expect(hasErrorReport(job('PROFILE_EXPORT', 'COMPLETED'))).toBe(false)
+        expect(hasErrorReport(job('LOV_IMPORT', 'FAILED'))).toBe(false)
+        expect(fallbackFileName(job('PROFILE_EXPORT', 'COMPLETED'))).toBe('perfiles-via-3.csv')
+        expect(fallbackFileName(job('PROFILE_IMPORT', 'COMPLETED'))).toBe(`informe-maestro-perfiles-${JOB}.json`)
+        expect(fallbackFileName(job('PROFILE_REPAIR', 'COMPLETED'))).toBe(`trabajo-${JOB}`)
+    })
+
+    it('un tipo y un estado nuevos se leen como «Desconocido», no se ofrecen y el trabajo leído no se reescribe', () => {
+        const read = toJob({id: JOB, type: 'PROFILE_REPAIR', status: 'PAUSED'})
+
+        expect(read).toEqual({id: JOB, type: 'PROFILE_REPAIR', status: 'PAUSED', processedItems: 0, successfulItems: 0, failedItems: 0,
+            itemErrors: []})
+        expect(JOB_TYPE.label(read.type)).toBe('Desconocido')
+        expect(JOB_STATUS.label(read.status)).toBe('Desconocido')
+        expect(JOB_TYPE.label('LOV_IMPORT')).toBe('Importación del catálogo de LOV')
+        expect(JOB_STATUS.label('COMPLETED_WITH_ERRORS')).toBe('Terminado con errores')
+        expect(JOB_TYPE.selectable().map((option) => option.value)).not.toContain(UNKNOWN)
+        expect(JOB_STATUS.selectable()).toHaveLength(6)
     })
 })

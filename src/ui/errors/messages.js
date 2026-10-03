@@ -46,6 +46,11 @@ export function errorMessage(error) {
     if (error instanceof UnavailableError) {
         return unavailableMessage(error)
     }
+    // El unico 410 del dominio es el fichero de un trabajo de mto-configuration que ya no esta
+    // (purgado, o generado en otra replica): un 404 sugeriria reintentar, y esto pide relanzarlo.
+    if (error.status === 410) {
+        return 'El fichero ya no está en el servicio: vuelve a lanzar el trabajo.'
+    }
     return `Error inesperado (${error.status}).` + detail(error)
 }
 

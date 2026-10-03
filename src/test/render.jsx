@@ -44,7 +44,9 @@ export function renderRoute(path, {session, config = TEST_CONFIG, token = 'test-
     })
     const authActions = {signIn: vi.fn(), signOut: vi.fn()}
     const router = createMemoryRouter(appRoutes(), {initialEntries: [path]})
-    const user = userEvent.setup()
+    // Con el reloj falso (los trabajos, que se sondean cada dos segundos), user-event avanza ese reloj
+    // en sus esperas en vez de quedarse esperando a uno que no corre.
+    const user = userEvent.setup(vi.isFakeTimers() ? {advanceTimers: (ms) => vi.advanceTimersByTime(ms)} : {})
 
     const view = render(
         <MantineProvider theme={theme} env="test">

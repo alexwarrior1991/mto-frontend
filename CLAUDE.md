@@ -66,7 +66,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
   `lovEntryWithEnabled`) y `configuration/masters.js` (los seis maestros: `filterMasters`, el CRUD,
   `trackSchematic`, `listBusinessEntities`, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
-  `lovRef`, `CLEARED_LOV_REF`).
+  `lovRef`, `CLEARED_LOV_REF`) y `configuration/jobs.js` (los trabajos en segundo plano: `JOB_TYPE`
+  y `JOB_STATUS` tolerantes, `JOB_FAMILIES` y `familyOf`, `isTerminal`, `isDownloadable`,
+  `hasErrorReport`, los lanzadores `importProfiles`, `importLovs`, `exportProfiles` y `republish`,
+  `listJobs`, `getJob` por familia, `downloadJobFile` y `rejectedJobOf`, el trabajo de un 429).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -110,6 +113,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `masterResources.js`, `references.js` (nombres de las referencias y `#id`), `formValues.js` (de
     DTO a formulario y vuelta), `useMasters.js` (listas, escrituras y referencias) y
     `useCatalogues.js` (varios catálogos para los desplegables, con la caché de `catalogues/`).
+
+  `jobs/` es el port de `ui/jobs`:
+  - `JobsPage` (el port de `JobsView`): los lanzadores que permite la sesión y el historial;
+  - `LauncherCard` (el marco, una región con nombre) y `ExportCard`, `ImportCard` (las dos
+    importaciones, con `FileInput` y el tope de 20 MB) y `RepublishCard`;
+  - `JobHistory` (la lista del servicio con sus filtros, «Descargar» y «Errores») y `JobErrorsModal`;
+  - `sessionJobs.js` (el port de `JobLog`: los trabajos de la pestaña con su etiqueta y su último
+    estado, en memoria, leídos con `useSyncExternalStore`), `useJobs.js` (`useJobList`, la vuelta de
+    seguimiento con su sondeo y el aviso al terminar, y `useLaunchJob`, el 202 y el 429) y
+    `jobTexts.js` (etiquetas, progreso y recuentos).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -204,6 +217,21 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     filas) solo para nombrar las referencias.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
+- **Un trabajo se lanza y se sigue; no se espera.**
+  - Lanzar responde 202 con el trabajo, o 429 con el trabajo ya rechazado y un `Retry-After`
+    (`rejectedJobOf`): se apunta como rechazado y el aviso dice cuándo reintentar, no es un fallo.
+  - La lista es la del servicio (`GET /jobs`, sin `sort`: ordena él). Se vuelve a pedir cada 2 s
+    mientras haya en la página algo sin terminar o un trabajo de la pestaña en curso; los de la
+    pestaña que no estén en la página se piden a su familia en la misma vuelta (`useJobList`).
+  - Un fallo del sondeo no se avisa cada 2 s (`meta: {notifyError: false}`): se enseña fijo encima de
+    la tabla mientras el último intento falle.
+  - `sessionJobs` solo guarda la etiqueta con la que la pestaña lanzó cada trabajo y su último
+    estado, para pintarla encima y avisar una vez cuando termina. Recargar la pierde, como el token.
+  - Las filas no traen los errores por elemento: «Errores» los pide al detalle. Un tipo desconocido
+    no tiene familia (ni detalle ni descarga) y un estado desconocido cuenta como terminado.
+  - El fichero se pide por familia e id con el token (`downloadJobFile`); nunca el `downloadUrl` ni el
+    `Location` del servicio. Una exportación se descarga `COMPLETED`; una importación también
+    `COMPLETED_WITH_ERRORS`, porque su fichero es el informe. Un 410 pide relanzar el trabajo.
 - **La configuración del entorno llega en tiempo de ejecución** (`/config.json`): una imagen vale
   para todos los entornos. Nada de `VITE_*`; la base de la API es siempre `/api`.
 - **Un servicio nuevo (por ejemplo `mto-field`) se añade en un solo sitio por pieza**: su entrada en
@@ -223,12 +251,14 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
-- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`) — las pantallas con la tabla de
+- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`) — las pantallas con la tabla de
   rutas real (`renderRoute(path, {session})` en `render.jsx`, con `createMemoryRouter` y Mantine en
   `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
   son los de `ViewLayerTest` del backoffice, portados por fase. Se busca por rol y nombre
-  (`getByRole('button', {name: 'Nuevo'})`).
+  (`getByRole('button', {name: 'Nuevo'})`). Lo que se sondea (los trabajos) corre con el reloj falso
+  que avanza solo (`vi.useFakeTimers({shouldAdvanceTime: true})`): cada vuelta es
+  `advanceTimersByTimeAsync(2000)` dentro de `act`, y `renderRoute` le pasa ese reloj a user-event.
 - `src/test/app.test.js` — licencias, paridad de rutas y enlaces, configuración, nginx y el proxy de
   Vite, `.run/`.
 
