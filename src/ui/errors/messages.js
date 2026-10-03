@@ -35,7 +35,7 @@ export function errorMessage(error) {
         return 'No tienes permiso para esta operación.'
     }
     if (error instanceof NotFoundError) {
-        return 'No se ha encontrado lo que se pedía.' + detail(error)
+        return notFoundMessage(error)
     }
     if (error instanceof ValidationError) {
         return validationMessage(error)
@@ -54,6 +54,18 @@ export function errorMessage(error) {
     return `Error inesperado (${error.status}).` + detail(error)
 }
 
+function notFoundMessage(error) {
+    switch (error.code) {
+        // mto-users: cerrar una sesion que ya no esta, o que es de otra persona (el servicio lo comprueba).
+        case 'SES-404':
+            return 'Esa sesión ya no existe o no es de este usuario.'
+        case 'CRED-404':
+            return 'Esa credencial ya no existe o no es de este usuario.'
+        default:
+            return 'No se ha encontrado lo que se pedía.' + detail(error)
+    }
+}
+
 function validationMessage(error) {
     // mto-maintenance: la inspeccion no casa con su checklist.
     if (error.code === 'INS-001') {
@@ -62,6 +74,11 @@ function validationMessage(error) {
     // mto-maintenance: mto-stock ha dicho que no al sincronizar una linea de material.
     if (error.code === 'STK-422') {
         return 'El almacén ha rechazado la operación.' + detail(error)
+    }
+    // mto-users: Keycloak no admite lo pedido (la politica de contrasenas del realm, un atributo que
+    // el perfil de usuario exige...). Su detalle, que es el texto de Keycloak, es lo que lo explica.
+    if (error.code === 'KC-400' && !error.hasFieldErrors) {
+        return 'Keycloak ha rechazado la petición.' + detail(error)
     }
     // Un 422 sin errores por campo es una regla de negocio: la peticion esta bien, la operacion no cabe.
     if (error.status === 422 && !error.hasFieldErrors) {
@@ -94,6 +111,9 @@ function conflictMessage(error) {
         case 'AST-409':
         case 'TEA-409':
             return 'Ya existe otro con ese código.'
+        // mto-users: un nombre de usuario o un email repetido. Recargar no lo arregla, asi que no se pide.
+        case 'USR-409':
+            return 'Ya existe un usuario con ese nombre de usuario o ese email.' + detail(error)
         default:
             return 'Conflicto con otro cambio: recarga y vuelve a intentarlo.' + detail(error)
     }

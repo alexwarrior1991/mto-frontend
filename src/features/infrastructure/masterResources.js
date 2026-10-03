@@ -53,11 +53,6 @@ export function deleteWarning(master) {
     return `Desaparece de las listas: el servicio ${it} marca como ${deleted} y desde aquí no se puede recuperar.${children}`
 }
 
-/** Las casillas en una lista: «Sí» o «No». */
-export function yesNo(value) {
-    return value === true ? 'Sí' : 'No'
-}
-
 /** Cómo se nombra una fila en los mensajes: por su nombre, o por su id si no tiene. */
 export function nameOf(row) {
     return row?.name ? row.name : `#${row?.id}`

@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 3
+## Estado: fase 4
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -62,6 +62,19 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     ve. Si el servicio no tiene hueco (429), se apunta como rechazado y dice cuándo reintentar.
   - El fichero de una exportación y el informe de una importación se descargan con el token. Los
     errores por elemento se piden al detalle del trabajo.
+- **Fase 4 · Usuarios**: los usuarios, perfiles y roles de cliente del realm, a través de
+  `mto-users` (`usuarios`, `usuarios/:userId`, `usuarios/perfiles` y `usuarios/roles`).
+  - La lista se pide al servicio por páginas de 50 (`first` y `max`, con su total), buscada por
+    texto o filtrada por un atributo exacto, que no van juntos. La API no ordena.
+  - Alta (con contraseña temporal, acciones al entrar y atributos), modificación con solo lo que
+    cambió, activar y desactivar, y borrar con confirmación.
+  - La ficha de una persona, con sus perfiles, sus roles de cliente, sus sesiones (normales y
+    offline) y sus credenciales en pestañas que piden sus datos la primera vez que se abren.
+    Asignar y quitar pintan lo que devuelve el servicio.
+  - La contraseña temporal, el correo de acciones y «Sacar a la persona»: desactivar, cerrar las
+    sesiones y revocar las offline, en ese orden, parando en el primer fallo.
+  - Los catálogos de perfiles y de roles, de solo lectura, con lo que concede cada perfil y quién
+    tiene cada uno, paseados por páginas sin total.
 - Las pantallas que aún no han llegado dicen en qué fase llegan y ofrecen **«Abrir en el
   backoffice»** con la misma ruta. Los enlaces de las notificaciones ya resuelven.
 
@@ -190,7 +203,8 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   servicio rechazará el token), tus permisos por cliente y tus roles de realm (solo informativos).
 - **Comprobar servicios**, en Inicio: cada servicio que puedes leer responde a través del gateway.
 - El **menú** cambia con la persona: `config.responsable` ve Infraestructura, Trabajos, la bandeja,
-  el registro de actividad y los Catálogos; `almacen.lector`, el Almacén.
+  el registro de actividad y los Catálogos; `usuarios.lector`, Usuarios; `almacen.lector`, el
+  Almacén.
 - Un enlace profundo (por ejemplo http://localhost:4200/actividad/accesos?username=x) sobrevive a
   la entrada: después de Keycloak vuelves a él.
 - **Salir** cierra la sesión de Keycloak: volver a entrar pide la contraseña.
@@ -221,6 +235,20 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - Con `config.lector` solo se puede exportar. El catálogo de LOV pide además `lov-manage`.
   - Si el servicio ya no admite más trabajos a la vez, el nuevo sale «Rechazado», y el aviso dice
     cuándo volver a intentarlo.
+- **Usuarios** (con `usuarios.responsable`; `usuarios.gestor` lo puede todo menos borrar, y
+  `usuarios.lector` solo leer):
+  - «Buscar» y «Atributo clave:valor» piden la lista al servicio; escribir en uno deshabilita el
+    otro. Un atributo solo se guarda y se encuentra si el realm admite atributos no gestionados, como
+    el de `mto-platform`.
+  - «Nuevo» da de alta con una contraseña temporal y lo que Keycloak pedirá al entrar.
+  - La ficha (el nombre de cada fila) tiene sus botones según tus permisos y cuatro pestañas:
+    perfiles y roles se asignan y se quitan, y las sesiones y las credenciales se cierran o se quitan.
+  - «Acciones por correo» manda el enlace a través de Keycloak: en local el correo llega a Mailpit
+    (http://localhost:8025).
+  - «Sacar a la persona» la desactiva, cierra sus sesiones y revoca las offline. No lo pruebes contigo
+    mismo: te sacaría a ti.
+  - **Perfiles de usuario** y **Roles de cliente** enseñan lo que concede cada perfil y quién tiene
+    cada uno, solo por asignación directa.
 
 ### Usuarios de desarrollo
 
@@ -316,11 +344,11 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 
 | Fichero | Qué cubre |
 |---|---|
-| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido) |
+| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido; los usuarios: la búsqueda con `first`/`max` y su total, el atributo repetido y codificado, lo que se rechaza antes de llamar, el alta y el `PUT` parcial con solo lo cambiado, el `PATCH` de activo, la contraseña y el correo, las sesiones y las credenciales, los roles con el `DELETE` con cuerpo, los perfiles con el `PUT` sin cuerpo, los catálogos y sus miembros sin total, «sacar a la persona» en su orden y parando en el primer fallo, y un id con «:» codificado) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso, y los usuarios (los casos de `ViewLayerTest` del backoffice: la lista en el servicio con la exclusión entre búsqueda y atributo, el editor con solo lo cambiado, la ficha con sus pestañas perezosas y cada botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña con el KC-400 de verdad, el correo con su 502, las sesiones, las credenciales, «sacar a la persona» y los catálogos con sus miembros) |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
-| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, y una exportación hasta su descarga y la simulación del catálogo de LOV |
+| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, una exportación hasta su descarga y la simulación del catálogo de LOV, y una persona de usar y tirar de su alta a su borrado (con su atributo, un perfil, un rol, la contraseña temporal, el correo en Mailpit y «sacar a la persona») y los dos catálogos de usuarios |
 
 ## Puertos
 
