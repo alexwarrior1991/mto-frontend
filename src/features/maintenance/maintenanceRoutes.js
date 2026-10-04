@@ -9,6 +9,7 @@ export const ASSETS_PATH = '/mantenimiento/activos'
 export const SHIFTS_PATH = '/mantenimiento/turnos'
 export const INSPECTIONS_PATH = '/mantenimiento/inspecciones'
 export const DEFECTS_PATH = '/mantenimiento/defectos'
+export const REPORTS_PATH = '/mantenimiento/informes'
 
 export function orderPath(id) {
     return `/mantenimiento/ordenes/${encodeURIComponent(id)}`

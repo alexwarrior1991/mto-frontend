@@ -67,7 +67,7 @@ export const ROUTES = Object.freeze([
     {path: 'mantenimiento/inspecciones/:inspectionId', title: 'Inspección', page: 'maintenanceInspection', requires: MAINTENANCE, phase: 6},
     {path: 'mantenimiento/defectos', title: 'Defectos', page: 'maintenanceDefects', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 64, icon: 'defects'}},
     {path: 'mantenimiento/defectos/:defectId', title: 'Defecto', page: 'maintenanceDefect', requires: MAINTENANCE, phase: 6},
-    {path: 'mantenimiento/informes', title: 'Informes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 65, icon: 'reports'}},
+    {path: 'mantenimiento/informes', title: 'Informes', page: 'maintenanceReports', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 65, icon: 'reports'}},
     {path: 'mantenimiento/equipos', title: 'Equipos', page: 'maintenanceTeams', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 66, icon: 'teams'}},
     {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', page: 'maintenanceTaskTypes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
     {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', page: 'maintenanceTemplates', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},

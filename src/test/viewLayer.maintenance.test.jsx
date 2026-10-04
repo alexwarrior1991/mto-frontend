@@ -160,7 +160,7 @@ function serveStock(requests, {materials = [], warehouses = [], projects = []} =
 function serveMaintenance({
     assets = [], teams = [], taskTypes = [], templates = [], assetOrders = {}, revisions = {}, orders = [], tasks = {}, history = {},
     materials = {}, stock = {}, shifts = [], shiftTasks = {}, shiftProfiles = {}, shiftReports = {}, inspections = [], defects = [],
-    defectHistory = {},
+    defectHistory = {}, reports = {},
 } = {}) {
     const requests = []
     const log = (request) => {
@@ -261,6 +261,17 @@ function serveMaintenance({
                 }})
             }
             return HttpResponse.json(shiftReports[params.id])
+        }),
+        http.get(`${BASE}/reports/:report`, ({request, params}) => {
+            const url = log(request)
+            if (has(url, 'format')) {
+                const name = params.report === 'monthly' ? `monthly-report-${param(url, 'month')}` : 'progress-report'
+                return new HttpResponse(new Uint8Array([37, 80, 68, 70]), {headers: {
+                    'content-type': 'application/octet-stream',
+                    'content-disposition': `attachment; filename="${name}.${param(url, 'format')}"`,
+                }})
+            }
+            return reports[params.report](url)
         }),
         http.get(`${BASE}/inspections`, ({request}) => {
             const url = log(request)
@@ -1958,5 +1969,91 @@ describe('los defectos', () => {
         await user.click(screen.getByRole('button', {name: 'Historial'}))
         await waitFor(() => expect(dataRows('Historial de DEF-000001')).toHaveLength(1))
         expect(textsOf(dataRows('Historial de DEF-000001')[0])).toContain('Alta · Abierto · reparar el 12/10/2026')
+    })
+})
+
+describe('los informes', () => {
+    afterEach(() => {
+        delete URL.createObjectURL
+        delete URL.revokeObjectURL
+    })
+
+    it('el avance pinta las cifras del servicio con los nombres, y sus ficheros aparecen tras consultar; un fallo no deja nada', async () => {
+        const from = startOfDayInstant('2026-09-01')
+        const to = endOfDayInstant('2026-09-30')
+        const row = {executionPackageId: 3, trackId: 12, assetType: 'PROFILE', totalAssets: 40, checkedAssets: 18, completionRatio: 0.45,
+            coveredKm: 5.4, totalKm: 12}
+        const requests = serveMaintenance({reports: {progress: (url) => (has(url, 'trackId')
+            ? HttpResponse.json({from, to, totalAssets: 40, checkedAssets: 18, completionRatio: 0.45, coveredKm: 5.4, totalKm: 12, rows: [row]})
+            : HttpResponse.json({status: 503, error: 'Service Unavailable', message: null}, {status: 503}))}})
+        const {user} = renderRoute('/mantenimiento/informes', {session: loginAs('mantenimiento.lector')})
+        const saved = captureDownloads()
+        const reads = () => readsOf(requests, `${BASE}/reports/progress`)
+
+        await user.click(await screen.findByRole('button', {name: 'Consultar'}))
+        expect(await screen.findByText(/El servicio no está disponible ahora mismo/)).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Excel'})).not.toBeInTheDocument()
+
+        await choose(user, document.body, 'Paquete', 'PAQ NORTE')
+        await choose(user, document.body, 'Vía', 'VIA 1 (PAQ NORTE)')
+        await choose(user, document.body, 'Tipo de activo', 'Perfil')
+        await user.type(screen.getByRole('textbox', {name: 'Desde'}), '01/09/2026')
+        await user.type(screen.getByRole('textbox', {name: 'Hasta'}), '30/09/2026')
+        await user.tab()
+        await user.click(screen.getByRole('button', {name: 'Consultar'}))
+
+        expect(await screen.findByLabelText('Resumen del avance')).toHaveTextContent('18 de 40 activos revisados (45 %) · 5.4 de 12 km')
+        expect(['executionPackageId', 'trackId', 'assetType', 'from', 'to'].map((name) => param(reads().at(-1), name)))
+            .toEqual(['3', '12', 'PROFILE', from, to])
+        expect(textsOf(dataRows('Avance por paquete, vía y tipo')[0])).toEqual(['PAQ NORTE', 'VIA 1 (PAQ NORTE)', 'Perfil', '18 de 40', '45 %',
+            '5.4 de 12 km'])
+        await user.click(screen.getByRole('button', {name: 'Excel'}))
+        await waitFor(() => expect(saved).toEqual(['progress-report.xlsx']))
+        expect([param(reads().at(-1), 'format'), param(reads().at(-1), 'trackId')]).toEqual(['xlsx', '12'])
+        expect(screen.getByRole('button', {name: 'PDF'})).toBeInTheDocument()
+    })
+
+    it('el mensual ofrece los últimos 24 meses con el actual, pide el mes y descarga lo consultado aunque cambien los filtros', async () => {
+        const now = new Date()
+        const current = new Date(now.getFullYear(), now.getMonth(), 1)
+        const last = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        const yearMonth = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        const label = (date) => `${new Intl.DateTimeFormat('es', {month: 'long'}).format(date)} ${date.getFullYear()}`
+        const requests = serveMaintenance({reports: {monthly: (url) => HttpResponse.json({month: param(url, 'month'), executionPackageId: 3,
+            shiftsPlanned: 8, shiftsClosed: 6, shiftsCancelled: 1, netWorkMinutes: 1440, averageNetMinutesPerShift: 240, ordersCompleted: 3,
+            tasksCompleted: 45, profilesChecked: 44, coveredKm: 2.9, defectsDetected: 5, defectsResolved: 3, correctiveOrdersCreated: 2,
+            materials: [{materialId: MAT1, materialCode: 'MAT-001', unit: 'm', consumedQuantity: 12.5}]})}})
+        const {user} = renderRoute('/mantenimiento/informes', {session: loginAs('mantenimiento.lector')})
+        const saved = captureDownloads()
+        const reads = () => readsOf(requests, `${BASE}/reports/monthly`)
+
+        await user.click(await screen.findByRole('tab', {name: 'Mensual'}))
+        const month = await screen.findByRole('combobox', {name: 'Mes'})
+        expect(month).toHaveValue(label(current))
+        await user.click(month)
+        const options = await screen.findAllByRole('option')
+        expect(options).toHaveLength(24)
+        expect(options[1]).toHaveTextContent(label(last))
+        await user.click(options[1])
+        // Volver a elegir lo elegido lo deja vacío: el botón de vaciar de Mantine no se ofrece a un lector de pantalla.
+        await choose(user, document.body, 'Mes', label(last))
+        await user.click(screen.getByRole('button', {name: 'Consultar'}))
+        expect(await screen.findByText('Elige un mes')).toBeInTheDocument()
+        expect(reads()).toHaveLength(0)
+
+        await choose(user, document.body, 'Mes', label(last))
+        await choose(user, document.body, 'Paquete', 'PAQ NORTE')
+        await user.click(screen.getByRole('button', {name: 'Consultar'}))
+        const summary = await screen.findByLabelText('Resumen del mes')
+        expect(summary).toHaveTextContent('Turnos: 8 planificados, 6 cerrados, 1 cancelado · 1440 min netos (240 por turno)')
+        expect(summary).toHaveTextContent('Órdenes completadas: 3 · Tareas completadas: 45 · Perfiles revisados: 44 · 2.9 km')
+        expect(summary).toHaveTextContent('Defectos: 5 detectados, 3 resueltos · Órdenes correctivas: 2')
+        expect([param(reads()[0], 'month'), param(reads()[0], 'executionPackageId')]).toEqual([yearMonth(last), '3'])
+        expect(textsOf(dataRows('Materiales consumidos en el mes')[0])).toEqual(['MAT-001', '12.5', 'm'])
+
+        await choose(user, document.body, 'Paquete', 'PAQ SUR')
+        await user.click(screen.getByRole('button', {name: 'PDF'}))
+        await waitFor(() => expect(saved).toEqual([`monthly-report-${yearMonth(last)}.pdf`]))
+        expect(['month', 'executionPackageId', 'format'].map((name) => param(reads().at(-1), name))).toEqual([yearMonth(last), '3', 'pdf'])
     })
 })
