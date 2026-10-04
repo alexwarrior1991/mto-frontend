@@ -58,8 +58,8 @@ export const ROUTES = Object.freeze([
     {path: 'almacen/reservas', title: 'Reservas', page: 'stockReservations', requires: STOCK, phase: 5, menu: {group: 'almacen', order: 56, icon: 'reservations'}},
     {path: 'almacen/conjuntos', title: 'Conjuntos', page: 'stockAssemblies', requires: STOCK, phase: 5, menu: {group: 'almacen', order: 57, icon: 'assemblies'}},
 
-    {path: 'mantenimiento', title: 'Órdenes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 60, icon: 'maintenance'}},
-    {path: 'mantenimiento/ordenes/:orderId', title: 'Orden', requires: MAINTENANCE, phase: 6},
+    {path: 'mantenimiento', title: 'Órdenes', page: 'maintenanceOrders', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 60, icon: 'maintenance'}},
+    {path: 'mantenimiento/ordenes/:orderId', title: 'Orden', page: 'maintenanceOrder', requires: MAINTENANCE, phase: 6},
     {path: 'mantenimiento/activos', title: 'Activos', page: 'maintenanceAssets', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 61, icon: 'assets'}},
     {path: 'mantenimiento/turnos', title: 'Turnos', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 62, icon: 'shifts'}},
     {path: 'mantenimiento/turnos/:shiftId', title: 'Turno', requires: MAINTENANCE, phase: 6},

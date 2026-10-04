@@ -1,6 +1,9 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
 import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
+import {listOrderMaterials} from '../../api/maintenance/materials.js'
+import {createOrder, getOrder, listOrderHistory, patchOrder, searchOrders, transitionOrder} from '../../api/maintenance/orders.js'
+import {cancelTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask} from '../../api/maintenance/tasks.js'
 
 /**
  * Las consultas y las escrituras del módulo de mantenimiento. Las claves van todas bajo
@@ -9,6 +12,9 @@ import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTea
  *   ['maintenance', 'templates'];
  * - los activos: ['maintenance', 'assets', lo que se pide], y sus órdenes,
  *   ['maintenance', 'asset-orders', activo, lo que se pide];
+ * - las órdenes: la lista, ['maintenance', 'orders', lo que se pide]; la cabecera de una ficha,
+ *   ['maintenance', 'order', id], que no es prefijo de sus pestañas: ['maintenance', 'order-tasks', id],
+ *   'order-materials', 'order-defects', 'order-inspections' y 'order-history';
  * - un desplegable: ['maintenance', 'picker', qué, filtro, texto];
  * - los nombres de mto-stock: ['maintenance', 'stock-names', catálogo, ids].
  *
@@ -101,5 +107,138 @@ export function useAssetAction() {
     return useMutation({
         mutationFn: ({action, asset}) => (action === 'disable' ? disableAsset(asset.id) : enableAsset(asset)),
         onSettled: () => queryClient.invalidateQueries({queryKey: maintenanceKey()}),
+    })
+}
+
+/** Las pestañas de la ficha de una orden: releerlas solo pide las que se abrieron. */
+const ORDER_TABS = Object.freeze(['order-tasks', 'order-materials', 'order-defects', 'order-inspections', 'order-history'])
+
+/** Lo que cambia con una orden fuera de su ficha: las listas en las que sale. */
+function invalidateOrderLists(queryClient) {
+    return Promise.all(['orders', 'asset-orders'].map((part) => queryClient.invalidateQueries({queryKey: maintenanceKey(part)})))
+}
+
+function invalidateOrderTabs(queryClient, orderId) {
+    return Promise.all(ORDER_TABS.map((tab) => queryClient.invalidateQueries({queryKey: maintenanceKey(tab, orderId)})))
+}
+
+export function useOrderList(params) {
+    return useQuery({
+        queryKey: maintenanceKey('orders', params),
+        queryFn: ({signal}) => searchOrders({...params, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** La cabecera de la ficha de una orden. Una que no existe se dice una vez («No existe la orden …»). */
+export function useOrder(orderId) {
+    return useQuery({
+        queryKey: maintenanceKey('order', orderId),
+        queryFn: ({signal}) => getOrder(orderId, {signal}),
+        staleTime: NOT_FRESH,
+        meta: {notFoundMessage: `No existe la orden ${orderId}`},
+    })
+}
+
+export function useOrderTasks(orderId) {
+    return useQuery({queryKey: maintenanceKey('order-tasks', orderId), queryFn: ({signal}) => listOrderTasks(orderId, {signal}), staleTime: NOT_FRESH})
+}
+
+export function useOrderHistory(orderId) {
+    return useQuery({queryKey: maintenanceKey('order-history', orderId), queryFn: ({signal}) => listOrderHistory(orderId, {signal}), staleTime: NOT_FRESH})
+}
+
+/**
+ * Las líneas de material de una orden. Con enabled=false no se piden (el editor solo las mira fuera de
+ * borrador y con stock-read).
+ */
+export function useOrderMaterials(orderId, {enabled = true, notifyError = true} = {}) {
+    return useQuery({
+        queryKey: maintenanceKey('order-materials', orderId),
+        queryFn: ({signal}) => listOrderMaterials(orderId, {signal}),
+        enabled,
+        staleTime: NOT_FRESH,
+        meta: notifyError ? undefined : {notifyError: false},
+    })
+}
+
+/**
+ * El alta o la modificación de una orden, desde su editor, que trata él mismo sus errores. La ficha
+ * pinta lo que devuelve el servicio.
+ */
+export function useSaveOrder() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createOrder(body) : patchOrder(id, body)),
+        meta: {notifyError: false},
+        onSuccess: (saved) => {
+            queryClient.setQueryData(maintenanceKey('order', saved.id), saved)
+            return invalidateOrderLists(queryClient)
+        },
+    })
+}
+
+/**
+ * Una transición de la orden (planificar, asignar, iniciar, completar o cancelar), desde su diálogo,
+ * que trata él mismo sus errores. La ficha se repinta con la orden que devuelve el servicio y se
+ * releen las pestañas abiertas: una transición reserva, consume o libera materiales y deja su estado.
+ *
+ * @param {{transition: string, body: object}} variables
+ */
+export function useOrderTransition(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({transition, body}) => transitionOrder(orderId, transition, body),
+        meta: {notifyError: false},
+        onSuccess: (order) => {
+            queryClient.setQueryData(maintenanceKey('order', orderId), order)
+            return Promise.all([invalidateOrderTabs(queryClient, orderId), invalidateOrderLists(queryClient)])
+        },
+    })
+}
+
+/** Tras tocar una tarea se relee la cabecera (el avance y la estimación) y sus tareas. */
+function invalidateTasksOf(queryClient, orderId) {
+    return Promise.all([
+        queryClient.invalidateQueries({queryKey: maintenanceKey('order', orderId)}),
+        queryClient.invalidateQueries({queryKey: maintenanceKey('order-tasks', orderId)}),
+        invalidateOrderLists(queryClient),
+    ])
+}
+
+/** El alta o la modificación de una tarea, desde su editor, que trata él mismo sus errores. */
+export function useSaveTask(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({taskId = null, body}) => (taskId === null ? createTask(orderId, body) : patchTask(orderId, taskId, body)),
+        meta: {notifyError: false},
+        onSuccess: () => invalidateTasksOf(queryClient, orderId),
+    })
+}
+
+export function useGenerateTasks(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => generateTasks(orderId, body),
+        onSuccess: () => invalidateTasksOf(queryClient, orderId),
+    })
+}
+
+/** Cancelar una tarea con su motivo; si el servicio dice que no, el diálogo sigue abierto. */
+export function useCancelTask(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({taskId, reason}) => cancelTask(orderId, taskId, reason),
+        onSuccess: () => invalidateTasksOf(queryClient, orderId),
+    })
+}
+
+/** Un punto del checklist de una tarea; responde con la tarea entera, con sus puntos como quedaron. */
+export function useSaveTaskCheckItem(orderId, taskId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({itemId, patch}) => patchCheckItem(orderId, taskId, itemId, patch),
+        onSuccess: () => invalidateTasksOf(queryClient, orderId),
     })
 }

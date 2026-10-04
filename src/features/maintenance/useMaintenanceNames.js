@@ -78,10 +78,13 @@ export function useStockNames(catalogue, ids) {
         staleTime: STOCK_NAME_STALE_MS,
     })
     const found = names.data
+    // Leído, o sin nada que leer: un formulario espera a esto para partir del nombre y no del #id.
+    const ready = !readsStock || wanted.length === 0 || names.isFetched
     return useMemo(() => {
         const entry = (id) => (id && found ? found[id] ?? null : null)
         return {
             readsStock,
+            ready,
             entry,
             label: (id) => {
                 const summary = entry(id)
@@ -90,5 +93,5 @@ export function useStockNames(catalogue, ids) {
             /** Para un desplegable: el de mto-stock o, si no se sabe nombrar, uno con su id. Nunca null para un id. */
             ref: (id) => (id ? entry(id) ?? {id, code: shortId(id), name: null, active: true} : null),
         }
-    }, [found, readsStock])
+    }, [found, readsStock, ready])
 }

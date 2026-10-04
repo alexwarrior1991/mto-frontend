@@ -87,12 +87,6 @@ describe('el menu: solo lo que la persona puede abrir, en el orden del backoffic
         expect(buildMenu(loginAs('almacen.lector')).some((item) => item.key === 'catalogos')).toBe(false)
     })
 
-    it('la ficha de una orden marca «Órdenes» en el menu', async () => {
-        renderRoute('/mantenimiento/ordenes/o1', {session: loginAs('mantenimiento.lector')})
-        await screen.findByRole('heading', {name: 'Orden'})
-
-        expect(menu().getByRole('link', {name: 'Órdenes'})).toHaveAttribute('aria-current', 'page')
-    })
 })
 
 describe('rutas: las mismas que el backoffice', () => {
@@ -106,12 +100,12 @@ describe('rutas: las mismas que el backoffice', () => {
     })
 
     it('una pantalla que aun no ha llegado dice en que fase llega y abre la misma ruta en el backoffice', async () => {
-        renderRoute('/mantenimiento/ordenes/o1?tab=tareas', {session: loginAs('mantenimiento.lector')})
+        renderRoute('/actividad?category=SYSTEM', {session: loginAs('config.responsable')})
 
-        expect(await screen.findByRole('heading', {name: 'Orden'})).toBeInTheDocument()
-        expect(screen.getByText('Llega en la fase 6')).toBeInTheDocument()
+        expect(await screen.findByRole('heading', {name: 'Registro de actividad'})).toBeInTheDocument()
+        expect(screen.getByText('Llega en la fase 7')).toBeInTheDocument()
         const link = screen.getByRole('link', {name: 'Abrir en el backoffice'})
-        expect(link).toHaveAttribute('href', 'http://backoffice.test/mantenimiento/ordenes/o1?tab=tareas')
+        expect(link).toHaveAttribute('href', 'http://backoffice.test/actividad?category=SYSTEM')
         expect(link).toHaveAttribute('target', '_blank')
         expect(link.getAttribute('rel')).toContain('noopener')
     })

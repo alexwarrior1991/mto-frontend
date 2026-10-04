@@ -2,6 +2,7 @@ import {idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {sortWithTieBreak, toPage, toPageParams} from '../paging.js'
+import {BY_CREATED_DESC} from './orders.js'
 import {maintenancePath} from './values.js'
 
 /**
@@ -25,9 +26,6 @@ import {maintenancePath} from './values.js'
 
 /** El orden de la lista sin columna elegida: el físico, vía y kp. */
 export const BY_TRACK_AND_KP = Object.freeze(['trackId,asc', 'startKp,asc'])
-
-/** Las órdenes de un activo, la más reciente primero. */
-export const BY_CREATED_DESC = 'createdAt,desc'
 
 /**
  * Una página de activos con sus filtros; lo vacío no viaja. La página empieza en 1.
