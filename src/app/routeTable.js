@@ -72,7 +72,7 @@ export const ROUTES = Object.freeze([
     {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', page: 'maintenanceTaskTypes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
     {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', page: 'maintenanceTemplates', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},
 
-    {path: 'notificaciones', title: 'Notificaciones', requires: [P.NOTIFICATION_INBOX], phase: 7, menu: {order: 80, icon: 'notifications'}},
-    {path: 'actividad', title: 'Registro de actividad', requires: [P.NOTIFICATION_ACTIVITY_READ], phase: 7, menu: {group: 'actividad', order: 82, icon: 'activity'}},
-    {path: 'actividad/accesos', title: 'Accesos', requires: [P.NOTIFICATION_ACCESS_READ], phase: 7, menu: {group: 'actividad', order: 83, icon: 'access'}},
+    {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], phase: 7, menu: {order: 80, icon: 'notifications'}},
+    {path: 'actividad', title: 'Registro de actividad', page: 'activity', requires: [P.NOTIFICATION_ACTIVITY_READ], phase: 7, menu: {group: 'actividad', order: 82, icon: 'activity'}},
+    {path: 'actividad/accesos', title: 'Accesos', page: 'access', requires: [P.NOTIFICATION_ACCESS_READ], phase: 7, menu: {group: 'actividad', order: 83, icon: 'access'}},
 ])

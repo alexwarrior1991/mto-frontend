@@ -1,9 +1,17 @@
-import {screen, waitFor, within} from '@testing-library/react'
+import {MantineProvider} from '@mantine/core'
+import {render, screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
+import {createMemoryRouter} from 'react-router'
+import {RouterProvider} from 'react-router/dom'
 import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
+import {PAGES} from '../app/pages.js'
+import PendingPage from '../app/pages/PendingPage.jsx'
+import {ROUTES} from '../app/routeTable.js'
+import {RuntimeConfigContext} from '../app/runtimeConfigContext.js'
+import {theme} from '../app/theme.js'
 import {P} from '../auth/permissions.js'
-import {renderRoute} from './render.jsx'
+import {renderRoute, TEST_CONFIG} from './render.jsx'
 import {server} from './server.js'
 import {loginAs, sessionWith} from './session.js'
 
@@ -99,13 +107,27 @@ describe('rutas: las mismas que el backoffice', () => {
         expect(router.state.location.search).toBe('?username=config.lector')
     })
 
-    it('una pantalla que aun no ha llegado dice en que fase llega y abre la misma ruta en el backoffice', async () => {
-        renderRoute('/actividad?category=SYSTEM', {session: loginAs('config.responsable')})
+    it('ya no queda ninguna pantalla pendiente: cada ruta tiene la suya', () => {
+        expect(ROUTES.filter((route) => !PAGES[route.page]).map((route) => route.path)).toEqual([])
+    })
 
-        expect(await screen.findByRole('heading', {name: 'Registro de actividad'})).toBeInTheDocument()
-        expect(screen.getByText('Llega en la fase 7')).toBeInTheDocument()
+    // PendingPage se queda hasta el relevo (la fase 8 la retira con el enlace al backoffice), aunque ya
+    // no la pinte ninguna ruta: se prueba sola.
+    it('la pantalla de lo que aún no ha llegado dice en qué fase llega y abre la misma ruta en el backoffice', async () => {
+        const router = createMemoryRouter([{path: '*', element: <PendingPage route={{phase: 8}} title="Una pantalla nueva"/>}],
+            {initialEntries: ['/una/ruta?con=filtros']})
+        render(
+            <MantineProvider theme={theme} env="test">
+                <RuntimeConfigContext value={TEST_CONFIG}>
+                    <RouterProvider router={router}/>
+                </RuntimeConfigContext>
+            </MantineProvider>,
+        )
+
+        expect(await screen.findByRole('heading', {name: 'Una pantalla nueva'})).toBeInTheDocument()
+        expect(screen.getByText('Llega en la fase 8')).toBeInTheDocument()
         const link = screen.getByRole('link', {name: 'Abrir en el backoffice'})
-        expect(link).toHaveAttribute('href', 'http://backoffice.test/actividad?category=SYSTEM')
+        expect(link).toHaveAttribute('href', 'http://backoffice.test/una/ruta?con=filtros')
         expect(link).toHaveAttribute('target', '_blank')
         expect(link.getAttribute('rel')).toContain('noopener')
     })

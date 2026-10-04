@@ -181,6 +181,17 @@ import {
 } from '../api/maintenance/tasks.js'
 import {assetLabel, materialLabel, teamLabel} from '../api/maintenance/values.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
+import {
+    ACTIVITY_PAGE_SIZE,
+    getActivityEvent,
+    isIpLiteral,
+    searchAccess,
+    searchActivity,
+} from '../api/notification/activity.js'
+import {ACCESS_OUTCOME, ACTIVITY_CATEGORY, ACTIVITY_SEVERITY, activityCategories, ACTOR_KIND} from '../api/notification/enums.js'
+import {INBOX_PAGE_SIZE, markAllRead, markRead, searchInbox, unreadCount, unreadCountText} from '../api/notification/inbox.js'
+import {notificationTarget} from '../api/notification/links.js'
+import {actorText, subjectText} from '../api/notification/values.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
@@ -2490,5 +2501,190 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         ])
         expect(orders.content[0].entity.code).toBe('MO-000001')
         expect(none).toBeInstanceOf(NotFoundError)
+    })
+})
+
+describe('notification/*.js: la bandeja, el registro y los accesos de mto-notification', () => {
+    const BASE = '/api/notifications'
+    const N1 = '5e6f7a8b-0000-4000-8000-000000000501'
+    const N2 = '5e6f7a8b-0000-4000-8000-000000000502'
+    const EVENT = '5e6f7a8b-0000-4000-8000-000000000511'
+    const ORDER = '5e6f7a8b-0000-4000-8000-000000000521'
+    const item = (id, read, severity) => ({
+        id, ruleKey: 'maintenance.order.urgent', category: 'MAINTENANCE', severity, title: 'Orden urgente MO-000012', body: 'Revisar hoy',
+        link: `/mantenimiento/ordenes/${ORDER}`, subjectType: 'order', subjectId: ORDER, activityEventId: EVENT, createdAt: '2026-09-28T06:07:00Z',
+        read, readAt: read ? '2026-09-28T07:00:00Z' : null,
+    })
+    const event = (category, actorKind, supersededBy = null) => ({
+        id: EVENT, seq: 118, sourceService: 'mto-users', sourceEventId: 'u-ev-1', category, type: 'users.user.created', severity: 'INFO',
+        occurredAt: '2026-09-28T06:07:00Z', recordedAt: '2026-09-28T06:07:01Z',
+        actor: {kind: actorKind, username: 'usuarios.responsable', id: 'a0000000-0000-4000-8000-000000000042'},
+        subject: {type: 'user', id: 'u-1', label: 'nueva.persona'}, correlationId: 'corr-n7', eventCount: 1,
+        payload: {targetUsername: 'nueva.persona', temporaryCredential: true, actions: ['VERIFY_EMAIL']}, supersededBy, unknownTomorrow: 1,
+    })
+    const page = (content, {number = 0, size = 20, totalElements = content.length} = {}) => ({
+        content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size), first: number === 0, last: true},
+    })
+    const notificationError = (status, errorCode, message, validationErrors = [], correlationId = null) => HttpResponse.json({
+        timestamp: '2026-09-28T06:07:00Z', status, error: 'ERROR', message, path: '/api/v1/notifications', method: 'GET', errorCode,
+        correlationId, validationErrors,
+    }, {status})
+
+    it('la bandeja se pide con sus filtros, la más reciente primero, y una gravedad nueva se lee como desconocida', async () => {
+        useToken()
+        const lists = record('get', `${BASE}/inbox`, (_request, call) => HttpResponse.json(call === 1
+            ? page([item(N1, false, 'CRITICAL'), item(N2, true, 'FATAL')], {totalElements: 2})
+            : page([], {number: 1})))
+
+        const result = await searchInbox({unread: true, category: 'MAINTENANCE', from: '2026-09-01'})
+        // Sin filtros no viaja ninguno, y con una columna createdAt desempata: el servicio no admite el id.
+        await searchInbox({unread: false, page: 2, sort: {field: 'severity', direction: 'asc'}})
+
+        expect(lists[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(lists[0].url.search).toBe(`?unread=true&category=MAINTENANCE&from=${encodeURIComponent(startOfDayInstant('2026-09-01'))}`
+            + '&page=0&size=20&sort=createdAt%2Cdesc')
+        expect(lists[1].url.search).toBe('?page=1&size=20&sort=severity%2Casc&sort=createdAt%2Cdesc')
+        expect(INBOX_PAGE_SIZE).toBe(20)
+        const [unread, read] = result.content
+        expect([unread.read, unread.readAt, unread.link]).toEqual([false, null, `/mantenimiento/ordenes/${ORDER}`])
+        expect([read.read, read.readAt]).toEqual([true, '2026-09-28T07:00:00Z'])
+        expect([ACTIVITY_SEVERITY.label(unread.severity), ACTIVITY_SEVERITY.label(read.severity), ACTIVITY_SEVERITY.parse(read.severity)])
+            .toEqual(['Crítica', 'Desconocido', 'UNKNOWN'])
+        expect(result.totalElements).toBe(2)
+    })
+
+    it('el contador está acotado, y las marcas son POST sin cuerpo; un NTF-404 se lee por alias', async () => {
+        useToken()
+        record('get', `${BASE}/inbox/unread-count`, () => HttpResponse.json({count: 100, capped: true}))
+        const marks = record('post', `${BASE}/inbox/:id/read`, (request) => (new URL(request.url).pathname.includes(N1)
+            ? HttpResponse.json(item(N1, true, 'CRITICAL'))
+            : notificationError(404, 'NTF-404', `Notification ${N2} is not addressed to config.responsable`, [], 'corr-n1')))
+        const readAll = record('post', `${BASE}/inbox/read-all`, () => HttpResponse.json({allReadUntil: '2026-09-28T06:07:00Z'}))
+
+        const count = await unreadCount()
+        const marked = await markRead(N1)
+        const all = await markAllRead()
+        const notMine = await failure(markRead(N2))
+
+        expect([count, unreadCountText(count), unreadCountText({count: 3, capped: false}), unreadCountText(null)]).toEqual([
+            {count: 100, capped: true}, '100+', '3', ''])
+        expect(marked.read).toBe(true)
+        expect(all.allReadUntil).toBe('2026-09-28T06:07:00Z')
+        expect([...marks, ...readAll].map((request) => [request.method, request.body, request.headers.get('content-type')])).toEqual([
+            ['POST', '', null], ['POST', '', null], ['POST', '', null]])
+        expect(notMine).toBeInstanceOf(NotFoundError)
+        expect([notMine.code, notMine.reference]).toEqual(['NTF-404', 'corr-n1'])
+        expect(errorMessage(notMine)).toBe('Esa notificación ya no existe o no va dirigida a ti.')
+    })
+
+    it('el registro se busca con todos sus filtros, includeSuperseded solo viaja verdadero, y el detalle trae el payload', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/activity`, (_request, call) => HttpResponse.json(call === 1
+            ? page([event('USERS', 'PERSON'), {...event('FIELD', 'ROBOT', EVENT), id: N2}], {size: 50})
+            : page([], {size: 50})))
+        const details = record('get', `${BASE}/activity/:id`, () => HttpResponse.json(event('USERS', 'SERVICE')))
+
+        const result = await searchActivity({category: 'USERS', type: ' users.user.created ', actorUsername: 'usuarios.responsable',
+            subjectType: 'user', subjectId: 'u-1', severity: 'INFO', sourceService: 'mto-users', from: '2026-09-01', to: '2026-09-30',
+            includeSuperseded: true})
+        await searchActivity({includeSuperseded: false, type: '  '})
+        const detail = await getActivityEvent(EVENT)
+        const access = await failure(searchActivity({category: 'ACCESS'}))
+
+        expect(searches[0].url.search).toBe('?category=USERS&type=users.user.created&actorUsername=usuarios.responsable&subjectType=user'
+            + `&subjectId=u-1&severity=INFO&sourceService=mto-users&from=${encodeURIComponent(startOfDayInstant('2026-09-01'))}`
+            + `&to=${encodeURIComponent(endOfDayInstant('2026-09-30'))}&includeSuperseded=true&page=0&size=50`
+            + '&sort=occurredAt%2Cdesc&sort=seq%2Cdesc')
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=occurredAt%2Cdesc&sort=seq%2Cdesc')
+        expect(ACTIVITY_PAGE_SIZE).toBe(50)
+        const [created, superseded] = result.content
+        expect([actorText(created.actor), subjectText(created.subject), created.correlationId]).toEqual(['usuarios.responsable',
+            'user nueva.persona', 'corr-n7'])
+        expect([ACTIVITY_CATEGORY.label(superseded.category), ACTOR_KIND.label(superseded.actor.kind), superseded.supersededBy])
+            .toEqual(['Desconocido', 'Desconocido', EVENT])
+        expect(details[0].url.pathname).toBe(`${BASE}/activity/${EVENT}`)
+        expect(actorText(detail.actor, {withKind: true})).toBe('usuarios.responsable (Servicio)')
+        expect(detail.payload).toEqual({targetUsername: 'nueva.persona', temporaryCredential: true, actions: ['VERIFY_EMAIL']})
+        expect(access.message).toMatch(/accesos/)
+        expect(searches).toHaveLength(2)
+        expect(activityCategories().map((option) => option.value)).toEqual(['USERS', 'CONFIGURATION', 'MAINTENANCE', 'STOCK', 'SYSTEM'])
+    })
+
+    it('quién y sobre qué se nombran como en el backoffice: sin nombre de usuario, su clase; sin etiqueta, el id', () => {
+        expect(actorText({kind: 'SYSTEM', username: null})).toBe('Sistema')
+        expect(actorText({kind: 'SYSTEM', username: null}, {withKind: true})).toBe('Sistema')
+        expect(actorText({kind: null, username: 'alice'}, {withKind: true})).toBe('alice')
+        expect(actorText(null)).toBe('')
+        expect(subjectText({type: 'order', id: 'MO-000012', label: null})).toBe('order MO-000012')
+        expect(subjectText({type: 'profile', id: null, label: null})).toBe('profile')
+        expect(subjectText({type: null, id: 'u-1', label: 'nueva.persona'})).toBe('nueva.persona')
+    })
+
+    it('los accesos se buscan por usuario, IP, tipo y resultado; una IP que no lo es no llega a pedirse', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/access`, () => HttpResponse.json(page([
+            {id: EVENT, seq: 7, type: 'access.login.failed', severity: 'WARNING', outcome: 'FAILURE', occurredAt: '2026-09-28T06:07:00Z',
+                recordedAt: '2026-09-28T06:07:20Z', username: 'config.lector', userId: 'a-41', ipAddress: '10.0.0.7', correlationId: null,
+                eventCount: 1, payload: {error: 'invalid_user_credentials', username: 'config.lector'}},
+            {id: N2, seq: 8, type: 'access.login.streak', severity: 'CRITICAL', outcome: 'BLOCKED', occurredAt: '2026-09-28T06:08:00Z',
+                recordedAt: '2026-09-28T06:08:20Z', username: 'config.lector', userId: null, ipAddress: '10.0.0.7', correlationId: null,
+                eventCount: 3, payload: {dimension: 'username', value: 'config.lector', count: 3}},
+        ], {size: 50})))
+
+        const result = await searchAccess({username: ' config.lector ', ipAddress: '10.0.0.7', type: 'access.login.failed', outcome: 'FAILURE'})
+        const notAnIp = await failure(searchAccess({ipAddress: 'dead.beef'}))
+
+        expect(searches[0].url.search).toBe('?username=config.lector&ipAddress=10.0.0.7&type=access.login.failed&outcome=FAILURE'
+            + '&page=0&size=50&sort=occurredAt%2Cdesc&sort=seq%2Cdesc')
+        expect(searches).toHaveLength(1)
+        expect(notAnIp.message).toMatch(/dead\.beef/)
+        const [failed, streak] = result.content
+        expect([ACCESS_OUTCOME.label(failed.outcome), failed.payload.error]).toEqual(['Fallido', 'invalid_user_credentials'])
+        expect([ACCESS_OUTCOME.label(streak.outcome), streak.eventCount, streak.payload.count]).toEqual(['Desconocido', 3, 3])
+        expect(['10.0.0.7', '255.255.255.255', '::1', 'fe80::1', '::ffff:10.0.0.7'].map(isIpLiteral)).toEqual([true, true, true, true, true])
+        expect(['10.0.0.', '10.0.0', '256.1.1.1', 'dead.beef', 'mto-gateway', '', '1.2.3.4.5'].map(isIpLiteral))
+            .toEqual([false, false, false, false, false, false, false])
+    })
+
+    it('un sort que el servicio no admite es un 400 REQ-400 sobre el campo sort, leído por alias', async () => {
+        useToken()
+        record('get', `${BASE}/activity`, () => notificationError(400, 'REQ-400', 'Invalid sort property.',
+            [{field: 'sort', message: "unsupported property 'payload'"}], 'corr-n2'))
+
+        const invalid = await failure(searchActivity({sort: {field: 'payload', direction: 'asc'}}))
+
+        expect(invalid).toBeInstanceOf(ValidationError)
+        expect([invalid.status, invalid.code, invalid.reference]).toEqual([400, 'REQ-400', 'corr-n2'])
+        expect(invalid.fieldErrors).toEqual([{field: 'sort', code: null, message: "unsupported property 'payload'"}])
+    })
+
+    it('el enlace de una notificación: una ruta de la aplicación, un http(s) absoluto, o nada', () => {
+        expect(notificationTarget('/actividad?category=SYSTEM&type=system.source.stalled')).toEqual({path: '/actividad?category=SYSTEM&type=system.source.stalled'})
+        expect(notificationTarget(` /mantenimiento/ordenes/${ORDER} `)).toEqual({path: `/mantenimiento/ordenes/${ORDER}`})
+        expect(notificationTarget('https://estado.example/incidencia/7')).toEqual({url: 'https://estado.example/incidencia/7'})
+        expect(notificationTarget('HTTP://estado.example')).toEqual({url: 'http://estado.example/'})
+        for (const discarded of ['//evil.example/x', '/\\evil.example', 'javascript:alert(1)', 'mailto:a@b.c', 'ftp://x', 'actividad', '',
+            null, '/actividad\nX-Header: 1']) {
+            expect(notificationTarget(discarded), String(discarded)).toBeNull()
+        }
+    })
+
+    it('una línea del registro que ya no existe es un ACT-404, que se dice como tal', async () => {
+        useToken()
+        record('get', `${BASE}/activity/:id`, () => notificationError(404, 'ACT-404', `Activity event with id ${EVENT} was not found`))
+
+        const missing = await failure(getActivityEvent(EVENT))
+
+        expect(missing).toBeInstanceOf(NotFoundError)
+        expect(errorMessage(missing)).toBe('Esa línea del registro ya no existe.')
+    })
+
+    it('el desempate es el de cada servicio, y no se repite si el orden ya lleva su campo', () => {
+        expect(sortWithTieBreak(null, 'occurredAt,desc', 'seq,desc')).toEqual(['occurredAt,desc', 'seq,desc'])
+        expect(sortWithTieBreak({field: 'type', direction: 'asc'}, 'occurredAt,desc', 'seq,desc')).toEqual(['type,asc', 'seq,desc'])
+        expect(sortWithTieBreak(null, 'createdAt,desc', 'createdAt,desc')).toEqual(['createdAt,desc'])
+        expect(sortWithTieBreak({field: 'createdAt', direction: 'asc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['createdAt,asc'])
+        expect(sortWithTieBreak({field: 'title', direction: 'desc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['title,desc', 'createdAt,desc'])
+        expect(sortWithTieBreak(null, ['trackId,asc', 'startKp,asc'])).toEqual(['trackId,asc', 'startKp,asc', 'id,asc'])
     })
 })
