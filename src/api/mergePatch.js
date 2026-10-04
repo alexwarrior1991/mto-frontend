@@ -1,28 +1,28 @@
 /**
- * Una modificacion de mto-maintenance es un PATCH application/merge-patch+json (RFC 7396) con la
- * version leida (el port de MergePatch y Changes del backoffice):
+ * Una modificación de mto-maintenance es un PATCH application/merge-patch+json (RFC 7396) con la
+ * versión leída (el port de MergePatch y Changes del backoffice):
  *
- * - lo que cambio viaja con su valor;
- * - lo que se vacio viaja a null (que el servicio lo admita es cosa suya: 400 VAL-001 si no);
- * - lo que no cambio no viaja;
- * - la version leida va siempre: si otra persona guardo antes, el servicio responde 409 CON-001.
+ * - lo que cambió viaja con su valor;
+ * - lo que se vació viaja a null (que el servicio lo admita es cosa suya: 400 VAL-001 si no);
+ * - lo que no cambió no viaja;
+ * - la versión leída va siempre: si otra persona guardó antes, el servicio responde 409 CON-001.
  *
- * Los textos se comparan recortados (un blanco no es un cambio) y los numeros como numeros (12.1 y
- * 12.100 son lo mismo). Una lista que el servicio guarda como conjunto (las vias de un turno, sus
- * seccionadores, los tipos de una tarea) se compara sin orden, y vacia es vaciarla: viaja a null. Si
- * nada cambio devuelve null, y la pantalla cierra el dialogo sin llamar.
+ * Los textos se comparan recortados (un blanco no es un cambio) y los números como números (12.1 y
+ * 12.100 son lo mismo). Una lista que el servicio guarda como conjunto (las vías de un turno, sus
+ * seccionadores, los tipos de una tarea) se compara sin orden, y vacía es vaciarla: viaja a null. Si
+ * nada cambió devuelve null, y la pantalla cierra el diálogo sin llamar.
  */
 
 export const MERGE_PATCH = 'application/merge-patch+json'
 
 /**
- * @param {object} original la fila tal como se leyo del servicio
+ * @param {object} original la fila tal como se leyó del servicio
  * @param {object} values lo que hay en el formulario
  * @param {object} options
  * @param {string[]} options.fields los campos que el formulario puede cambiar
- * @param {string[]} [options.numberFields] los que se comparan como numero
+ * @param {string[]} [options.numberFields] los que se comparan como número
  * @param {string[]} [options.setFields] las listas que se comparan sin orden
- * @param {number} options.version la version leida
+ * @param {number} options.version la versión leída
  */
 export function buildMergePatch(original, values, {fields, numberFields = [], setFields = [], version}) {
     if (!Array.isArray(fields) || fields.length === 0) {

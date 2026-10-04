@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 5
+## Estado: fase 6
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -89,6 +89,31 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
   - El historial de cada fila de catálogo y de cada reserva.
   - Necesita `mto-stock` con su arreglo (alexwarrior1991/mto-stock#21): sin él, modificar la lista
     de un conjunto responde 500 y consumir una reserva no deja la salida en el libro.
+- **Fase 6 · Mantenimiento**: el mantenimiento de la catenaria de `mto-maintenance` (`mantenimiento`
+  y `mantenimiento/*`).
+  - Los activos, paginados y filtrados en el servicio. Un tramo de vía se da de alta aquí; perfiles,
+    seccionadores y aisladores llegan de `mto-configuration`, y de ellos solo se cambian la
+    descripción y el intervalo del preventivo. El estado dice quién desactivó cada uno, y solo se
+    reactiva lo que se desactivó aquí.
+  - Las órdenes y su ficha, con los botones que admite su estado (planificar, asignar, iniciar,
+    completar y cancelar) y las pestañas de tareas, materiales, defectos, inspecciones y estados.
+    Una modificación es un merge-patch con lo que cambió y la versión leída.
+  - Las líneas de material, que se reservan y se consumen en `mto-stock`: cada una ofrece lo que
+    admiten su estado y su petición al almacén sin respuesta, y se sincroniza o se quita.
+  - Los turnos, con sus tareas, sus perfiles y su parte: iniciar y cerrar, asignar tareas de las
+    órdenes de su vía y trabajarlas, con su checklist, los defectos encontrados y el material gastado.
+  - Las inspecciones con su checklist y el defecto y la orden correctiva que generan, y los defectos
+    con sus transiciones: vincular a una orden, resolver, cerrar y descartar.
+  - Los informes de avance y mensual, en pantalla y como fichero (Excel o PDF), y los catálogos:
+    equipos, tipos de tarea y plantillas de inspección.
+  - El historial de cada ficha y de cada activo, y los estados de una orden o un defecto.
+  - Cancelar una orden, completarla con `force` y resolver, cerrar o descartar un defecto piden
+    `maintenance-supervise` además de `maintenance-write`; desactivar un activo y quitar una línea de
+    material, `maintenance-delete`.
+  - Necesita `mto-maintenance` con su arreglo (alexwarrior1991/mto-maintenance#17): sin él, el
+    historial de una orden, una tarea, una inspección o un defecto sobre un perfil, un seccionador o
+    un aislador responde 500, y algunos errores salen como un 500 o un conflicto genérico en vez de
+    decir lo que pasa.
 - Las pantallas que aún no han llegado dicen en qué fase llegan y ofrecen **«Abrir en el
   backoffice»** con la misma ruta. Los enlaces de las notificaciones ya resuelven.
 
@@ -99,7 +124,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F3 | Trabajos en segundo plano | F3 y F4 |
 | F4 | Usuarios | F5 |
 | F5 | Almacén | F6 |
-| F6 | Mantenimiento (en subfases) | F8 |
+| F6 | Mantenimiento: activos, órdenes con sus tareas y materiales, turnos, inspecciones, defectos, informes y catálogos | F8 |
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
 | F8 | Relevo: se retira el backoffice | — |
 
@@ -218,7 +243,8 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
 - **Comprobar servicios**, en Inicio: cada servicio que puedes leer responde a través del gateway.
 - El **menú** cambia con la persona: `config.responsable` ve Infraestructura, Trabajos, la bandeja,
   el registro de actividad y los Catálogos; `usuarios.lector`, Usuarios; `almacen.lector`, el
-  Almacén.
+  Almacén; `mantenimiento.lector`, Mantenimiento y, en lectura, Infraestructura, Catálogos, Trabajos
+  y Almacén, de donde salen los nombres de vías, paquetes, almacenes y proyectos.
 - Un enlace profundo (por ejemplo http://localhost:4200/actividad/accesos?username=x) sobrevive a
   la entrada: después de Keycloak vuelves a él.
 - **Salir** cierra la sesión de Keycloak: volver a entrar pide la contraseña.
@@ -276,6 +302,25 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - En **Conjuntos**, la calculadora de cada fila dice cuántos se pueden montar en un almacén y qué
     componente lo limita. Volver a añadir un material a la lista cambia su cantidad.
   - El reloj de cada fila es su historial. Una fila que aún no tiene ninguno lo dice, sin error.
+- **Mantenimiento** (con `mantenimiento.responsable`; `mantenimiento.tecnico` lo puede todo menos
+  cancelar una orden, completarla con `force`, resolver, cerrar o descartar un defecto, desactivar un
+  activo y quitar una línea de material, y `mantenimiento.lector` solo leer):
+  - En **Activos**, «Nuevo tramo» da de alta un tramo de una vía. Un perfil, un seccionador o un
+    aislador llegado de `mto-configuration` solo deja cambiar la descripción y el intervalo del
+    preventivo, y su estado dice quién lo desactivó.
+  - En **Órdenes**, el icono de cada fila abre la ficha, que solo enseña los botones que admite su
+    estado. Si otra persona la ha cambiado desde que la abriste, sale «Conflicto con otro cambio:
+    recarga y vuelve a intentarlo» y el diálogo sigue abierto.
+  - Planificar una orden reserva sus materiales en el almacén. En la pestaña **Materiales**, el
+    estado de cada línea dice cómo va con el almacén, y su motivo sale al pasar por encima.
+  - En **Turnos**, un turno en curso asigna tareas de las órdenes abiertas de su vía y las completa
+    con su checklist, los defectos encontrados y el material gastado. Su **Parte** es el del servicio.
+  - Una **inspección** que encontró algo ofrece crear el defecto y la orden correctiva, o abrirlos si
+    ya existen.
+  - En **Informes**, «Consultar» pinta el avance o el mes, y «Excel» y «PDF» descargan lo consultado,
+    aunque después cambien los filtros.
+  - «Historial» abre las revisiones de cada ficha; la pestaña **Estados**, las transiciones con su
+    comentario.
 
 ### Usuarios de desarrollo
 
@@ -307,6 +352,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 | Aviso «El servicio no acepta tu token» | Al token le falta la audiencia de ese servicio: míralo en Inicio |
 | En un catálogo, «Modificado» y «Por» salen vacíos, o modificar una cimentación, un pórtico o una cimentación de anclaje falla | `mto-configuration` es anterior a la versión que publica la versión de los catálogos: `docker compose pull configuration && docker compose up -d configuration` en `mto-platform` |
 | Modificar un conjunto responde «Error inesperado (500)», o una reserva consumida no sale en el libro | `mto-stock` es anterior a su arreglo (alexwarrior1991/mto-stock#21): `docker compose pull stock && docker compose up -d stock` en `mto-platform` |
+| El historial de una orden, una tarea, una inspección o un defecto sobre un perfil, un seccionador o un aislador responde «Error inesperado (500)» | `mto-maintenance` es anterior a su arreglo (alexwarrior1991/mto-maintenance#17): `docker compose pull maintenance && docker compose up -d maintenance` en `mto-platform` |
 | Al recargar la página hay un parpadeo | Es lo esperado: el token vive solo en memoria y recargar es volver a entrar por el SSO |
 
 ## Cómo funciona (mapa para quien viene del backoffice)
@@ -315,7 +361,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 |---|---|
 | `client/**` (las interfaces `@HttpExchange`) y `client/error` | `src/api/`: un módulo por servicio, `http.js` y `errors.js` |
 | `configuration/security` (roles del access token) | `src/auth/` |
-| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov`, `infrastructure/` es `ui/master`, `jobs/` es `ui/jobs`, `users/` es `ui/users` y `stock/` es `ui/stock` |
+| `ui/**/…View` | `src/features/<módulo>/`: `catalogues/` es `ui/lov`, `infrastructure/` es `ui/master`, `jobs/` es `ui/jobs`, `users/` es `ui/users`, `stock/` es `ui/stock` y `maintenance/` es `ui/maintenance` |
 | `MainLayout` y `@Menu` | `src/app/layout/` y `src/app/routeTable.js` |
 | `@RolesAllowed` | `requires` en `routeTable.js` y `RequirePermission` (solo experiencia: manda el 403) |
 | `SharedPolling` y `@Push` | `refetchInterval` de React Query, solo con la pantalla abierta y la pestaña visible |
@@ -323,7 +369,9 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 | `Downloads` y `DownloadHandler` | `src/api/download.js`: `fetch` con el Bearer y un `Blob` |
 | `UiErrors` y `ServerValidation` | `src/ui/errors/` |
 | `RevisionsDialog` (el historial de una fila) | `src/ui/RevisionsModal.jsx` |
-| Los `ComboBox` perezosos (`StockPickers`, el perfil de un seccionador) | `src/ui/ServerSearchSelect.jsx` |
+| Los `ComboBox` perezosos (`StockPickers`, `MaintenancePickers`, el perfil de un seccionador) | `src/ui/ServerSearchSelect.jsx` y `ServerSearchMultiSelect.jsx` |
+| `MergePatch` y los `*Form.toPatch(original)` de mantenimiento | `src/api/mergePatch.js` (`buildMergePatch`) y el `*Patch` de cada módulo de `src/api/maintenance/` |
+| `LazyPanel` (la pestaña que pide sus datos al abrirse) | `src/ui/LazyTabs.jsx` |
 | `ViewLayerTest` (Karibu) | `src/test/viewLayer.*.test.jsx` (Testing Library + MSW) |
 
 **React en diez líneas.** Una pantalla es un **componente**: una función que recibe datos (*props*)
@@ -374,11 +422,11 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 
 | Fichero | Qué cubre |
 |---|---|
-| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido; los usuarios: la búsqueda con `first`/`max` y su total, el atributo repetido y codificado, lo que se rechaza antes de llamar, el alta y el `PUT` parcial con solo lo cambiado, el `PATCH` de activo, la contraseña y el correo, las sesiones y las credenciales, los roles con el `DELETE` con cuerpo, los perfiles con el `PUT` sin cuerpo, los catálogos y sus miembros sin total, «sacar a la persona» en su orden y parando en el primer fallo, y un id con «:» codificado; el almacén: los catálogos con su búsqueda, su estado, el `Pageable` y el orden siempre con el id para desempatar, el alta sin `active` y la modificación con él, el proyecto sincronizado, las cifras, bajo mínimo y el libro de un material, el libro entero con sus filtros, las cuatro operaciones con lo vacío fuera y la fecha en UTC, la vida de una reserva, el conjunto con su lista y su disponibilidad, el historial con su 404, lo desconocido y el JSON de error de `mto-stock`) |
+| `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido; los usuarios: la búsqueda con `first`/`max` y su total, el atributo repetido y codificado, lo que se rechaza antes de llamar, el alta y el `PUT` parcial con solo lo cambiado, el `PATCH` de activo, la contraseña y el correo, las sesiones y las credenciales, los roles con el `DELETE` con cuerpo, los perfiles con el `PUT` sin cuerpo, los catálogos y sus miembros sin total, «sacar a la persona» en su orden y parando en el primer fallo, y un id con «:» codificado; el almacén: los catálogos con su búsqueda, su estado, el `Pageable` y el orden siempre con el id para desempatar, el alta sin `active` y la modificación con él, el proyecto sincronizado, las cifras, bajo mínimo y el libro de un material, el libro entero con sus filtros, las cuatro operaciones con lo vacío fuera y la fecha en UTC, la vida de una reserva, el conjunto con su lista y su disponibilidad, el historial con su 404, lo desconocido y el JSON de error de `mto-stock`; el mantenimiento: las listas con su orden y el id para desempatar, lo desconocido, su JSON de error, el merge-patch con lo cambiado, lo vaciado y la versión (los conjuntos sin orden, lo que admite cada estado y el proyecto de almacén sin `stock-read`), los activos, los catálogos y los equipos enteros, el ciclo de una orden con el cuerpo de cada transición, las tareas, los turnos, trabajar una tarea, las inspecciones y los defectos con lo que generan, las líneas de material con su petición en duda y el almacén caído o diciendo que no, los informes en JSON y como fichero, y el historial con su 404) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso, y los usuarios (los casos de `ViewLayerTest` del backoffice: la lista en el servicio con la exclusión entre búsqueda y atributo, el editor con solo lo cambiado, la ficha con sus pestañas perezosas y cada botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña con el KC-400 de verdad, el correo con su 502, las sesiones, las credenciales, «sacar a la persona» y los catálogos con sus miembros), y el almacén (los casos de `ViewLayerTest` del backoffice: los catálogos en el servicio, la lectura sin controles, el alta sin estado y la modificación con él, los errores por campo, el proyecto sincronizado y el editor de materiales; las cifras y el libro de un material y los bajo mínimo; el libro entero filtrado; la entrada, la salida sin stock, la transferencia y el ajuste con su permiso; las reservas con lo que admite cada una; los conjuntos con su lista y su disponibilidad; el historial y su 404. Y lo que el backoffice no hacía: un código repetido sin pedir recargar, los filtros con lo retirado, el error sobre la lista de materiales bajo ella y consumir dejando viejo el libro) |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso, y los usuarios (los casos de `ViewLayerTest` del backoffice: la lista en el servicio con la exclusión entre búsqueda y atributo, el editor con solo lo cambiado, la ficha con sus pestañas perezosas y cada botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña con el KC-400 de verdad, el correo con su 502, las sesiones, las credenciales, «sacar a la persona» y los catálogos con sus miembros), y el almacén (los casos de `ViewLayerTest` del backoffice: los catálogos en el servicio, la lectura sin controles, el alta sin estado y la modificación con él, los errores por campo, el proyecto sincronizado y el editor de materiales; las cifras y el libro de un material y los bajo mínimo; el libro entero filtrado; la entrada, la salida sin stock, la transferencia y el ajuste con su permiso; las reservas con lo que admite cada una; los conjuntos con su lista y su disponibilidad; el historial y su 404. Y lo que el backoffice no hacía: un código repetido sin pedir recargar, los filtros con lo retirado, el error sobre la lista de materiales bajo ella y consumir dejando viejo el libro), y el mantenimiento (los casos de `ViewLayerTest` del backoffice: el menú y lo que el perfil lee de los otros módulos, los activos con su origen y quién los desactivó, los catálogos, las órdenes con lo que admite su estado, el merge-patch con el `CON-001` y el diálogo abierto, las tareas, las líneas de material con su petición en duda, los turnos con sus tareas asignadas y trabajadas, las inspecciones y los defectos con lo que generan, los informes con sus descargas y el historial de cada ficha) |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
-| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, una exportación hasta su descarga y la simulación del catálogo de LOV, una persona de usar y tirar de su alta a su borrado (con su atributo, un perfil, un rol, la contraseña temporal, el correo en Mailpit y «sacar a la persona») y los dos catálogos de usuarios, y un almacén, un proyecto, un material y un conjunto de usar y tirar (una entrada, una reserva consumida que sale en el libro, un ajuste que deja el material bajo mínimo, la disponibilidad antes y después de modificar la lista, el historial y la retirada de todo) |
+| `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, una exportación hasta su descarga y la simulación del catálogo de LOV, una persona de usar y tirar de su alta a su borrado (con su atributo, un perfil, un rol, la contraseña temporal, el correo en Mailpit y «sacar a la persona») y los dos catálogos de usuarios, y un almacén, un proyecto, un material y un conjunto de usar y tirar (una entrada, una reserva consumida que sale en el libro, un ajuste que deja el material bajo mínimo, la disponibilidad antes y después de modificar la lista, el historial y la retirada de todo), y un tramo de usar y tirar con una orden de principio a fin (planificada e iniciada, su tarea trabajada en un turno con posesión total que se inicia y se cierra, y completada con sus estados y su historial), el informe de avance de su vía descargado, el tramo desactivado al final y el mantenimiento en lectura |
 
 ## Puertos
 

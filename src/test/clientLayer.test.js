@@ -67,6 +67,119 @@ import {
     ValidationError,
 } from '../api/errors.js'
 import {apiFetch, buildUrl, configureHttp} from '../api/http.js'
+import {
+    assetPatch,
+    canReactivate,
+    createAsset,
+    disableAsset,
+    enableAsset,
+    isDisabledAtSource,
+    isDisabledLocally,
+    isSynchronizedAsset,
+    listAssetOrders,
+    patchAsset,
+    searchAssets,
+    trackSectionRequest,
+} from '../api/maintenance/assets.js'
+import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, teamRequest, updateTeam} from '../api/maintenance/catalogs.js'
+import {
+    createDefect,
+    defectPatch,
+    defectRequest,
+    defectRevisionsPath,
+    listDefectHistory,
+    patchDefect,
+    resolveRequest,
+    searchDefects,
+    transitionDefect,
+} from '../api/maintenance/defects.js'
+import {
+    ASSET_TYPE,
+    isOpenTask,
+    isSyncFailed,
+    ORDER_STATUS,
+    PRIORITY,
+    STOCK_REQUEST,
+    STOCK_SYNC_STATUS,
+    TASK_STATUS,
+} from '../api/maintenance/enums.js'
+import {
+    correctiveOrderRequest,
+    createCorrectiveOrder,
+    createDefectFromInspection,
+    createInspection,
+    defectFromInspectionRequest,
+    inspectionPatch,
+    inspectionRequest,
+    patchInspection,
+    patchInspectionItem,
+    searchInspections,
+} from '../api/maintenance/inspections.js'
+import {
+    isEditableLine,
+    isInDoubtLine,
+    isRemovableLine,
+    isReservedLine,
+    listOrderMaterials,
+    materialPatch,
+    materialRequest,
+    patchMaterial,
+    registerMaterial,
+    removeMaterial,
+    syncActionOf,
+    syncMaterial,
+} from '../api/maintenance/materials.js'
+import {
+    createOrder,
+    getOrder,
+    listOrderHistory,
+    orderPatch,
+    orderRequest,
+    orderRevisionsPath,
+    patchOrder,
+    searchOrders,
+    transitionOrder,
+    transitionRequest,
+} from '../api/maintenance/orders.js'
+import {
+    downloadMonthlyReport,
+    downloadProgressReport,
+    downloadShiftReport,
+    getMonthlyReport,
+    getProgressReport,
+    getShiftReport,
+} from '../api/maintenance/reports.js'
+import {
+    assignTaskToShift,
+    cancelShift,
+    createShift,
+    listShiftProfiles,
+    listShiftTasks,
+    patchShift,
+    searchShifts,
+    shiftFormValues,
+    shiftPatch,
+    shiftRequest,
+    shiftRevisionsPath,
+    shiftTransitionRequest,
+    transitionShift,
+} from '../api/maintenance/shifts.js'
+import {
+    cancelTask,
+    checkItemPatch,
+    completeRequest,
+    completeTask,
+    createTask,
+    generateRequest,
+    generateTasks,
+    listOrderTasks,
+    patchCheckItem,
+    patchTask,
+    startTask,
+    taskPatch,
+    taskRequest,
+} from '../api/maintenance/tasks.js'
+import {assetLabel, materialLabel, teamLabel} from '../api/maintenance/values.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
@@ -737,8 +850,8 @@ describe('dates.js: las fechas en los parametros', () => {
         expect(localDateTimeToInstant('2026-02-01T08:30')).toBe(new Date(2026, 1, 1, 8, 30).toISOString())
         expect([localDateTimeToInstant(''), localDateTimeToInstant(null), localDateTimeToInstant(undefined)])
             .toEqual([undefined, undefined, undefined])
-        expect(() => localDateTimeToInstant('2026-02-30 08:30:00')).toThrow(/no validas/)
-        expect(() => localDateTimeToInstant('01/02/2026 08:30')).toThrow(/no validas/)
+        expect(() => localDateTimeToInstant('2026-02-30 08:30:00')).toThrow(/no válidas/)
+        expect(() => localDateTimeToInstant('01/02/2026 08:30')).toThrow(/no válidas/)
     })
 })
 
@@ -1861,5 +1974,521 @@ describe('stock/*.js: el almacén de mto-stock', () => {
         expect([toQuantity(' 12.5 '), toQuantity(''), toQuantity(null), toQuantity(3)]).toEqual([12.5, null, null, 3])
         expect([textOrNull('  '), textOrNull(' OT-7 '), textOrNull(null)]).toEqual([null, 'OT-7', null])
         expect(withoutNulls({a: 1, b: null, c: undefined, d: false, e: 0})).toEqual({a: 1, d: false, e: 0})
+    })
+})
+
+describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
+    const BASE = '/api/maintenance'
+    const ORDER = '2b3c4d5e-0000-4000-8000-000000000001'
+    const ASSET = '2b3c4d5e-0000-4000-8000-000000000002'
+    const TEAM = '2b3c4d5e-0000-4000-8000-000000000003'
+    const TASK = '2b3c4d5e-0000-4000-8000-000000000050'
+    const ITEM = '2b3c4d5e-0000-4000-8000-000000000051'
+    const SHIFT = '2b3c4d5e-0000-4000-8000-000000000060'
+    const DISCONNECTOR = '2b3c4d5e-0000-4000-8000-000000000061'
+    const INSPECTION = '2b3c4d5e-0000-4000-8000-000000000070'
+    const DEFECT = '2b3c4d5e-0000-4000-8000-000000000071'
+    const LINE = '2b3c4d5e-0000-4000-8000-000000000080'
+    const MAT = '2b3c4d5e-0000-4000-8000-000000000090'
+    const WH = '2b3c4d5e-0000-4000-8000-000000000091'
+    const PROJECT = '2b3c4d5e-0000-4000-8000-000000000092'
+    const SECTION = {id: ASSET, code: 'TS-0001', name: 'Tramo 12', type: 'TRACK_SECTION', trackId: 12, startKp: 12.1, endKp: 13.45,
+        sectioning: null, enabled: true}
+    const TEAM_SUMMARY = {id: TEAM, code: 'EQ-01', name: 'Brigada norte', baseName: 'Base Norte'}
+    const AUDIT = {createdAt: '2026-09-20T08:00:00Z', updatedAt: null, createdBy: 'mantenimiento.responsable', updatedBy: null}
+    const order = (status, extra = {}) => ({
+        id: ORDER, code: 'MO-000001', title: 'Revisión tramo 12', type: 'PREVENTIVE', status, priority: 'HIGH', asset: SECTION,
+        executionPackageId: 3, trackId: 12, plannedDate: '2026-09-14', team: TEAM_SUMMARY, assignedUser: 'mantenimiento.tecnico',
+        description: null, closingNotes: null, stockProjectId: null, taskCount: 10, completedTaskCount: 3, estimatedMinutes: 450,
+        estimatedShifts: 2, audit: AUDIT, version: 3, ...extra,
+    })
+    const task = (status, extra = {}) => ({
+        id: TASK, orderId: ORDER, sequence: 3, description: 'Perfil 12-2.27', status, assignedUser: null,
+        asset: {id: ASSET, code: 'PRF-0001', name: '12-2.27', type: 'PROFILE', trackId: 12, startKp: 12.27, endKp: 12.27, sectioning: 'S-3',
+            enabled: true},
+        shiftId: null, notes: null, defectsFound: null, taskTypeCodes: ['RG-01', 'RG-04'],
+        checkItems: [{id: ITEM, code: 'P-01', label: 'Altura del hilo', unit: 'mm', minValue: 5300, maxValue: 5700, measuredValue: null,
+            adjusted: null, valueAfterAdjustment: null, itemResult: null, notes: null, orderIndex: 1, outOfRange: false, version: 1}],
+        version: 2, ...extra,
+    })
+    const shift = (status, extra = {}) => ({
+        id: SHIFT, code: 'SH-000001', shiftDate: '2026-10-05', team: TEAM_SUMMARY, baseName: 'Base Norte', vehicle: 'DR-2',
+        possessionType: 'FULL', plannedStart: '2026-10-05T21:30:00Z', plannedEnd: '2026-10-06T04:30:00Z', actualStart: null, actualEnd: null,
+        voltageCutoffAt: null, netWorkMinutes: null, blockingDisconnectors: [{id: DISCONNECTOR, code: 'DIS-0005', name: 'HSA-NS5',
+            type: 'DISCONNECTOR', trackId: 12, startKp: 12, endKp: 12, sectioning: null, enabled: true}],
+        earthingPoints: 'P12-3, P12-9', parkingPlace: 'Apartadero km 11', executionPackageId: 3, trackIds: [12, 13], startKp: 12, endKp: 14,
+        personnel: '4 operarios', measurementEquipment: null, status, observations: null, version: 5, ...extra,
+    })
+    const line = (status, extra = {}) => ({
+        id: LINE, orderId: ORDER, taskId: null, materialId: MAT, materialCode: 'MAT-001', materialDescriptionSnapshot: 'Hilo de contacto',
+        warehouseId: WH, plannedQuantity: 4, consumedQuantity: 0, unit: 'm', allowOverConsumption: false,
+        stockReservationId: status === 'RESERVED' ? '2b3c4d5e-0000-4000-8000-000000000093' : null, stockSyncStatus: status,
+        stockSyncError: null, stockRequestInDoubt: null, version: 2, ...extra,
+    })
+    const page = (content, {number = 0, size = 50, totalElements = content.length} = {}) => ({
+        content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size), first: number === 0, last: true},
+    })
+    const maintenanceError = (status, errorCode, message, validationErrors = [], extra = {}) => HttpResponse.json({
+        timestamp: '2026-09-26T10:00:00Z', status, error: 'ERROR', message, path: '/api/v1/maintenance/x', method: 'GET', errorCode,
+        correlationId: null, validationErrors, ...extra,
+    }, {status})
+    const json = (request) => (request.body ? JSON.parse(request.body) : null)
+
+    afterEach(() => {
+        delete URL.createObjectURL
+        delete URL.revokeObjectURL
+    })
+
+    it('las órdenes se piden con sus filtros, la más reciente primero y el id para desempatar; un valor nuevo se lee como desconocido', async () => {
+        useToken()
+        const lists = record('get', `${BASE}/orders`, () => HttpResponse.json(page([order('IN_PROGRESS'),
+            order('ON_HOLD', {id: 'otra', code: 'MO-000002', priority: 'SOMEDAY'})], {number: 1, totalElements: 52})))
+        const reads = record('get', `${BASE}/orders/:id`, () => HttpResponse.json(order('IN_PROGRESS')))
+
+        const result = await searchOrders({status: 'IN_PROGRESS', type: 'PREVENTIVE', assetType: 'TRACK_SECTION', trackId: 12,
+            plannedFrom: '2026-09-01', plannedTo: '2026-09-30', assignedUser: '  ', teamId: TEAM, code: ' MO-0000 ', page: 2,
+            sort: {field: 'plannedDate', direction: 'asc'}})
+        await searchOrders()
+        const one = await getOrder(ORDER)
+
+        expect(lists[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(lists[0].url.search).toBe(`?status=IN_PROGRESS&type=PREVENTIVE&assetType=TRACK_SECTION&trackId=12&plannedFrom=2026-09-01`
+            + `&plannedTo=2026-09-30&teamId=${TEAM}&code=MO-0000&page=1&size=50&sort=plannedDate%2Casc&sort=id%2Casc`)
+        expect(lists[1].url.search).toBe('?page=0&size=50&sort=createdAt%2Cdesc&sort=id%2Casc')
+        expect(reads[0].url.pathname).toBe(`${BASE}/orders/${ORDER}`)
+        expect(result).toMatchObject({number: 1, totalElements: 52})
+        const [first, unknown] = result.content
+        expect([assetLabel(first.asset), teamLabel(first.team), first.audit.createdBy]).toEqual(['TS-0001 - Tramo 12', 'EQ-01 - Brigada norte',
+            'mantenimiento.responsable'])
+        expect([ORDER_STATUS.parse(unknown.status), ORDER_STATUS.label(unknown.status), PRIORITY.label(unknown.priority)])
+            .toEqual(['UNKNOWN', 'Desconocido', 'Desconocido'])
+        expect(ORDER_STATUS.selectable().map((option) => option.value)).toHaveLength(6)
+        expect(ORDER_STATUS.selectable().map((option) => option.value)).not.toContain('UNKNOWN')
+        expect(one).toEqual(first)
+    })
+
+    it('el JSON de error de mto-maintenance se lee por los mismos alias que el de mto-stock', async () => {
+        useToken()
+        record('get', `${BASE}/orders`, () => maintenanceError(400, 'REQ-400', 'Invalid request parameter.',
+            [{field: 'sort', message: "unknown property 'nope'"}], {correlationId: 'corr-m1'}))
+        record('get', `${BASE}/orders/:id`, () => maintenanceError(404, 'ORD-404', `MaintenanceOrder with id ${ORDER} was not found`))
+
+        const sort = await failure(searchOrders({sort: {field: 'nope', direction: 'asc'}}))
+        const missing = await failure(getOrder(ORDER))
+
+        expect(sort).toBeInstanceOf(ValidationError)
+        expect(sort).toMatchObject({status: 400, code: 'REQ-400', reference: 'corr-m1'})
+        expect(sort.fieldErrors).toEqual([{field: 'sort', code: null, message: "unknown property 'nope'"}])
+        expect(missing).toBeInstanceOf(NotFoundError)
+        expect(missing.code).toBe('ORD-404')
+        expect(missing.problem.detail).toMatch(/was not found$/)
+    })
+
+    it('un merge-patch compara como conjunto lo que el servicio guarda como conjunto, y vacío es vaciarlo', () => {
+        const original = {trackIds: [12, 13], taskTypeCodes: ['RG-04', 'RG-01'], blockingDisconnectorIds: ['a'], version: 5}
+        const options = {fields: ['trackIds', 'taskTypeCodes', 'blockingDisconnectorIds'], setFields: ['trackIds', 'taskTypeCodes',
+            'blockingDisconnectorIds'], version: 5}
+
+        expect(buildMergePatch(original, {trackIds: ['13', '12'], taskTypeCodes: ['RG-01', 'RG-04'], blockingDisconnectorIds: ['a']}, options))
+            .toBeNull()
+        expect(buildMergePatch(original, {trackIds: [12], taskTypeCodes: ['RG-01', 'RG-04'], blockingDisconnectorIds: []}, options))
+            .toEqual({trackIds: [12], blockingDisconnectorIds: null, version: 5})
+        expect(taskPatch(task('PENDING'), {...task('PENDING'), taskTypeCodes: ['RG-04', 'RG-01']})).toBeNull()
+    })
+
+    it('los activos: la búsqueda, el alta de un tramo sin lo vacío, la modificación con lo cambiado, reactivar y desactivar', async () => {
+        useToken()
+        const synchronized = {...SECTION, type: 'SECTION_INSULATOR', sourceService: 'mto-configuration', enabledAtSource: true,
+            disabledLocally: false, description: null, preventiveIntervalDays: 180, stationId: 4, version: 4}
+        const disabledBoth = {...synchronized, id: 'otro', enabled: false, enabledAtSource: false, disabledLocally: true}
+        const searches = record('get', `${BASE}/assets`, () => HttpResponse.json(page([synchronized, disabledBoth])))
+        const posts = record('post', `${BASE}/assets`, () => HttpResponse.json({...SECTION, code: 'TS-0002'}, {status: 201}))
+        const patches = record('patch', `${BASE}/assets/:id`, () => HttpResponse.json(synchronized))
+        const deletes = record('delete', `${BASE}/assets/:id`, () => new HttpResponse(null, {status: 204}))
+        const orders = record('get', `${BASE}/assets/:id/orders`, () => HttpResponse.json(page([order('COMPLETED')])))
+
+        await searchAssets({type: 'SECTION_INSULATOR', trackId: 12, enabled: true, name: ' AS ', preventiveDueBefore: '2026-10-01T22:00:00Z'})
+        await createAsset(trackSectionRequest({code: ' TS-0002 ', name: 'Tramo 13', description: '  ', executionPackageId: '3', trackId: '12',
+            stationId: null, startKp: '13.45', endKp: '14.2', trackKind: 'DIVERTED'}))
+        await patchAsset(ASSET, assetPatch(synchronized, {...synchronized, description: '', preventiveIntervalDays: '90', name: 'Otro'}))
+        await enableAsset(synchronized)
+        await disableAsset(ASSET)
+        await listAssetOrders(ASSET, {size: 20})
+
+        expect(searches[0].url.search).toBe('?type=SECTION_INSULATOR&trackId=12&enabled=true&name=AS&preventiveDueBefore=2026-10-01T22%3A00%3A00Z'
+            + '&page=0&size=50&sort=trackId%2Casc&sort=startKp%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'TS-0002', name: 'Tramo 13', executionPackageId: 3, trackId: 12, startKp: 13.45, endKp: 14.2,
+            trackKind: 'DIVERTED'})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {preventiveIntervalDays: 90, version: 4}],
+            [MERGE_PATCH, {enabled: true, version: 4}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/assets/${ASSET}`)
+        expect(orders[0].url.search).toBe('?page=0&size=20&sort=createdAt%2Cdesc&sort=id%2Casc')
+        expect([isSynchronizedAsset(synchronized), isDisabledAtSource(disabledBoth), isDisabledLocally(disabledBoth), canReactivate(disabledBoth)])
+            .toEqual([true, true, true, false])
+        expect(canReactivate({...disabledBoth, enabledAtSource: true})).toBe(true)
+    })
+
+    it('los catálogos se leen enteros y un equipo se escribe entero: base y vehículo vaciados viajan a null', async () => {
+        useToken()
+        const team = {id: TEAM, code: 'EQ-01', name: 'Brigada norte', baseName: 'Base Norte', vehicle: 'DR-2', active: true,
+            executionPackageIds: [3, 5]}
+        record('get', `${BASE}/teams`, () => HttpResponse.json([team]))
+        const posts = record('post', `${BASE}/teams`, () => HttpResponse.json({...team, code: 'EQ-02'}, {status: 201}))
+        const puts = record('put', `${BASE}/teams/:id`, () => HttpResponse.json(team))
+        const types = record('get', `${BASE}/task-types`, () => HttpResponse.json([{code: 'RG-04', unit: 'SPAN', requiresFullPossession: true}]))
+        record('get', `${BASE}/inspection-templates`, () => HttpResponse.json([{id: 't', assetType: 'PROFILE', items: [{code: 'P-01'}]}]))
+
+        expect(await listTeams()).toEqual([team])
+        await createTeam(teamRequest({code: ' EQ-02 ', name: 'Brigada sur', baseName: '', vehicle: '', active: false, executionPackageIds: ['5', '3', '5']},
+            {creating: true}))
+        await updateTeam(TEAM, teamRequest({code: 'EQ-01', name: 'Brigada norte', baseName: ' ', vehicle: '', active: false,
+            executionPackageIds: ['3', '5']}, {creating: false}))
+        await listTaskTypes({functionalGroup: 'OVERHEAD_CONDUCTORS'})
+        const templates = await listInspectionTemplates()
+
+        expect(json(posts[0])).toEqual({code: 'EQ-02', name: 'Brigada sur', baseName: null, vehicle: null, active: true, executionPackageIds: [3, 5]})
+        expect(json(puts[0])).toEqual({code: 'EQ-01', name: 'Brigada norte', baseName: null, vehicle: null, active: false, executionPackageIds: [3, 5]})
+        expect(types[0].url.search).toBe('?functionalGroup=OVERHEAD_CONDUCTORS')
+        expect(templates[0].items[0].code).toBe('P-01')
+    })
+
+    it('el ciclo de una orden: el alta sin lo vacío, la modificación con lo cambiado y cada transición con su cuerpo', async () => {
+        useToken()
+        const posts = record('post', `${BASE}/orders`, () => HttpResponse.json(order('DRAFT'), {status: 201}))
+        const patches = record('patch', `${BASE}/orders/:id`, () => HttpResponse.json(order('DRAFT')))
+        const transitions = record('post', `${BASE}/orders/:id/:transition`, (request) => (new URL(request.url).pathname.endsWith('/start')
+            ? maintenanceError(409, 'TRN-001', 'Order MO-000001 cannot be started from ASSIGNED')
+            : HttpResponse.json(order('PLANNED'))))
+        record('get', `${BASE}/orders/:id/history`, () => HttpResponse.json([
+            {id: 'h1', previousStatus: null, newStatus: 'DRAFT', changedAt: '2026-09-20T08:00:00Z', changedBy: 'mantenimiento.tecnico'},
+        ]))
+
+        await createOrder(orderRequest({title: ' Revisión tramo 12 ', description: '', type: 'PREVENTIVE', priority: 'MEDIUM', assetId: SECTION,
+            plannedDate: null, teamId: null, assignedUser: ' ', stockProjectId: null}))
+        await patchOrder(ORDER, orderPatch(order('DRAFT'), {title: 'Revisión tramo 12', description: '', priority: 'MEDIUM', plannedDate: '2026-10-05',
+            teamId: null, assignedUser: 'mantenimiento.tecnico', stockProjectId: null, closingNotes: ''}, {readsStock: true}))
+        await transitionOrder(ORDER, 'plan', transitionRequest('plan', {plannedDate: '2026-10-05', comment: ' noche del lunes '}))
+        await transitionOrder(ORDER, 'assign', transitionRequest('assign', {teamId: TEAM, assignedUser: ' ', comment: ''}))
+        const refused = await failure(transitionOrder(ORDER, 'start', transitionRequest('start', {comment: ''})))
+        await transitionOrder(ORDER, 'complete', transitionRequest('complete', {closingNotes: 'Sin incidencias', force: true, comment: ''}))
+        await transitionOrder(ORDER, 'cancel', transitionRequest('cancel', {reason: 'Duplicada'}))
+        const history = await listOrderHistory(ORDER)
+
+        expect(json(posts[0])).toEqual({title: 'Revisión tramo 12', type: 'PREVENTIVE', priority: 'MEDIUM', assetId: ASSET})
+        expect(patches[0].headers.get('content-type')).toBe(MERGE_PATCH)
+        expect(json(patches[0])).toEqual({priority: 'MEDIUM', plannedDate: '2026-10-05', teamId: null, version: 3})
+        expect(transitions.map((request) => [new URL(request.url.href).pathname.split('/').at(-1), json(request)])).toEqual([
+            ['plan', {plannedDate: '2026-10-05', comment: 'noche del lunes'}],
+            ['assign', {teamId: TEAM}],
+            ['start', {}],
+            ['complete', {closingNotes: 'Sin incidencias', force: true}],
+            ['cancel', {reason: 'Duplicada'}],
+        ])
+        expect(refused).toBeInstanceOf(ConflictError)
+        expect(refused.code).toBe('TRN-001')
+        expect(history[0].previousStatus).toBeNull()
+        expect(() => transitionOrder(ORDER, 'reopen', {})).toThrow(/desconocida/)
+    })
+
+    it('fuera de borrador una orden solo cambia lo que admite, y sin stock-read su proyecto de almacén no viaja', () => {
+        const running = order('IN_PROGRESS', {stockProjectId: PROJECT})
+        expect(orderPatch(running, {title: 'Otro', priority: 'CRITICAL', description: 'Nueva', closingNotes: '', plannedDate: null, teamId: null,
+            stockProjectId: null}, {readsStock: true})).toEqual({priority: 'CRITICAL', description: 'Nueva', version: 3})
+        const draft = order('DRAFT', {stockProjectId: PROJECT})
+        const values = {title: 'Revisión tramo 12', priority: 'HIGH', plannedDate: '2026-09-14', teamId: TEAM, assignedUser: 'mantenimiento.tecnico',
+            stockProjectId: null}
+        expect(orderPatch(draft, values, {readsStock: true})).toEqual({stockProjectId: null, version: 3})
+        expect(orderPatch(draft, values, {readsStock: false})).toBeNull()
+    })
+
+    it('las tareas de una orden: la lista en su orden, el alta, generar sin cuerpo, la modificación y cancelar con su motivo', async () => {
+        useToken()
+        record('get', `${BASE}/orders/:id/tasks`, () => HttpResponse.json([task('ON_HOLD', {id: 'otra', sequence: 4}), task('PENDING')]))
+        const posts = record('post', `${BASE}/orders/:id/tasks`, () => HttpResponse.json(task('PENDING'), {status: 201}))
+        const generates = record('post', `${BASE}/orders/:id/tasks/generate`, () => HttpResponse.json({createdTasks: 14, skippedProfiles: 2,
+            totalTasks: 16, estimatedMinutes: 720, estimatedShifts: 3}))
+        const patches = record('patch', `${BASE}/orders/:id/tasks/:taskId`, () => HttpResponse.json(task('PENDING')))
+        const cancels = record('post', `${BASE}/orders/:id/tasks/:taskId/cancel`, () => HttpResponse.json(task('CANCELLED')))
+
+        const listed = await listOrderTasks(ORDER)
+        await createTask(ORDER, taskRequest({description: ' Revisar la ménsula ', assetId: {id: ASSET}, assignedUser: '', taskTypeCodes: ['RG-04'],
+            withChecklist: true}))
+        const generated = await generateTasks(ORDER, generateRequest())
+        await patchTask(ORDER, TASK, taskPatch(task('PENDING', {assignedUser: 'ana'}), {description: 'Perfil 12-2.27', assignedUser: '',
+            taskTypeCodes: ['RG-01'], notes: 'Falta la llave', defectsFound: ''}))
+        await cancelTask(ORDER, TASK, 'Perfil desmontado')
+
+        expect(listed.map((one) => one.sequence)).toEqual([3, 4])
+        expect([isOpenTask(listed[0].status), isOpenTask(listed[1].status), TASK_STATUS.label(listed[1].status)]).toEqual([true, false, 'Desconocido'])
+        expect(json(posts[0])).toEqual({description: 'Revisar la ménsula', assetId: ASSET, taskTypeCodes: ['RG-04'], withChecklist: true})
+        expect(json(generates[0])).toEqual({})
+        expect(generated.estimatedShifts).toBe(3)
+        expect(json(patches[0])).toEqual({assignedUser: null, taskTypeCodes: ['RG-01'], notes: 'Falta la llave', version: 2})
+        expect(json(cancels[0])).toEqual({reason: 'Perfil desmontado'})
+    })
+
+    it('los turnos: la búsqueda, el alta sin lo vacío, la modificación con los conjuntos enteros, las transiciones, sus tareas y asignar', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/shifts`, () => HttpResponse.json(page([shift('IN_PROGRESS')])))
+        const posts = record('post', `${BASE}/shifts`, () => HttpResponse.json(shift('PLANNED'), {status: 201}))
+        const patches = record('patch', `${BASE}/shifts/:id`, () => HttpResponse.json(shift('PLANNED')))
+        const transitions = record('post', `${BASE}/shifts/:id/:transition`, () => HttpResponse.json(shift('IN_PROGRESS')))
+        const tasks = record('get', `${BASE}/shifts/:id/tasks`, () => HttpResponse.json([task('PENDING')]))
+        const profiles = record('get', `${BASE}/shifts/:id/profiles`, () => HttpResponse.json([task('PENDING').asset]))
+        const assigns = record('post', `${BASE}/shifts/:id/tasks/:taskId`, () => HttpResponse.json(task('PENDING', {shiftId: SHIFT})))
+
+        await searchShifts({dateFrom: '2026-10-01', dateTo: '2026-10-31', trackId: 12, status: 'IN_PROGRESS', possessionType: 'FULL'})
+        await createShift(shiftRequest({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: ['12'], teamId: null, baseName: ' ',
+            plannedStart: '2026-10-05 21:30:00', plannedEnd: null, blockingDisconnectorIds: [], startKp: '', endKp: ''}))
+        const read = shift('PLANNED')
+        await patchShift(SHIFT, shiftPatch(read, {...shiftFormValues(read), trackIds: ['13', '12', '14'], blockingDisconnectorIds: [],
+            plannedEnd: '2026-10-06 05:00:00', executionPackageId: '3', startKp: '12.000', endKp: '14', measurementEquipment: ' '}))
+        await transitionShift(SHIFT, 'start', shiftTransitionRequest('start', {when: null, voltageCutoffAt: null}))
+        await transitionShift(SHIFT, 'close', shiftTransitionRequest('close', {when: null, voltageCutoffAt: null, netWorkMinutes: '240',
+            observations: 'Sin incidencias'}))
+        await cancelShift(SHIFT, 'Lluvia')
+        await listShiftTasks(SHIFT, {status: 'PENDING'})
+        await listShiftProfiles(SHIFT)
+        const assigned = await assignTaskToShift(SHIFT, TASK)
+
+        expect(searches[0].url.search).toBe('?dateFrom=2026-10-01&dateTo=2026-10-31&trackId=12&status=IN_PROGRESS&possessionType=FULL'
+            + '&page=0&size=50&sort=shiftDate%2Cdesc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12],
+            plannedStart: localDateTimeToInstant('2026-10-05 21:30:00')})
+        expect(json(patches[0])).toEqual({trackIds: [12, 13, 14], blockingDisconnectorIds: null,
+            plannedEnd: localDateTimeToInstant('2026-10-06 05:00:00'), version: 5})
+        expect(shiftPatch(read, shiftFormValues(read))).toBeNull()
+        expect(transitions.map((request) => [request.url.pathname.split('/').at(-1), json(request)])).toEqual([
+            ['start', {}],
+            ['close', {netWorkMinutes: 240, observations: 'Sin incidencias'}],
+            ['cancel', {reason: 'Lluvia'}],
+        ])
+        expect(tasks[0].url.search).toBe('?status=PENDING')
+        expect(profiles[0].url.search).toBe('')
+        expect(assigns[0].body).toBe('')
+        expect(assigned.shiftId).toBe(SHIFT)
+        expect(() => transitionShift(SHIFT, 'reopen', {})).toThrow(/desconocida/)
+    })
+
+    it('trabajar una tarea: iniciarla en un turno, contestar un punto y completarla con sus defectos y materiales', async () => {
+        useToken()
+        const starts = record('post', `${BASE}/orders/:id/tasks/:taskId/start`, () => HttpResponse.json(task('IN_PROGRESS')))
+        const items = record('patch', `${BASE}/orders/:id/tasks/:taskId/check-items/:itemId`, () => maintenanceError(422, 'INS-001',
+            'Item P-01 is out of range (5250 mm) and cannot be OK unless adjusted into range'))
+        const completes = record('post', `${BASE}/orders/:id/tasks/:taskId/complete`, () => HttpResponse.json(task('COMPLETED')))
+        const read = task('IN_PROGRESS', {notes: 'Antes'})
+
+        await startTask(ORDER, TASK, {shiftId: SHIFT})
+        const outOfRange = await failure(patchCheckItem(ORDER, TASK, ITEM, checkItemPatch(read.checkItems[0], {measuredValue: '5250', adjusted: false,
+            valueAfterAdjustment: '', itemResult: 'OK', notes: ''})))
+        await completeTask(ORDER, TASK, completeRequest(read, {shiftId: SHIFT, taskTypeCodes: ['RG-04', 'RG-01'], notes: 'Antes', defectsFound: '',
+            workComplete: false, repairPlannedDate: '2026-10-12'}, {
+            inlineDefects: [{id: 'local-1', severity: 'HIGH', description: 'Péndola rota', technicalNotes: ' ', correctionType: '', partsReplaced: ''}],
+            materials: [{id: 'local-2', material: {id: MAT, code: 'MAT-001', unitOfMeasure: 'ud'}, warehouse: {id: WH}, quantity: '2'}],
+        }))
+        const sameTask = completeRequest(read, {shiftId: SHIFT, taskTypeCodes: [], notes: '', defectsFound: '', workComplete: true})
+
+        expect(json(starts[0])).toEqual({shiftId: SHIFT})
+        expect(json(items[0])).toEqual({measuredValue: 5250, itemResult: 'OK', version: 1})
+        expect(outOfRange).toBeInstanceOf(ValidationError)
+        expect(outOfRange.code).toBe('INS-001')
+        expect(errorMessage(outOfRange)).toMatch(/^La inspección o su checklist no admiten esta operación\. Item P-01/)
+        expect(json(completes[0])).toEqual({shiftId: SHIFT, workComplete: false, repairPlannedDate: '2026-10-12',
+            inlineDefects: [{severity: 'HIGH', description: 'Péndola rota'}], materials: [{materialId: MAT, warehouseId: WH, quantity: 2, unit: 'ud'}]})
+        expect(sameTask).toEqual({shiftId: SHIFT, notes: ''})
+    })
+
+    it('las inspecciones: la búsqueda, el alta desde una orden, la modificación, un punto y lo que generan', async () => {
+        useToken()
+        const inspection = {id: INSPECTION, code: 'INS-000001', result: 'MAJOR_DEFECT', inspectionDate: '2026-09-20', inspector: 'ana',
+            inspectionKind: 'TECHNICAL', kp: 12.27, description: null, detectedDefects: 'Péndola rota', recommendedActions: null, version: 6}
+        const searches = record('get', `${BASE}/inspections`, () => HttpResponse.json(page([inspection])))
+        const posts = record('post', `${BASE}/inspections`, () => HttpResponse.json(inspection, {status: 201}))
+        const patches = record('patch', `${BASE}/inspections/:id`, () => HttpResponse.json(inspection))
+        const items = record('patch', `${BASE}/inspections/:id/items/:itemId`, () => HttpResponse.json(inspection))
+        const defects = record('post', `${BASE}/inspections/:id/create-defect`, () => HttpResponse.json({id: DEFECT, code: 'DEF-000001'}))
+        const orders = record('post', `${BASE}/inspections/:id/create-corrective-order`, () => HttpResponse.json(order('DRAFT', {code: 'MO-000002'})))
+
+        await searchInspections({result: 'MAJOR_DEFECT', inspectionFrom: '2026-09-01', inspectionTo: '2026-09-30', inspector: ' ', originOrderId: ORDER})
+        await createInspection(inspectionRequest({inspectionDate: '2026-09-20', inspector: '', inspectionKind: 'TECHNICAL', result: 'MAJOR_DEFECT',
+            kp: '', description: '', detectedDefects: '', recommendedActions: ''}, {asset: SECTION, originOrderId: ORDER}))
+        await patchInspection(INSPECTION, inspectionPatch(inspection, {inspectionDate: '2026-09-20', inspector: 'ana', inspectionKind: 'TECHNICAL',
+            result: 'MINOR_DEFECT', kp: '', description: '', detectedDefects: 'Péndola rota', recommendedActions: ''}))
+        await patchInspectionItem(INSPECTION, ITEM, checkItemPatch({id: ITEM, itemResult: null, notes: null, version: 0}, {measuredValue: '',
+            adjusted: false, valueAfterAdjustment: '', itemResult: 'DEFECT', notes: 'Rota'}))
+        const defect = await createDefectFromInspection(INSPECTION, defectFromInspectionRequest({severity: null, description: ' ', technicalNotes: '',
+            force: true}))
+        const corrective = await createCorrectiveOrder(INSPECTION, correctiveOrderRequest({title: '', description: '', priority: 'HIGH',
+            plannedDate: null, teamId: null}))
+
+        expect(searches[0].url.search).toBe(`?result=MAJOR_DEFECT&inspectionFrom=2026-09-01&inspectionTo=2026-09-30&originOrderId=${ORDER}`
+            + '&page=0&size=50&sort=inspectionDate%2Cdesc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({assetId: ASSET, inspectionDate: '2026-09-20', inspectionKind: 'TECHNICAL', result: 'MAJOR_DEFECT',
+            originOrderId: ORDER})
+        expect(json(patches[0])).toEqual({result: 'MINOR_DEFECT', kp: null, version: 6})
+        expect(json(items[0])).toEqual({itemResult: 'DEFECT', notes: 'Rota', version: 0})
+        expect(json(defects[0])).toEqual({force: true})
+        expect(defectFromInspectionRequest({force: false})).toEqual({})
+        expect(json(orders[0])).toEqual({priority: 'HIGH'})
+        expect([defect.code, corrective.code]).toEqual(['DEF-000001', 'MO-000002'])
+    })
+
+    it('los defectos: la búsqueda por instantes, el alta desde una orden, la modificación y sus transiciones con sus cuerpos', async () => {
+        useToken()
+        const defect = {id: DEFECT, code: 'DEF-000001', severity: 'HIGH', status: 'OPEN', description: 'Péndola rota', technicalNotes: 'Antes',
+            correctionType: null, partsReplaced: null, repairPlannedDate: null, version: 7}
+        const searches = record('get', `${BASE}/defects`, () => HttpResponse.json(page([defect])))
+        const posts = record('post', `${BASE}/defects`, () => HttpResponse.json({...defect, status: 'IN_PROGRESS'}, {status: 201}))
+        const patches = record('patch', `${BASE}/defects/:id`, () => HttpResponse.json(defect))
+        const transitions = record('post', `${BASE}/defects/:id/*`, () => HttpResponse.json({...defect, status: 'IN_PROGRESS'}))
+        const history = record('get', `${BASE}/defects/:id/history`, () => HttpResponse.json([{newStatus: 'OPEN', comment: 'Created from inspection'}]))
+
+        await searchDefects({severity: 'HIGH', status: 'OPEN', trackId: 12, detectedFrom: '2026-09-01', detectedTo: '2026-09-30'})
+        await createDefect(defectRequest({severity: 'HIGH', description: ' Péndola rota ', technicalNotes: '', correctionType: '', partsReplaced: '',
+            repairPlannedDate: null, detectedAt: null, startKp: '', endKp: ''}, {asset: SECTION, orderId: ORDER}))
+        await patchDefect(DEFECT, defectPatch(defect, {severity: 'HIGH', description: 'Péndola rota', technicalNotes: '', correctionType: '',
+            partsReplaced: '', repairPlannedDate: '2026-10-12'}))
+        await transitionDefect(DEFECT, 'link', {orderId: ORDER})
+        await transitionDefect(DEFECT, 'resolve', {body: resolveRequest({resolutionNotes: ' Péndola cambiada ', resolvedInShiftId: SHIFT,
+            correctionType: '', partsReplaced: ''})})
+        await transitionDefect(DEFECT, 'close', {body: {reason: 'Verificado'}})
+        await transitionDefect(DEFECT, 'discard', {body: {reason: 'Duplicado'}})
+        await listDefectHistory(DEFECT)
+
+        expect(searches[0].url.searchParams.get('detectedFrom')).toBe(startOfDayInstant('2026-09-01'))
+        expect(searches[0].url.searchParams.get('detectedTo')).toBe(endOfDayInstant('2026-09-30'))
+        expect(searches[0].url.searchParams.getAll('sort')).toEqual(['detectedAt,desc', 'id,asc'])
+        expect(json(posts[0])).toEqual({assetId: ASSET, severity: 'HIGH', description: 'Péndola rota', orderId: ORDER})
+        expect(json(patches[0])).toEqual({technicalNotes: null, repairPlannedDate: '2026-10-12', version: 7})
+        expect(transitions.map((request) => [request.url.pathname.replace(`${BASE}/defects/${DEFECT}/`, ''), request.body ? json(request) : ''])).toEqual([
+            [`link-order/${ORDER}`, ''],
+            ['resolve', {resolutionNotes: 'Péndola cambiada', resolvedInShiftId: SHIFT}],
+            ['close', {reason: 'Verificado'}],
+            ['discard', {reason: 'Duplicado'}],
+        ])
+        expect(history).toHaveLength(1)
+        expect(() => transitionDefect(DEFECT, 'reopen')).toThrow(/desconocida/)
+    })
+
+    it('una línea dice qué petición al almacén está en duda, y lo que no se conoce no abre nada', () => {
+        const reserving = line('FAILED', {stockSyncError: 'reserve: Read timed out', stockRequestInDoubt: 'RESERVATION'})
+        const outputting = line('FAILED', {stockSyncError: 'consume: Read timed out', stockRequestInDoubt: 'OUTPUT'})
+        const unknown = line('FAILED', {stockRequestInDoubt: 'CANCELLATION'})
+        const reserved = line('RESERVED')
+        const lines = [reserving, outputting, unknown, reserved]
+
+        expect(lines.map(isInDoubtLine)).toEqual([true, true, true, false])
+        expect(lines.map((one) => isRemovableLine(one, 'IN_PROGRESS'))).toEqual([true, false, false, true])
+        expect(STOCK_REQUEST.label(unknown.stockRequestInDoubt)).toBe('Desconocido')
+        expect(STOCK_REQUEST.selectable().map((option) => option.value)).toEqual(['RESERVATION', 'OUTPUT'])
+        expect([isEditableLine(line('PARTIALLY_CONSUMED'), 'IN_PROGRESS'), isEditableLine(reserved, 'COMPLETED'), isEditableLine(reserved, 'PLANNED')])
+            .toEqual([false, false, true])
+        expect([syncActionOf(reserved, 'PLANNED'), syncActionOf(reserved, 'COMPLETED'), syncActionOf(line('REJECTED'), 'COMPLETED'),
+            syncActionOf(line('NOT_REQUESTED'), 'DRAFT'), syncActionOf(line('NOT_REQUESTED'), 'ON_HOLD')]).toEqual(['check', null, 'retry', null, null])
+        expect(materialPatch(reserving, {plannedQuantity: '9', consumedQuantity: '9', allowOverConsumption: true}))
+            .toEqual({allowOverConsumption: true, version: 2})
+        expect(materialLabel(reserved)).toBe('MAT-001 - Hilo de contacto')
+    })
+
+    it('las líneas de material: la lista, el alta, lo cambiado, sincronizar y quitar sin cuerpo, y el almacén caído o diciendo que no', async () => {
+        useToken()
+        const reason = "mto-stock rejected 'reserve' with 422 WH-001: Warehouse WH-001 is inactive"
+        record('get', `${BASE}/orders/:id/materials`, () => HttpResponse.json([line('REJECTED', {stockSyncError: reason})]))
+        const posts = record('post', `${BASE}/orders/:id/materials`, () => HttpResponse.json(line('NOT_REQUESTED'), {status: 201}))
+        const patches = record('patch', `${BASE}/orders/:id/materials/:lineId`, () => HttpResponse.json(line('RESERVED')))
+        const syncs = record('post', `${BASE}/orders/:id/materials/:lineId/sync`, (_request, call) => [
+            () => HttpResponse.json(line('RESERVED')),
+            () => maintenanceError(422, 'STK-422', reason),
+            () => maintenanceError(409, 'STK-001', "mto-stock rejected 'reserve' with 409 STK-001: Insufficient stock"),
+        ][call - 1]())
+        const deletes = record('delete', `${BASE}/orders/:id/materials/:lineId`, (_request, call) => (call === 1
+            ? new HttpResponse(null, {status: 204})
+            : maintenanceError(503, 'STK-503', 'Stock service unavailable')))
+
+        const [rejected] = await listOrderMaterials(ORDER)
+        await registerMaterial(ORDER, materialRequest({materialId: {id: MAT, unitOfMeasure: 'm'}, warehouseId: {id: WH}, plannedQuantity: '4',
+            taskId: null, allowOverConsumption: false}))
+        await patchMaterial(ORDER, LINE, materialPatch(line('RESERVED'), {plannedQuantity: '5', consumedQuantity: '3', allowOverConsumption: false}))
+        const synced = await syncMaterial(ORDER, LINE)
+        const refused = await failure(syncMaterial(ORDER, LINE))
+        const noStock = await failure(syncMaterial(ORDER, LINE))
+        await removeMaterial(ORDER, LINE)
+        const down = await failure(removeMaterial(ORDER, LINE))
+
+        expect([STOCK_SYNC_STATUS.label(rejected.stockSyncStatus), rejected.stockSyncError, isSyncFailed(rejected.stockSyncStatus)])
+            .toEqual(['Rechazada', reason, true])
+        expect(json(posts[0])).toEqual({materialId: MAT, warehouseId: WH, plannedQuantity: 4, unit: 'm'})
+        expect(json(patches[0])).toEqual({consumedQuantity: 3, version: 2})
+        expect(syncs.every((request) => request.body === '')).toBe(true)
+        expect(isReservedLine(synced)).toBe(true)
+        expect(refused).toBeInstanceOf(ValidationError)
+        expect([refused.code, refused.hasFieldErrors, errorMessage(refused)]).toEqual(['STK-422', false, `El almacén ha rechazado la operación. ${reason}`])
+        expect(noStock).toBeInstanceOf(ConflictError)
+        expect(errorMessage(noStock)).toBe("No hay stock disponible suficiente. mto-stock rejected 'reserve' with 409 STK-001: Insufficient stock")
+        expect(deletes).toHaveLength(2)
+        expect(down).toBeInstanceOf(UnavailableError)
+        expect([down.status, down.code]).toEqual([503, 'STK-503'])
+        expect(errorMessage(down)).toBe('El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde. Stock service unavailable')
+    })
+
+    it('los informes vienen en JSON o como fichero con su nombre por la misma ruta; el avance es una fracción y se lee tal cual', async () => {
+        useToken()
+        Object.defineProperty(URL, 'createObjectURL', {value: vi.fn(() => 'blob:mto/1'), configurable: true})
+        Object.defineProperty(URL, 'revokeObjectURL', {value: vi.fn(), configurable: true})
+        const saved = []
+        vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click() {
+            saved.push(this.download)
+        })
+        const file = (name) => new HttpResponse('PK', {headers: {'Content-Type': 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="${name}"`}})
+        const progress = record('get', `${BASE}/reports/progress`, (request) => (new URL(request.url).searchParams.has('format')
+            ? file('progress-report-2026-09-30.xlsx')
+            : HttpResponse.json({totalAssets: 40, checkedAssets: 18, completionRatio: 0.45, rows: [{assetType: 'PROFILE'}, {assetType: 'CROSSOVER'}]})))
+        const monthly = record('get', `${BASE}/reports/monthly`, (request) => (new URL(request.url).searchParams.has('format')
+            ? file('monthly-report-2026-09.pdf')
+            : HttpResponse.json({month: '2026-09', averageNetMinutesPerShift: 240, materials: [{materialCode: 'MAT-001'}]})))
+        const shiftReport = record('get', `${BASE}/shifts/:id/report`, (request) => (new URL(request.url).searchParams.has('format')
+            ? file('shift-report-2026-10-05-SH-000001.xlsx')
+            : HttpResponse.json({shift: shift('CLOSED'), tasksCompleted: 2, rows: [{taskTypeCodes: ['RG-01', 'RG-04'], photoRefs: null}]})))
+        const query = {executionPackageId: 3, trackId: 12, assetType: 'PROFILE', from: '2026-09-01', to: '2026-09-30'}
+
+        const report = await getProgressReport(query)
+        await downloadProgressReport(query, 'xlsx')
+        const month = await getMonthlyReport({month: '2026-09'})
+        await downloadMonthlyReport({month: '2026-09', executionPackageId: 3}, 'pdf')
+        const daily = await getShiftReport(SHIFT)
+        await downloadShiftReport(SHIFT, 'xlsx')
+
+        expect(progress[0].url.search).toBe(`?executionPackageId=3&trackId=12&assetType=PROFILE&from=${encodeURIComponent(startOfDayInstant('2026-09-01'))}`
+            + `&to=${encodeURIComponent(endOfDayInstant('2026-09-30'))}`)
+        expect(progress[1].url.searchParams.get('format')).toBe('xlsx')
+        expect(progress[1].url.searchParams.get('trackId')).toBe('12')
+        expect([report.completionRatio, ASSET_TYPE.label(report.rows[1].assetType)]).toEqual([0.45, 'Desconocido'])
+        expect(monthly.map((request) => request.url.search)).toEqual(['?month=2026-09', '?month=2026-09&executionPackageId=3&format=pdf'])
+        expect(month.materials[0].materialCode).toBe('MAT-001')
+        expect(shiftReport.map((request) => request.url.search)).toEqual(['', '?format=xlsx'])
+        expect(daily.shift.code).toBe('SH-000001')
+        expect(saved).toEqual(['progress-report-2026-09-30.xlsx', 'monthly-report-2026-09.pdf', 'shift-report-2026-10-05-SH-000001.xlsx'])
+    })
+
+    it('el historial de cada recurso llega paginado y sin orden, y sin revisiones es un 404', async () => {
+        useToken()
+        const revisions = record('get', `${BASE}/:resource/:id/revisions`, (request) => (new URL(request.url).pathname.includes('/defects/')
+            ? maintenanceError(404, 'DEF-404', 'No revisions')
+            : HttpResponse.json(page([{revision: {number: 4, operation: 'UPDATED'}, entity: order('PLANNED')}], {size: 20}))))
+
+        const orders = await listRevisions(orderRevisionsPath(ORDER))
+        await listRevisions(shiftRevisionsPath(SHIFT), {page: 2})
+        const none = await failure(listRevisions(defectRevisionsPath(DEFECT)))
+
+        expect(revisions.map((request) => request.url.pathname + request.url.search)).toEqual([
+            `${BASE}/orders/${ORDER}/revisions?page=0&size=20`,
+            `${BASE}/shifts/${SHIFT}/revisions?page=1&size=20`,
+            `${BASE}/defects/${DEFECT}/revisions?page=0&size=20`,
+        ])
+        expect(orders.content[0].entity.code).toBe('MO-000001')
+        expect(none).toBeInstanceOf(NotFoundError)
     })
 })

@@ -58,11 +58,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `TokenRejectedError` 401, `ForbiddenError`, `NotFoundError`, `ConflictError`,
   `TooManyRequestsError` 429 con el cuerpo, `UnavailableError` 502/503/504, `NetworkError`),
   `correlation.js`, `paging.js` (las tres formas de paginar, y `toPageParams` y `toOffsetParams`, de
-  la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden de `mto-stock`),
-  `enums.js` (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`), `dates.js`
-  (también `localDateTimeToInstant`, una fecha y hora escritas como Instant), `revisions.js` (el
-  historial de una fila: `REVISION_OPERATION` tolerante y `listRevisions`, sin `sort`; lo comparte
-  mantenimiento), `download.js` (fetch + Blob),
+  la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden de `mto-stock` y de
+  `mto-maintenance`), `enums.js` (`defineEnum`: enumerados tolerantes), `mergePatch.js`
+  (`buildMergePatch`, con `setFields` para las listas que el servicio guarda como conjunto),
+  `bodies.js` (cómo viaja un cuerpo en cualquier servicio: `textOrNull`, `withoutNulls`,
+  `numberOrNull`, `idOrNull`), `dates.js` (también `localDateTimeToInstant`, una fecha y hora
+  escritas como Instant, y `instantToLocalDateTime`, el camino de vuelta), `revisions.js` (el
+  historial de una fila: `REVISION_OPERATION` tolerante y `listRevisions`, sin `sort`; lo comparten
+  almacén y mantenimiento), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
@@ -83,17 +86,36 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   clientes, sus roles y sus miembros, los roles de una persona, añadir con `PUT {roles}` y quitar con
   un `DELETE` con el mismo cuerpo) y `users/profiles.js` (el catálogo, lo que concede un perfil, sus
   miembros, los de una persona, asignar con un `PUT` sin cuerpo y quitar).
-  `stock/` es `mto-stock`: `stock/values.js` (`stockPath`, el port de `StockLabels` con `codeAndName`
-  y `referenceLabel`, `summaryOf`, y cómo viajan una cantidad y un texto opcional: `toQuantity`,
-  `textOrNull`, `withoutNulls`), `stock/catalogues.js` (los cinco catálogos: `searchCatalogue` con
-  `search`, `active` y el `Pageable`, el alta y la modificación, `isSynchronizedProject`, la
-  disponibilidad de un conjunto, y los cuerpos `catalogueEntryBody`, `materialBody` y `assemblyBody`:
-  el alta sin `active` y la modificación con él), `stock/inventory.js` (las cifras de un material y
-  los bajo mínimo), `stock/movements.js` (`MOVEMENT_TYPE` tolerante, `ADJUSTMENT_DIRECTIONS`, el libro
-  entero y el de un material, las cuatro altas y sus peticiones) y `stock/reservations.js`
-  (`RESERVATION_STATUS` tolerante, `isActiveReservation`, la lista, el alta, la modificación sin
-  material, cancelar con un `DELETE` que devuelve la reserva, y liberar y consumir con `POST` sin
-  cuerpo).
+  `stock/` es `mto-stock`: `stock/values.js` (`stockPath`, el port de `StockLabels` con
+  `codeAndName` y `referenceLabel`, `summaryOf`, y cómo viaja una cantidad, `toQuantity`;
+  `textOrNull` y `withoutNulls` vienen de `bodies.js`), `stock/catalogues.js` (los cinco catálogos:
+  `searchCatalogue` con `search`, `active` y el `Pageable`, el alta y la modificación,
+  `isSynchronizedProject`, la disponibilidad de un conjunto, y los cuerpos `catalogueEntryBody`,
+  `materialBody` y `assemblyBody`: el alta sin `active` y la modificación con él),
+  `stock/inventory.js` (las cifras de un material y los bajo mínimo), `stock/movements.js`
+  (`MOVEMENT_TYPE` tolerante, `ADJUSTMENT_DIRECTIONS`, el libro entero y el de un material, las
+  cuatro altas y sus peticiones) y `stock/reservations.js` (`RESERVATION_STATUS` tolerante,
+  `isActiveReservation`, la lista, el alta, la modificación sin material, cancelar con un `DELETE`
+  que devuelve la reserva, y liberar y consumir con `POST` sin cuerpo).
+  `maintenance/` es `mto-maintenance`:
+  - `maintenance/values.js` (`maintenancePath` y los nombres: `assetLabel`, `teamLabel`,
+    `taskTypeLabel`, `materialLabel`) y `maintenance/enums.js` (los enumerados tolerantes, y los
+    predicados de estado copiados de las máquinas del servicio: `canPlanOrder`, `canStartShift`,
+    `isPendingDefect`…);
+  - `maintenance/assets.js` (la búsqueda, el alta de un tramo, `assetPatch`, desactivar con `DELETE`
+    y reactivar; quién lo desactivó, `isDisabledAtSource` e `isDisabledLocally`, y `canReactivate`) y
+    `maintenance/catalogs.js` (los equipos, que se escriben enteros, los tipos de tarea y las
+    plantillas de inspección);
+  - `maintenance/orders.js` (las órdenes, sus transiciones con su cuerpo, `transitionRequest`, y sus
+    estados; `orderPatch`, con lo que admite su estado), `maintenance/tasks.js` (las tareas de una
+    orden, generarlas, iniciarlas y completarlas, `completeRequest`, y su checklist) y
+    `maintenance/materials.js` (las líneas de material y lo que admite cada una: `isEditableLine`,
+    `isRemovableLine`, `syncActionOf`, `fixedPlanned`, `fixedConsumed`);
+  - `maintenance/shifts.js` (los turnos, iniciarlos, cerrarlos y cancelarlos, sus tareas y perfiles,
+    y asignar una tarea), `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
+    el defecto y la orden correctiva que generan), `maintenance/defects.js` (los defectos y sus
+    transiciones: vincular a una orden, resolver, cerrar y descartar) y `maintenance/reports.js` (el
+    parte de un turno, el avance y el mes, en JSON y como fichero).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -120,8 +142,11 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `OffsetPager.jsx` (anteriores y siguientes para una lista sin total), `ServerSearchSelect.jsx` (un
   desplegable que busca en el servidor mientras se escribe y conserva lo elegido: el perfil de un
   seccionador y los desplegables del almacén), `RevisionsModal.jsx` (el port de `RevisionsDialog`: el
-  historial de una fila) y `typedDates.js` (las fechas, y fechas y horas, escritas en un `DateInput`).
-  Cada fase añade aquí lo que comparte.
+  historial de una fila), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
+  los seccionadores que abre un turno) y `typedDates.js` (las fechas, y fechas y horas, escritas en
+  un `DateInput`). `notifySuccess.js` trae además `notifyWarning`, el aviso amarillo de diez segundos
+  (lo que se hizo a medias, como unas tareas asignadas y otras rechazadas). Cada fase añade aquí lo
+  que comparte.
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
   `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
   de `ui/lov`:
@@ -183,6 +208,30 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `useStock.js` (las claves `['stock', …]`, las consultas y las escrituras con lo que releen),
     `stockForms.js` (lo que exigen los formularios) y `stockTexts.js` (nombres, recuentos, las líneas
     del historial y los avisos).
+
+  `maintenance/` es el port de `ui/maintenance`:
+  - `OrdersPage` (la entrada «Órdenes» y el nodo del grupo) y `OrderDetailPage` (la ficha, con `key`
+    por id): los botones que admite su estado (`OrderTransitionModal`, un `kind` por transición, y
+    `ReasonModal` para cancelar), `OrderEditorModal` y las pestañas en `LazyTabs`: `OrderTasksPanel`
+    (con `TaskEditorModal` y `GenerateTasksModal`), `OrderMaterialsPanel` (con `MaterialUsageModal`),
+    `OrderDefectsPanel`, `OrderInspectionsPanel` y los estados en `StatusHistoryTable`;
+  - `AssetsPage`, con `AssetEditorModal` y `AssetOrdersModal`;
+  - `ShiftsPage` y `ShiftDetailPage`, con `ShiftEditorModal`, `ShiftTransitionModal`,
+    `AssignTasksModal`, `ShiftTasksPanel`, `ShiftProfilesPanel` y `ShiftReportPanel` (el parte);
+    `CompleteTaskModal` (completar una tarea con sus defectos en línea y el material gastado) y
+    `CheckItemsModal` (el checklist de una tarea o de una inspección);
+  - `InspectionsPage` e `InspectionDetailPage` (`InspectionEditorModal` e `InspectionOutcomeModals`:
+    el defecto y la orden correctiva que genera), y `DefectsPage` y `DefectDetailPage`
+    (`DefectEditorModal` y `DefectTransitionModals`);
+  - `ReportsPage` (el avance y el mes, con sus descargas) y los catálogos: `TeamsPage` (con
+    `TeamEditorModal`), `TaskTypesPage` e `InspectionTemplatesPage`;
+  - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos, los tipos de tarea y
+    las referencias de `mto-configuration`), `useMaintenance.js` (las claves `['maintenance', …]`,
+    las consultas y las escrituras con lo que releen), `useMaintenanceNames.js` (el port de
+    `MaintenanceNames`), `maintenanceForms.js` (lo que exigen los formularios), `maintenanceErrors.js`
+    (`saveErrors`: el error del servicio en su campo, con el diálogo abierto), `maintenanceRoutes.js`
+    y `maintenanceTexts.js` (kp, avance, el estado de un activo, recuentos y las líneas del
+    historial).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -311,6 +360,50 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **Un desplegable del almacén busca en el servidor** (`StockPicker` sobre `ServerSearchSelect`): en
   un diálogo solo ofrece lo activo, porque el servicio rechaza lo retirado; en un filtro y en
   Existencias, también lo retirado, marcado como tal, para encontrar lo de antes.
+- **Las listas de `mto-maintenance` también llevan su orden y el id para desempatar**
+  (`sortWithTieBreak`): allí un `sort` desconocido es un 400 `REQ-400`, y sin desempate dos turnos del
+  mismo día o dos perfiles en el mismo kp podrían salir en dos páginas. Lo que el servicio calcula (el
+  próximo preventivo, el avance) no se ordena. Las listas anidadas (tareas, líneas de material,
+  equipos, tipos de tarea) llegan enteras.
+- **Una modificación de mantenimiento es un `PATCH` merge-patch con la versión leída**
+  (`buildMergePatch`, desde el `*Patch` de cada módulo):
+  - lo que cambió viaja con su valor, lo vaciado a `null` y lo demás no viaja; sin cambios no se
+    llama;
+  - las listas que el servicio guarda como conjunto (las vías y los seccionadores de un turno, los
+    tipos de una tarea) se comparan sin orden;
+  - una versión vieja es 409 `CON-001`, con el diálogo abierto y el aviso de recargar;
+  - qué se puede vaciar lo decide el servicio; lo obligatorio no sale vacío;
+  - fuera de borrador una orden solo cambia la descripción, la prioridad y las notas de cierre, y sin
+    `stock-read` su proyecto de almacén ni se enseña ni viaja;
+  - los equipos son la excepción: su `PUT` es completo.
+- **En mantenimiento, una transición solo se ofrece en su estado de origen, y la decide el
+  servicio.** Los predicados de `maintenance/enums.js` están copiados de sus máquinas de estado solo
+  para no ofrecer lo que va a fallar; si el estado cambió entre medias, el 409 `TRN-001` se avisa con
+  el diálogo abierto. Cada transición es su llamada, con su cuerpo, y no se funden. Cancelar una
+  orden, completarla con `force` y resolver, cerrar o descartar un defecto piden
+  `maintenance-supervise` **y** `maintenance-write` (`hasAll`); `force` ni se ve sin ellos. Tras
+  guardar, la ficha pinta lo que devuelve el servicio y relee lo que ha podido cambiar.
+- **Un activo sincronizado es de `mto-configuration`, pero su desactivación también es de
+  mantenimiento.** De un perfil, un seccionador o un aislador solo se cambian la descripción y el
+  intervalo del preventivo. `enabledAtSource` y `disabledLocally` son dos voces y el estado dice
+  quién lo desactivó. Cualquier activo se desactiva aquí (`DELETE`, con `maintenance-delete` y
+  confirmación), y solo se reactiva lo que se desactivó aquí con el origen activo (`canReactivate`).
+- **Los nombres de otros servicios se piden a su servicio** (`useMaintenanceNames.js`): vías,
+  estaciones y paquetes a `mto-configuration`, almacenes y proyectos a `mto-stock`, con el token de
+  la persona. Sin `config-read` o sin `stock-read` no se llama (respondería 403) y se pinta `#id`. Un
+  desplegable nunca lee como vacía una referencia que no sabe nombrar, porque la mandaría a vaciar.
+- **Una línea de material se quita, no se cancela, y lo que viaja en una petición en duda no
+  cambia.** Lo que admite cada línea sale de su estado y de `stockRequestInDoubt`
+  (`maintenance/materials.js`):
+  - sincronizar reintenta una `FAILED` o `REJECTED` (con el motivo en el tooltip) y comprueba una
+    `RESERVED` con la orden abierta;
+  - lo previsto de una reservada y las cantidades de una en duda no se cambian;
+  - una línea con una salida en duda, o con una petición desconocida, no se quita;
+  - fuera de borrador, el editor de la orden deja el proyecto de almacén de solo lectura si alguna
+    línea está en duda.
+- **Un informe se ve en pantalla y su fichero se descarga con el token** (`download.js`): los
+  botones salen tras consultar y descargan esa consulta, aunque luego cambien los filtros. El avance
+  llega como fracción y solo se pinta como porcentaje; aquí no se suma nada.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **Un trabajo se lanza y se sigue; no se espera.**
@@ -376,7 +469,7 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
 - `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`,
-  `stock`) —
+  `stock`, `maintenance`) —
   las pantallas con la tabla de rutas real (`renderRoute(path, {session})` en `render.jsx`, con
   `createMemoryRouter` y Mantine en `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
