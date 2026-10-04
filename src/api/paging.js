@@ -65,17 +65,24 @@ export function sortParam(sort) {
 }
 
 /**
- * El orden de una lista de mto-stock, que no tiene orden por defecto: el de la columna elegida o, sin
- * ella, el de la pantalla, y siempre id,asc al final. Sin ese desempate, dos filas con la misma fecha
- * (los dos apuntes de una transferencia) o el mismo valor de la columna podrían salir en las dos
- * páginas o en ninguna. Solo atributos de la entidad: uno desconocido es un 500.
+ * El orden de una lista de mto-stock o de mto-maintenance: el de la columna elegida o, sin ella, el de
+ * la pantalla, y siempre id,asc al final.
+ *
+ * - mto-stock no tiene orden por defecto, y uno desconocido es un 500.
+ * - El de mto-maintenance no es único (dos turnos del mismo día, dos perfiles en el mismo kp), y la
+ *   columna elegida lo sustituye entero. Allí uno desconocido es un 400 REQ-400.
+ *
+ * Sin el desempate, dos filas iguales en el orden (los dos apuntes de una transferencia) podrían salir
+ * en las dos páginas o en ninguna. Solo atributos de la entidad: lo que calcula el servicio no se
+ * ordena.
  *
  * @param {{field: string, direction: 'asc'|'desc'}|null} sort la columna elegida
- * @param {string} fallback el orden de la pantalla, como campo,dir
+ * @param {string|string[]} fallback el orden de la pantalla, como campo,dir, o varios en su orden
  * @returns {string[]} los sort que viajan, en su orden
  */
 export function sortWithTieBreak(sort, fallback) {
-    return [sortParam(sort) ?? fallback, 'id,asc']
+    const chosen = sortParam(sort)
+    return [...(chosen ? [chosen] : [fallback].flat()), 'id,asc']
 }
 
 function numberOr(value, fallback) {

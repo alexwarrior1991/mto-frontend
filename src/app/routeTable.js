@@ -60,7 +60,7 @@ export const ROUTES = Object.freeze([
 
     {path: 'mantenimiento', title: 'Órdenes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 60, icon: 'maintenance'}},
     {path: 'mantenimiento/ordenes/:orderId', title: 'Orden', requires: MAINTENANCE, phase: 6},
-    {path: 'mantenimiento/activos', title: 'Activos', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 61, icon: 'assets'}},
+    {path: 'mantenimiento/activos', title: 'Activos', page: 'maintenanceAssets', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 61, icon: 'assets'}},
     {path: 'mantenimiento/turnos', title: 'Turnos', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 62, icon: 'shifts'}},
     {path: 'mantenimiento/turnos/:shiftId', title: 'Turno', requires: MAINTENANCE, phase: 6},
     {path: 'mantenimiento/inspecciones', title: 'Inspecciones', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 63, icon: 'inspections'}},
@@ -68,9 +68,9 @@ export const ROUTES = Object.freeze([
     {path: 'mantenimiento/defectos', title: 'Defectos', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 64, icon: 'defects'}},
     {path: 'mantenimiento/defectos/:defectId', title: 'Defecto', requires: MAINTENANCE, phase: 6},
     {path: 'mantenimiento/informes', title: 'Informes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 65, icon: 'reports'}},
-    {path: 'mantenimiento/equipos', title: 'Equipos', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 66, icon: 'teams'}},
-    {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
-    {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},
+    {path: 'mantenimiento/equipos', title: 'Equipos', page: 'maintenanceTeams', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 66, icon: 'teams'}},
+    {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', page: 'maintenanceTaskTypes', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
+    {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', page: 'maintenanceTemplates', requires: MAINTENANCE, phase: 6, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},
 
     {path: 'notificaciones', title: 'Notificaciones', requires: [P.NOTIFICATION_INBOX], phase: 7, menu: {order: 80, icon: 'notifications'}},
     {path: 'actividad', title: 'Registro de actividad', requires: [P.NOTIFICATION_ACTIVITY_READ], phase: 7, menu: {group: 'actividad', order: 82, icon: 'activity'}},
