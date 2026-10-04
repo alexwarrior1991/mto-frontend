@@ -7,6 +7,10 @@ import StationsPage from '../features/infrastructure/StationsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
 import AssetsPage from '../features/maintenance/AssetsPage.jsx'
+import DefectDetailPage from '../features/maintenance/DefectDetailPage.jsx'
+import DefectsPage from '../features/maintenance/DefectsPage.jsx'
+import InspectionDetailPage from '../features/maintenance/InspectionDetailPage.jsx'
+import InspectionsPage from '../features/maintenance/InspectionsPage.jsx'
 import InspectionTemplatesPage from '../features/maintenance/InspectionTemplatesPage.jsx'
 import OrderDetailPage from '../features/maintenance/OrderDetailPage.jsx'
 import OrdersPage from '../features/maintenance/OrdersPage.jsx'
@@ -58,6 +62,10 @@ export const PAGES = Object.freeze({
     maintenanceOrder: OrderDetailPage,
     maintenanceShifts: ShiftsPage,
     maintenanceShift: ShiftDetailPage,
+    maintenanceInspections: InspectionsPage,
+    maintenanceInspection: InspectionDetailPage,
+    maintenanceDefects: DefectsPage,
+    maintenanceDefect: DefectDetailPage,
     maintenanceAssets: AssetsPage,
     maintenanceTeams: TeamsPage,
     maintenanceTaskTypes: TaskTypesPage,

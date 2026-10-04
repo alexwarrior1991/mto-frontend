@@ -54,6 +54,18 @@ export function kpAfter(startField, message = 'El kp final tiene que ser mayor q
     }
 }
 
+/** El kp final de un defecto: puede ser el inicial (un defecto en un punto), nunca menor. */
+export function kpNotBefore(startField, message = 'El KP final no puede ser menor que el inicial') {
+    return (value, values) => {
+        const end = String(value ?? '').trim()
+        const start = String(values[startField] ?? '').trim()
+        if (!end || !start || !KP.test(end) || !KP.test(start)) {
+            return null
+        }
+        return Number(end) >= Number(start) ? null : message
+    }
+}
+
 /** Un entero opcional mayor que cero: los días entre dos preventivos, los minutos netos. */
 export function optionalPositiveInteger(value) {
     if (value === null || value === undefined || value === '') {

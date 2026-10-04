@@ -37,7 +37,9 @@ import {notifySuccess} from '../../ui/notifySuccess.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
 import {defectPath, inspectionPath, ORDERS_PATH} from './maintenanceRoutes.js'
 import {describeOrder, kpRange} from './maintenanceTexts.js'
+import OrderDefectsPanel from './OrderDefectsPanel.jsx'
 import OrderEditorModal from './OrderEditorModal.jsx'
+import OrderInspectionsPanel from './OrderInspectionsPanel.jsx'
 import OrderMaterialsPanel from './OrderMaterialsPanel.jsx'
 import OrderTasksPanel from './OrderTasksPanel.jsx'
 import OrderTransitionModal from './OrderTransitionModal.jsx'
@@ -167,6 +169,8 @@ function OrderDetail({orderId}) {
             <LazyTabs tabs={[
                 {value: 'tasks', label: 'Tareas', render: () => <OrderTasksPanel order={current} canWrite={canWrite}/>},
                 {value: 'materials', label: 'Materiales', render: () => <OrderMaterialsPanel order={current} canWrite={canWrite} canDelete={canDelete}/>},
+                {value: 'defects', label: 'Defectos', render: () => <OrderDefectsPanel order={current} canWrite={canWrite}/>},
+                {value: 'inspections', label: 'Inspecciones', render: () => <OrderInspectionsPanel order={current} canWrite={canWrite}/>},
                 {value: 'history', label: 'Estados', render: () => <OrderStatusHistory order={current}/>},
             ]}/>
             {dialog === 'edit' && <OrderEditorModal order={current} onClose={close}/>}

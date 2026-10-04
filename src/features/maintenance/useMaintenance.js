@@ -3,7 +3,17 @@ import {NotFoundError} from '../../api/errors.js'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
 import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
 import {listOrderMaterials, patchMaterial, registerMaterial, removeMaterial, syncMaterial} from '../../api/maintenance/materials.js'
+import {createDefect, getDefect, listDefectHistory, patchDefect, searchDefects, transitionDefect} from '../../api/maintenance/defects.js'
 import {isOpenOrder} from '../../api/maintenance/enums.js'
+import {
+    createCorrectiveOrder,
+    createDefectFromInspection,
+    createInspection,
+    getInspection,
+    patchInspection,
+    patchInspectionItem,
+    searchInspections,
+} from '../../api/maintenance/inspections.js'
 import {createOrder, getOrder, listOrderHistory, patchOrder, searchOrders, transitionOrder} from '../../api/maintenance/orders.js'
 import {getShiftReport} from '../../api/maintenance/reports.js'
 import {
@@ -31,6 +41,9 @@ import {cancelTask, completeTask, createTask, generateTasks, listOrderTasks, pat
  *   'order-materials', 'order-defects', 'order-inspections' y 'order-history';
  * - los turnos: la lista, ['maintenance', 'shifts', lo que se pide]; la cabecera de una ficha,
  *   ['maintenance', 'shift', id], y sus pestañas, 'shift-tasks', 'shift-profiles' y 'shift-report';
+ * - las inspecciones y los defectos: sus listas, ['maintenance', 'inspections'|'defects', lo que se
+ *   pide]; una ficha, ['maintenance', 'inspection'|'defect', id], y los estados de un defecto,
+ *   ['maintenance', 'defect-history', id];
  * - un desplegable: ['maintenance', 'picker', qué, filtro, texto];
  * - los nombres de mto-stock: ['maintenance', 'stock-names', catálogo, ids].
  *
@@ -476,5 +489,164 @@ export function useCompleteTask(orderId) {
             invalidateTasksOf(queryClient, orderId),
             invalidateOrderTabs(queryClient, orderId),
         ]),
+    })
+}
+
+/** Los turnos recientes de una vía, el más reciente primero: en cuál se corrigió un defecto. */
+export function useRecentShiftsOn(trackId) {
+    return useQuery({
+        queryKey: maintenanceKey('shifts', {trackId, recent: true}),
+        queryFn: ({signal}) => searchShifts({trackId, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        enabled: trackId !== null && trackId !== undefined,
+        staleTime: NOT_FRESH,
+    })
+}
+
+export function useInspectionList(params) {
+    return useQuery({
+        queryKey: maintenanceKey('inspections', params),
+        queryFn: ({signal}) => searchInspections({...params, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Una ficha de inspección. Una que no existe se dice una vez y la ficha vuelve a la lista. */
+export function useInspection(inspectionId) {
+    return useQuery({
+        queryKey: maintenanceKey('inspection', inspectionId),
+        queryFn: ({signal}) => getInspection(inspectionId, {signal}),
+        staleTime: NOT_FRESH,
+        meta: {notFoundMessage: `No existe la inspección ${inspectionId}`},
+    })
+}
+
+/** Las inspecciones hechas desde una orden de inspección: la pestaña Inspecciones de su ficha. */
+export function useOrderInspections(orderId) {
+    return useQuery({
+        queryKey: maintenanceKey('order-inspections', orderId),
+        queryFn: async ({signal}) => (await searchInspections({originOrderId: orderId, size: 100}, {signal})).content,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Lo que enseña una inspección fuera de su ficha: las listas y las pestañas de las órdenes. */
+function invalidateInspectionLists(queryClient) {
+    return Promise.all(['inspections', 'order-inspections'].map((part) => queryClient.invalidateQueries({queryKey: maintenanceKey(part)})))
+}
+
+/** El alta o la modificación de una inspección, desde su editor, que trata él mismo sus errores. */
+export function useSaveInspection() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createInspection(body) : patchInspection(id, body)),
+        meta: {notifyError: false},
+        onSuccess: (saved) => {
+            queryClient.setQueryData(maintenanceKey('inspection', saved.id), saved)
+            return invalidateInspectionLists(queryClient)
+        },
+    })
+}
+
+/** Un punto de una inspección; responde con la inspección entera, que la ficha pinta. */
+export function useSaveInspectionItem(inspectionId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({itemId, patch}) => patchInspectionItem(inspectionId, itemId, patch),
+        onSuccess: (inspection) => {
+            queryClient.setQueryData(maintenanceKey('inspection', inspectionId), inspection)
+            return invalidateInspectionLists(queryClient)
+        },
+    })
+}
+
+/**
+ * El defecto o la orden correctiva que genera una inspección, desde su diálogo, que trata él mismo
+ * sus errores. La inspección se relee: ahora enlaza a lo que generó.
+ *
+ * @param {{kind: 'defect'|'order', body: object}} variables
+ */
+export function useInspectionOutcome(inspectionId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({kind, body}) => (kind === 'defect' ? createDefectFromInspection(inspectionId, body) : createCorrectiveOrder(inspectionId, body)),
+        meta: {notifyError: false},
+        onSuccess: (_created, {kind}) => Promise.all([
+            queryClient.invalidateQueries({queryKey: maintenanceKey('inspection', inspectionId)}),
+            invalidateInspectionLists(queryClient),
+            kind === 'defect' ? invalidateDefectLists(queryClient) : invalidateOrderLists(queryClient),
+        ]),
+    })
+}
+
+export function useDefectList(params) {
+    return useQuery({
+        queryKey: maintenanceKey('defects', params),
+        queryFn: ({signal}) => searchDefects({...params, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Una ficha de defecto. Uno que no existe se dice una vez y la ficha vuelve a la lista. */
+export function useDefect(defectId) {
+    return useQuery({
+        queryKey: maintenanceKey('defect', defectId),
+        queryFn: ({signal}) => getDefect(defectId, {signal}),
+        staleTime: NOT_FRESH,
+        meta: {notFoundMessage: `No existe el defecto ${defectId}`},
+    })
+}
+
+export function useDefectHistory(defectId) {
+    return useQuery({queryKey: maintenanceKey('defect-history', defectId), queryFn: ({signal}) => listDefectHistory(defectId, {signal}),
+        staleTime: NOT_FRESH})
+}
+
+/** Los defectos vinculados a una orden: la pestaña Defectos de su ficha. */
+export function useOrderDefects(orderId) {
+    return useQuery({
+        queryKey: maintenanceKey('order-defects', orderId),
+        queryFn: async ({signal}) => (await searchDefects({orderId, size: 100}, {signal})).content,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Lo que enseña un defecto fuera de su ficha: las listas y las pestañas de las órdenes. */
+function invalidateDefectLists(queryClient) {
+    return Promise.all(['defects', 'order-defects'].map((part) => queryClient.invalidateQueries({queryKey: maintenanceKey(part)})))
+}
+
+/** El alta o la modificación de un defecto, desde su editor, que trata él mismo sus errores. */
+export function useSaveDefect() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createDefect(body) : patchDefect(id, body)),
+        meta: {notifyError: false},
+        onSuccess: (saved) => {
+            queryClient.setQueryData(maintenanceKey('defect', saved.id), saved)
+            return invalidateDefectLists(queryClient)
+        },
+    })
+}
+
+/**
+ * Una transición del defecto (vincular, resolver, cerrar o descartar), desde su diálogo, que trata él
+ * mismo sus errores. La ficha pinta el defecto que devuelve el servicio y relee sus estados.
+ *
+ * @param {{transition: 'link'|'resolve'|'close'|'discard', body?: object, orderId?: string}} variables
+ */
+export function useDefectTransition(defectId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({transition, body = null, orderId = null}) => transitionDefect(defectId, transition, {body, orderId}),
+        meta: {notifyError: false},
+        onSuccess: (defect) => {
+            queryClient.setQueryData(maintenanceKey('defect', defectId), defect)
+            return Promise.all([
+                queryClient.invalidateQueries({queryKey: maintenanceKey('defect-history', defectId)}),
+                invalidateDefectLists(queryClient),
+            ])
+        },
     })
 }

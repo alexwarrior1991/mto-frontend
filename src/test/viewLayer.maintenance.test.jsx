@@ -1,7 +1,7 @@
 import {screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {endOfDayInstant} from '../api/dates.js'
+import {endOfDayInstant, startOfDayInstant} from '../api/dates.js'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {formatDateTime} from '../ui/format.js'
@@ -159,7 +159,8 @@ function serveStock(requests, {materials = [], warehouses = [], projects = []} =
  */
 function serveMaintenance({
     assets = [], teams = [], taskTypes = [], templates = [], assetOrders = {}, revisions = {}, orders = [], tasks = {}, history = {},
-    materials = {}, stock = {}, shifts = [], shiftTasks = {}, shiftProfiles = {}, shiftReports = {},
+    materials = {}, stock = {}, shifts = [], shiftTasks = {}, shiftProfiles = {}, shiftReports = {}, inspections = [], defects = [],
+    defectHistory = {},
 } = {}) {
     const requests = []
     const log = (request) => {
@@ -260,6 +261,38 @@ function serveMaintenance({
                 }})
             }
             return HttpResponse.json(shiftReports[params.id])
+        }),
+        http.get(`${BASE}/inspections`, ({request}) => {
+            const url = log(request)
+            const rows = inspections.filter((row) => ['result', 'trackId', 'executionPackageId', 'originOrderId']
+                .every((name) => !has(url, name) || String(row[name]) === param(url, name))
+                && (!has(url, 'assetType') || row.asset?.type === param(url, 'assetType'))
+                && (!has(url, 'inspector') || row.inspector === param(url, 'inspector'))
+                && (!has(url, 'inspectionFrom') || row.inspectionDate >= param(url, 'inspectionFrom'))
+                && (!has(url, 'inspectionTo') || row.inspectionDate <= param(url, 'inspectionTo')))
+            return HttpResponse.json(pageOf(sorted(rows, url), url))
+        }),
+        http.get(`${BASE}/inspections/:id`, ({request, params}) => {
+            log(request)
+            const found = inspections.find((row) => row.id === params.id)
+            return found ? HttpResponse.json(found) : maintenanceError(404, 'INS-404', `Maintenance inspection with id ${params.id} was not found`)
+        }),
+        http.get(`${BASE}/defects`, ({request}) => {
+            const url = log(request)
+            const rows = defects.filter((row) => ['severity', 'status', 'orderId', 'trackId', 'executionPackageId']
+                .every((name) => !has(url, name) || String(row[name]) === param(url, name))
+                && (!has(url, 'detectedFrom') || new Date(row.detectedAt) >= new Date(param(url, 'detectedFrom')))
+                && (!has(url, 'detectedTo') || new Date(row.detectedAt) <= new Date(param(url, 'detectedTo'))))
+            return HttpResponse.json(pageOf(sorted(rows, url), url))
+        }),
+        http.get(`${BASE}/defects/:id`, ({request, params}) => {
+            log(request)
+            const found = defects.find((row) => row.id === params.id)
+            return found ? HttpResponse.json(found) : maintenanceError(404, 'DEF-404', `Catenary defect with id ${params.id} was not found`)
+        }),
+        http.get(`${BASE}/defects/:id/history`, ({request, params}) => {
+            log(request)
+            return HttpResponse.json(defectHistory[params.id] ?? [])
         }),
         http.get(`${BASE}/:resource/:id/revisions`, ({request, params}) => {
             const url = log(request)
@@ -1598,5 +1631,332 @@ describe('los turnos', () => {
         await user.click(screen.getByRole('button', {name: 'Historial'}))
         await waitFor(() => expect(dataRows('Historial de SH-000001')).toHaveLength(1))
         expect(textsOf(dataRows('Historial de SH-000001')[0])).toContain('Cerrado · 05/10/2026 · EQ-01 · ocupación Total · 240 min netos')
+    })
+})
+
+const INSPECTION1 = '3c3c3c3c-0000-4000-8000-000000000061'
+const DEFECT1 = '3c3c3c3c-0000-4000-8000-000000000062'
+const INSPECTION_ITEM = '3c3c3c3c-0000-4000-8000-000000000063'
+const PROFILE_SUMMARY = Object.freeze({id: ASSET_SYNCED, code: 'PRF-0001', name: '12-2.27', type: 'PROFILE', trackId: 12, startKp: 12.27,
+    endKp: 12.27, sectioning: 'S-3', enabled: true})
+
+/** Una inspección como la del backoffice: la técnica de ana sobre el perfil 12-2.27, con un punto sin contestar. */
+function inspection(result, extra = {}) {
+    return {
+        id: INSPECTION1, code: 'INS-000001', asset: PROFILE_SUMMARY, executionPackageId: 3, trackId: 12, stationId: null, kp: 12.27,
+        inspectionDate: '2026-09-20', inspector: 'ana', inspectionKind: 'TECHNICAL', templateId: null, result, description: null,
+        detectedDefects: 'Péndola rota', recommendedActions: null, generatedDefectId: null, generatedOrderId: null, originOrderId: null,
+        shiftId: null, items: [checkItem({id: INSPECTION_ITEM})], audit: null, version: 1, ...extra,
+    }
+}
+
+/** El defecto que salió de esa inspección. */
+function defect(status, extra = {}) {
+    return {
+        id: DEFECT1, code: 'DEF-000001', asset: PROFILE_SUMMARY, inspectionId: INSPECTION1, orderId: null, severity: 'HIGH', status,
+        description: 'Péndola rota', technicalNotes: null, detectedAt: '2026-09-20T00:00:00Z', resolvedAt: null, resolutionNotes: null,
+        discardReason: null, executionPackageId: 3, trackId: 12, stationId: null, startKp: 12.27, endKp: 12.27, correctionType: null,
+        partsReplaced: null, resolvedInShiftId: null, repairPlannedDate: null, foundInTaskId: null, photoRefs: [], audit: null, version: 1,
+        ...extra,
+    }
+}
+
+async function openInspection(session, current, options = {}) {
+    const requests = serveMaintenance({teams: TEAMS, ...options, inspections: [current, ...(options.inspections ?? [])]})
+    const view = renderRoute(`/mantenimiento/inspecciones/${current.id}`, {session})
+    await screen.findByRole('heading', {name: `${current.code} · 20/09/2026`})
+    return {...view, requests}
+}
+
+async function openDefect(session, current, options = {}) {
+    const requests = serveMaintenance({teams: TEAMS, ...options, defects: [current, ...(options.defects ?? [])]})
+    const view = renderRoute(`/mantenimiento/defectos/${current.id}`, {session})
+    await screen.findByRole('heading', {name: current.code})
+    return {...view, requests}
+}
+
+const defectStatus = () => screen.getByLabelText('Estado del defecto')
+
+describe('las inspecciones', () => {
+    it('se filtran en el servidor, y la ficha ofrece crear lo que encontró o enlaza a lo que ya generó', async () => {
+        const requests = serveMaintenance({teams: TEAMS, inspections: [inspection('MAJOR_DEFECT')]})
+        const {user, unmount} = await open('/mantenimiento/inspecciones', loginAs('mantenimiento.tecnico'), 'Inspecciones', 1)
+        const lists = () => readsOf(requests, `${BASE}/inspections`)
+
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=inspectionDate%2Cdesc&sort=id%2Casc')
+        expect(textsOf(dataRows('Inspecciones')[0]).slice(0, 10)).toEqual(['INS-000001', '20/09/2026', 'PRF-0001 - 12-2.27', 'VIA 1 (PAQ NORTE)',
+            '12.27', 'Técnica', 'Defecto grave', 'ana', '', ''])
+        await choose(user, document.body, 'Resultado', 'Defecto grave')
+        await user.type(screen.getByRole('textbox', {name: 'Desde'}), '01/09/2026')
+        await user.tab()
+        await typeInto(user, document.body, 'Inspector', 'ana')
+        await waitFor(() => expect(param(lists().at(-1), 'inspector')).toBe('ana'))
+        expect([param(lists().at(-1), 'result'), param(lists().at(-1), 'inspectionFrom')]).toEqual(['MAJOR_DEFECT', '2026-09-01'])
+        await waitFor(() => expect(firstColumn('Inspecciones')).toEqual(['INS-000001']))
+
+        await user.click(screen.getByRole('button', {name: 'Abrir INS-000001'}))
+        expect(await screen.findByRole('heading', {name: 'INS-000001 · 20/09/2026'})).toBeInTheDocument()
+        expect(screen.getByLabelText('Resumen de la inspección')).toHaveTextContent(
+            'Activo: PRF-0001 - 12-2.27 · Vía: VIA 1 (PAQ NORTE) · KP 12.27 · Tipo: Técnica · Inspector: ana')
+        expect(screen.getByLabelText('Resumen de la inspección')).toHaveTextContent('Defectos observados: Péndola rota')
+        expect(screen.getByRole('button', {name: 'Crear defecto'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Crear orden correctiva'})).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Ver el defecto'})).not.toBeInTheDocument()
+        expect(firstColumn('Puntos de INS-000001')).toEqual(['P-01'])
+        const defects = recordWrites('post', `${BASE}/inspections/${INSPECTION1}/create-defect`, () => HttpResponse.json(defect('OPEN'),
+            {status: 201}))
+        await user.click(screen.getByRole('button', {name: 'Crear defecto'}))
+        const create = await screen.findByRole('dialog', {name: 'Defecto de INS-000001'})
+        expect(within(create).queryByRole('checkbox', {name: 'Registrar como defecto aunque sea leve'})).not.toBeInTheDocument()
+        await user.type(within(create).getByRole('textbox', {name: 'Descripción'}), 'Péndola rota en el vano 3')
+        await user.click(within(create).getByRole('button', {name: 'Crear el defecto'}))
+        await waitFor(() => expect(defects.map((write) => write.body)).toEqual([{description: 'Péndola rota en el vano 3'}]))
+        unmount()
+
+        const linked = await openInspection(loginAs('mantenimiento.tecnico'), inspection('MAJOR_DEFECT', {generatedDefectId: DEFECT1,
+            generatedOrderId: ORDER1}), {defects: [defect('OPEN')]})
+        expect(screen.getByRole('button', {name: 'Ver la orden correctiva'})).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Crear defecto'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Crear orden correctiva'})).not.toBeInTheDocument()
+        await linked.user.click(screen.getByRole('button', {name: 'Ver el defecto'}))
+        expect(await screen.findByRole('heading', {name: 'DEF-000001'})).toBeInTheDocument()
+        linked.unmount()
+
+        await openInspection(loginAs('mantenimiento.tecnico'), inspection('OK'))
+        expect(screen.queryByRole('button', {name: 'Crear defecto'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Crear orden correctiva'})).not.toBeInTheDocument()
+    })
+
+    it('una con defecto leve crea su defecto con force, y su orden correctiva abre la orden', async () => {
+        const defects = recordWrites('post', `${BASE}/inspections/${INSPECTION1}/create-defect`, () => HttpResponse.json(defect('OPEN'),
+            {status: 201}))
+        const orders = recordWrites('post', `${BASE}/inspections/${INSPECTION1}/create-corrective-order`, () => HttpResponse.json(order({
+            status: 'DRAFT', type: 'CORRECTIVE'}), {status: 201}))
+        const {user, requests, router} = await openInspection(loginAs('mantenimiento.tecnico'), inspection('MINOR_DEFECT'), {
+            orders: [order({status: 'DRAFT', type: 'CORRECTIVE'})]})
+
+        await user.click(screen.getByRole('button', {name: 'Crear defecto'}))
+        const defectDialog = await screen.findByRole('dialog', {name: 'Defecto de INS-000001'})
+        await user.click(within(defectDialog).getByRole('checkbox', {name: 'Registrar como defecto aunque sea leve'}))
+        await user.click(within(defectDialog).getByRole('button', {name: 'Crear el defecto'}))
+        await waitFor(() => expect(defects.map((write) => write.body)).toEqual([{force: true}]))
+        expect(await screen.findByText('Defecto DEF-000001 creado')).toBeInTheDocument()
+        await waitFor(() => expect(readsOf(requests, `${BASE}/inspections/${INSPECTION1}`).length).toBeGreaterThanOrEqual(2))
+
+        await user.click(screen.getByRole('button', {name: 'Crear orden correctiva'}))
+        const orderDialog = await screen.findByRole('dialog', {name: 'Orden correctiva de INS-000001'})
+        await choose(user, orderDialog, 'Prioridad', 'Alta')
+        await user.click(within(orderDialog).getByRole('button', {name: 'Crear la orden'}))
+        await waitFor(() => expect(orders.map((write) => write.body)).toEqual([{priority: 'HIGH'}]))
+        await waitFor(() => expect(router.state.location.pathname).toBe(`/mantenimiento/ordenes/${ORDER1}`))
+        expect(await screen.findByRole('heading', {name: 'MO-000001 · Revisión tramo 12'})).toBeInTheDocument()
+    })
+
+    it('se da de alta desde una orden de inspección, sobre su activo, y sus puntos se contestan', async () => {
+        const created = inspection('OK', {originOrderId: ORDER1})
+        const posts = recordWrites('post', `${BASE}/inspections`, () => HttpResponse.json(created, {status: 201}))
+        const items = recordWrites('patch', `${BASE}/inspections/${INSPECTION1}/items/${INSPECTION_ITEM}`, () => HttpResponse.json({...created,
+            items: [checkItem({id: INSPECTION_ITEM, itemResult: 'OK', version: 2})]}))
+        const {user, requests, unmount} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS', type: 'INSPECTION'}))
+
+        await user.click(screen.getByRole('tab', {name: 'Inspecciones'}))
+        expect(await screen.findByText('La orden no tiene inspecciones.')).toBeInTheDocument()
+        expect(param(readsOf(requests, `${BASE}/inspections`)[0], 'originOrderId')).toBe(ORDER1)
+        await user.click(screen.getByRole('button', {name: 'Nueva inspección'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva inspección'})
+        expect(dialog).toHaveTextContent('Inspección de la orden MO-000001 sobre TS-0001 - Tramo 12.')
+        expect(within(dialog).queryByRole('combobox', {name: 'Activo'})).not.toBeInTheDocument()
+        const date = within(dialog).getByRole('textbox', {name: 'Fecha'})
+        await user.clear(date)
+        await user.type(date, '20/09/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts.map((write) => write.body)).toEqual([{assetId: ASSET_OWN, inspectionDate: '2026-09-20',
+            inspectionKind: 'VISUAL', result: 'OK', originOrderId: ORDER1}]))
+        expect(await screen.findByText('Guardada INS-000001')).toBeInTheDocument()
+        await waitFor(() => expect(readsOf(requests, `${BASE}/inspections`).length).toBeGreaterThanOrEqual(2))
+        unmount()
+
+        const detail = await openInspection(loginAs('mantenimiento.tecnico'), created)
+        await detail.user.click(screen.getByRole('button', {name: 'Contestar puntos'}))
+        const point = within(await screen.findByRole('dialog', {name: 'Puntos de INS-000001'})).getByRole('group', {name: 'Punto P-01'})
+        await choose(detail.user, point, 'Resultado', 'Correcto')
+        await detail.user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        await waitFor(() => expect(items).toEqual([{body: {itemResult: 'OK', version: 1}, contentType: MERGE_PATCH}]))
+        expect(await screen.findByText('Guardado P-01')).toBeInTheDocument()
+        await waitFor(() => expect(textsOf(dataRows('Puntos de INS-000001')[0])[4]).toBe('Correcto'))
+    })
+
+    it('una que no existe se dice una vez y vuelve a la lista, y su historial dice cómo quedó', async () => {
+        serveMaintenance({teams: TEAMS})
+        const missing = '3c3c3c3c-0000-4000-8000-0000000000fd'
+        const {router, unmount} = renderRoute(`/mantenimiento/inspecciones/${missing}`, {session: loginAs('mantenimiento.lector')})
+        expect(await screen.findByText(`No existe la inspección ${missing}`)).toBeInTheDocument()
+        await waitFor(() => expect(router.state.location.pathname).toBe('/mantenimiento/inspecciones'))
+        unmount()
+
+        const {user} = await openInspection(loginAs('mantenimiento.lector'), inspection('MAJOR_DEFECT'), {revisions: {[INSPECTION1]: [
+            revision(2, 'UPDATED', 'ana', 'HTTP', inspection('MAJOR_DEFECT'))]}})
+        expect(screen.queryByRole('button', {name: 'Modificar'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Crear defecto'})).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Historial'}))
+        await waitFor(() => expect(dataRows('Historial de INS-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Historial de INS-000001')[0])).toContain('Técnica · 20/09/2026 · ana · Defecto grave')
+    })
+})
+
+describe('los defectos', () => {
+    const HISTORY = [{id: 'h1', previousStatus: null, newStatus: 'OPEN', changedAt: '2026-09-20T08:00:00Z', changedBy: 'ana',
+        comment: 'Created from inspection INS-000001'}]
+
+    it('se filtran en el servidor, y la ficha ofrece lo que admite su estado a quien puede', async () => {
+        const requests = serveMaintenance({teams: TEAMS, defects: [defect('OPEN')], defectHistory: {[DEFECT1]: HISTORY}})
+        const {user, unmount} = await open('/mantenimiento/defectos', loginAs('mantenimiento.tecnico'), 'Defectos', 1)
+        const lists = () => readsOf(requests, `${BASE}/defects`)
+
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=detectedAt%2Cdesc&sort=id%2Casc')
+        expect(textsOf(dataRows('Defectos')[0]).slice(2, 9)).toEqual(['PRF-0001 - 12-2.27', 'VIA 1 (PAQ NORTE)', '12.27', 'Alta', 'Abierto', '',
+            'Péndola rota'])
+        await choose(user, document.body, 'Gravedad', 'Alta')
+        await choose(user, document.body, 'Estado', 'Abierto')
+        await user.type(screen.getByRole('textbox', {name: 'Detectado desde'}), '01/09/2026')
+        await user.tab()
+        await waitFor(() => expect(param(lists().at(-1), 'detectedFrom')).toBe(startOfDayInstant('2026-09-01')))
+        expect([param(lists().at(-1), 'severity'), param(lists().at(-1), 'status')]).toEqual(['HIGH', 'OPEN'])
+        await waitFor(() => expect(firstColumn('Defectos')).toEqual(['DEF-000001']))
+
+        await user.click(screen.getByRole('button', {name: 'Abrir DEF-000001'}))
+        expect(await screen.findByRole('heading', {name: 'DEF-000001'})).toBeInTheDocument()
+        await waitFor(() => expect(textsOf(dataRows('Estados de DEF-000001')[0]).slice(1)).toEqual(['', 'Abierto', 'ana',
+            'Created from inspection INS-000001']))
+        for (const name of ['Modificar', 'Vincular a una orden', 'Ver la inspección']) {
+            expect(screen.getByRole('button', {name})).toBeInTheDocument()
+        }
+        expect(screen.queryByRole('button', {name: 'Resolver'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Descartar'})).not.toBeInTheDocument()
+        unmount()
+
+        const open1 = await openDefect(loginAs('mantenimiento.responsable'), defect('OPEN'))
+        expect(screen.getByRole('button', {name: 'Resolver'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Descartar'})).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Cerrar'})).not.toBeInTheDocument()
+        open1.unmount()
+
+        await openDefect(loginAs('mantenimiento.responsable'), defect('RESOLVED'))
+        expect(screen.getByRole('button', {name: 'Cerrar'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Modificar'})).toBeInTheDocument()
+        for (const name of ['Resolver', 'Descartar', 'Vincular a una orden']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+    })
+
+    it('se vincula a una orden abierta de su vía, se resuelve con el turno tras un TRN-001 y se descarta con su motivo', async () => {
+        const links = recordWrites('post', `${BASE}/defects/${DEFECT1}/link-order/${ORDER1}`, () => HttpResponse.json(defect('IN_PROGRESS',
+            {orderId: ORDER1})))
+        const resolves = recordWrites('post', `${BASE}/defects/${DEFECT1}/resolve`, (_body, call) => (call === 1
+            ? maintenanceError(409, 'TRN-001', 'Defect DEF-000001 is linked to order MO-000001 which is PLANNED')
+            : HttpResponse.json(defect('RESOLVED', {orderId: ORDER1, resolutionNotes: 'Péndola cambiada'}))))
+        const discards = recordWrites('post', `${BASE}/defects/${DEFECT1}/discard`, () => HttpResponse.json(defect('DISCARDED',
+            {discardReason: 'Duplicado'})))
+        const {user, requests, unmount} = await openDefect(loginAs('mantenimiento.responsable'), defect('OPEN'), {
+            orders: [order({status: 'PLANNED', type: 'CORRECTIVE'}), order({id: ORDER2, code: 'MO-000009', status: 'CANCELLED'})],
+            shifts: [shift('CLOSED')],
+        })
+
+        await user.click(screen.getByRole('button', {name: 'Vincular a una orden'}))
+        const link = await screen.findByRole('dialog', {name: 'Vincular DEF-000001 a una orden'})
+        await user.click(within(link).getByRole('combobox', {name: 'Orden'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['MO-000001 · Revisión tramo 12 (planificada)'])
+        await user.click(screen.getByRole('option', {name: 'MO-000001 · Revisión tramo 12 (planificada)'}))
+        await user.click(within(link).getByRole('button', {name: 'Vincular'}))
+        await waitFor(() => expect(links).toHaveLength(1))
+        expect(await screen.findByText('DEF-000001 vinculado a MO-000001')).toBeInTheDocument()
+        await waitFor(() => expect(defectStatus()).toHaveTextContent('En curso'))
+        expect(screen.queryByRole('button', {name: 'Descartar'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Resolver'}))
+        const resolve = await screen.findByRole('dialog', {name: 'Resolver DEF-000001'})
+        await user.click(within(resolve).getByRole('button', {name: 'Resolver'}))
+        expect(await within(resolve).findByText('Hay que decir cómo se resolvió')).toBeInTheDocument()
+        expect(resolves).toHaveLength(0)
+        await user.type(within(resolve).getByRole('textbox', {name: 'Cómo se resolvió'}), 'Péndola cambiada')
+        await user.click(within(resolve).getByRole('button', {name: 'Resolver'}))
+        expect(await screen.findByText('El estado actual no permite esta operación. Defect DEF-000001 is linked to order MO-000001 which is PLANNED'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Resolver DEF-000001'})).toBeInTheDocument()
+        await choose(user, resolve, 'Turno en el que se corrigió', 'SH-000001 · 05/10/2026')
+        expect(param(readsOf(requests, `${BASE}/shifts`).at(-1), 'trackId')).toBe('12')
+        await user.click(within(resolve).getByRole('button', {name: 'Resolver'}))
+        await waitFor(() => expect(resolves.map((write) => write.body).at(-1)).toEqual({resolutionNotes: 'Péndola cambiada',
+            resolvedInShiftId: SHIFT1}))
+        await waitFor(() => expect(defectStatus()).toHaveTextContent('Resuelto'))
+        expect(screen.getByLabelText('Resumen del defecto')).toHaveTextContent('Resolución: Péndola cambiada')
+        unmount()
+
+        const again = await openDefect(loginAs('mantenimiento.responsable'), defect('OPEN'))
+        await again.user.click(screen.getByRole('button', {name: 'Descartar'}))
+        const discard = await screen.findByRole('dialog', {name: 'Descartar DEF-000001'})
+        await again.user.type(within(discard).getByRole('textbox', {name: 'Motivo'}), 'Duplicado')
+        await again.user.click(within(discard).getByRole('button', {name: 'Descartar el defecto'}))
+        await waitFor(() => expect(discards.map((write) => write.body)).toEqual([{reason: 'Duplicado'}]))
+        expect(await screen.findByText('DEF-000001 descartado')).toBeInTheDocument()
+        await waitFor(() => expect(defectStatus()).toHaveTextContent('Descartado'))
+    })
+
+    it('el editor vacía la reparación prevista con la versión leída', async () => {
+        const patches = recordWrites('patch', `${BASE}/defects/${DEFECT1}`, () => HttpResponse.json(defect('OPEN')))
+        const {user} = await openDefect(loginAs('mantenimiento.tecnico'), defect('OPEN', {repairPlannedDate: '2026-10-12'}))
+
+        expect(screen.getByLabelText('Resumen del defecto')).toHaveTextContent('Reparación prevista: 12/10/2026')
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar DEF-000001'})
+        await user.clear(within(dialog).getByRole('textbox', {name: 'Reparación prevista'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toEqual([{body: {repairPlannedDate: null, version: 1}, contentType: MERGE_PATCH}]))
+        expect(await screen.findByText('Guardado DEF-000001')).toBeInTheDocument()
+    })
+
+    it('una orden enseña sus defectos, da de alta uno vinculado a ella y enlaza a su inspección de origen', async () => {
+        const posts = recordWrites('post', `${BASE}/defects`, () => HttpResponse.json(defect('IN_PROGRESS', {orderId: ORDER1}), {status: 201}))
+        const {user, requests} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS', type: 'CORRECTIVE',
+            originInspectionId: INSPECTION1}), {defects: [defect('IN_PROGRESS', {orderId: ORDER1})],
+            inspections: [inspection('MAJOR_DEFECT', {generatedOrderId: ORDER1})]})
+        expect(readsOf(requests, `${BASE}/defects`)).toHaveLength(0)
+
+        await user.click(screen.getByRole('tab', {name: 'Defectos'}))
+        await waitFor(() => expect(firstColumn('Defectos de MO-000001')).toEqual(['DEF-000001']))
+        expect(param(readsOf(requests, `${BASE}/defects`)[0], 'orderId')).toBe(ORDER1)
+        await user.click(screen.getByRole('button', {name: 'Nuevo defecto'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo defecto'})
+        expect(dialog).toHaveTextContent('Defecto de la orden MO-000001 sobre TS-0001 - Tramo 12; queda vinculado a ella.')
+        expect(within(dialog).queryByRole('combobox', {name: 'Activo'})).not.toBeInTheDocument()
+        await choose(user, dialog, 'Gravedad', 'Alta')
+        await user.type(within(dialog).getByRole('textbox', {name: 'Descripción'}), 'Péndola rota')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts.map((write) => write.body)).toEqual([{assetId: ASSET_OWN, severity: 'HIGH', description: 'Péndola rota',
+            orderId: ORDER1}]))
+        await waitFor(() => expect(readsOf(requests, `${BASE}/defects`).length).toBeGreaterThanOrEqual(2))
+
+        await user.click(screen.getByRole('tab', {name: 'Inspecciones'}))
+        expect(await screen.findByText('La orden no tiene inspecciones.')).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Nueva inspección'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Inspección de origen'}))
+        expect(await screen.findByRole('heading', {name: 'INS-000001 · 20/09/2026'})).toBeInTheDocument()
+    })
+
+    it('uno que no existe se dice una vez y vuelve a la lista, y su historial dice cómo quedó', async () => {
+        serveMaintenance({teams: TEAMS})
+        const missing = '3c3c3c3c-0000-4000-8000-0000000000fc'
+        const {router, unmount} = renderRoute(`/mantenimiento/defectos/${missing}`, {session: loginAs('mantenimiento.lector')})
+        expect(await screen.findByText(`No existe el defecto ${missing}`)).toBeInTheDocument()
+        await waitFor(() => expect(router.state.location.pathname).toBe('/mantenimiento/defectos'))
+        unmount()
+
+        const {user} = await openDefect(loginAs('mantenimiento.lector'), defect('OPEN', {repairPlannedDate: '2026-10-12'}), {revisions: {[DEFECT1]: [
+            revision(3, 'UPDATED', 'ana', 'HTTP', defect('OPEN', {repairPlannedDate: '2026-10-12'}))]}})
+        expect(screen.queryByRole('button', {name: 'Modificar'})).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Historial'}))
+        await waitFor(() => expect(dataRows('Historial de DEF-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Historial de DEF-000001')[0])).toContain('Alta · Abierto · reparar el 12/10/2026')
     })
 })
