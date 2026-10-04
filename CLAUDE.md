@@ -57,7 +57,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   de error y la jerarquía `ApiError`: `ValidationError` 400/422, `SessionExpiredError` y
   `TokenRejectedError` 401, `ForbiddenError`, `NotFoundError`, `ConflictError`,
   `TooManyRequestsError` 429 con el cuerpo, `UnavailableError` 502/503/504, `NetworkError`),
-  `correlation.js`, `paging.js` (las tres formas de paginar), `enums.js` (`defineEnum`: enumerados
+  `correlation.js`, `paging.js` (las tres formas de paginar, y `toPageParams` y `toOffsetParams`, de
+  la página de la pantalla a la del servicio), `enums.js` (`defineEnum`: enumerados
   tolerantes), `mergePatch.js` (`buildMergePatch`), `dates.js`, `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
@@ -70,6 +71,15 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   y `JOB_STATUS` tolerantes, `JOB_FAMILIES` y `familyOf`, `isTerminal`, `isDownloadable`,
   `hasErrorReport`, los lanzadores `importProfiles`, `importLovs`, `exportProfiles` y `republish`,
   `listJobs`, `getJob` por familia, `downloadJobFile` y `rejectedJobOf`, el trabajo de un 429).
+  `users/` es `mto-users`: `users/users.js` (el port de `UsersClient`, de sus DTO y de `TakeOut`: la
+  búsqueda `searchUsers` con `first`/`max`, que rechaza antes de llamar lo que el servicio rechazaría;
+  el alta, la modificación, `setUserEnabled`, el borrado, la contraseña, el correo de acciones, las
+  sesiones normales y offline y las credenciales; cómo viaja uno, `newUserRequest` y
+  `changedUserRequest`, que devuelve `null` si no cambió nada; `REQUIRED_ACTION` y las etiquetas que
+  dejan tal cual lo desconocido; y `takeOut`, los tres pasos en su orden), `users/roles.js` (los
+  clientes, sus roles y sus miembros, los roles de una persona, añadir con `PUT {roles}` y quitar con
+  un `DELETE` con el mismo cuerpo) y `users/profiles.js` (el catálogo, lo que concede un perfil, sus
+  miembros, los de una persona, asignar con un `PUT` sin cuerpo y quitar).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -89,9 +99,12 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
   (el aviso verde de tres segundos), `ConfirmModal.jsx` (confirmar lo que no se deshace),
   `ServerDataTable.jsx` (la lista paginada en el servidor: orden de una columna asc → desc → sin
-  orden, `Pagination` y acciones por fila) y `RowActionButton.jsx` (una acción de fila con su nombre
-  completo, «Modificar VIA 1»). Cada fase añade aquí lo que comparte (`OffsetPager`,
-  `RevisionsModal`, `LazyTabs`…).
+  orden, `Pagination` y acciones por fila), `DataTable.jsx` (una lista que ya está entera en la
+  pantalla, sin paginar), `RowActionButton.jsx` (una acción de fila con su nombre completo,
+  «Modificar VIA 1»), `TriStateFilter.jsx` (todo, sí o no; «todo» no viaja), `LazyTabs.jsx` (el port
+  de `LazyPanel`: pestañas que piden sus datos la primera vez que se abren y no al reelegirlas) y
+  `OffsetPager.jsx` (anteriores y siguientes para una lista sin total). Cada fase añade aquí lo que
+  comparte (`RevisionsModal`…).
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
   `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
   de `ui/lov`:
@@ -123,6 +136,19 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     estado, en memoria, leídos con `useSyncExternalStore`), `useJobs.js` (`useJobList`, la vuelta de
     seguimiento con su sondeo y el aviso al terminar, y `useLaunchJob`, el 202 y el 429) y
     `jobTexts.js` (etiquetas, progreso y recuentos).
+
+  `users/` es el port de `ui/users`:
+  - `UsersPage` (el port de `UsersView`): la lista paginada en el servidor, con la búsqueda, el
+    atributo y el estado, y sus acciones por fila; `UserEditorModal`, el alta y la modificación;
+  - `UserDetailPage` (el port de `UserDetailView`, con `key` por id): la cabecera, los botones por
+    permiso, `ResetPasswordModal`, `ActionsEmailModal` y las cuatro pestañas en `LazyTabs`
+    (`UserProfilesPanel`, `UserRolesPanel`, `UserSessionsPanel` y `UserCredentialsPanel`);
+  - `UserProfilesPage` y `ClientRolesPage`, los dos catálogos de solo lectura con su filtro local, y
+    `MembersSection`, los miembros de un perfil o de un rol con `OffsetPager`;
+  - `useUsers.js` (las claves `['users', …]`, las consultas, las escrituras y `listFilter`, lo que
+    pide la lista), `userForms.js` (lo que exigen los formularios y los valores de partida),
+    `userAttributes.js` (el port de `UserAttributes`: `clave=valor` por línea) y `userTexts.js`
+    (textos, recuentos, la ruta de una ficha y las filas de los roles).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -167,8 +193,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   respuesta, si no el id que se mandó.
 - **Los errores se tipan en `api/errors.js`**, no en las pantallas, y se dicen en
   `ui/errors/messages.js` con la tabla de `UiErrors` del backoffice (`CON-001` pide recargar y
-  `BUS-002` no; los 409 de estado de mantenimiento no piden recargar; un 422 sin errores por campo es
-  una regla de negocio). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  `BUS-002` y `USR-409` no; los 409 de estado de mantenimiento no piden recargar; un 422 sin errores
+  por campo es una regla de negocio). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -232,6 +258,34 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - El fichero se pide por familia e id con el token (`downloadJobFile`); nunca el `downloadUrl` ni el
     `Location` del servicio. Una exportación se descarga `COMPLETED`; una importación también
     `COMPLETED_WITH_ERRORS`, porque su fichero es el informe. Un 410 pide relanzar el trabajo.
+- **Un usuario se modifica con lo que cambió, y la lista se pide como la pide Keycloak.**
+  - El `PUT` de `mto-users` es parcial: `null` no toca, `''` vacía, y los atributos van enteros o no
+    van (`changedUserRequest`, contra lo leído). El nombre de usuario y `enabled` no viajan nunca
+    (activar tiene su `PATCH`). Sin cambios no se llama.
+  - La lista pide cada página con `first`/`max` (50; el servicio no da más de 200) y trae el total
+    en la misma respuesta. No se ordena, porque la API no ordena.
+  - La búsqueda y el atributo se excluyen, porque el servicio los rechaza juntos (`SEARCH-400`):
+    escribir en uno deshabilita el otro, y si los dos llegaran con texto, `listFilter` manda solo la
+    búsqueda. Un atributo mal formado no pide nada. Si la lista necesita orden u otro filtro, se pide
+    en `mto-users`, no se arregla aquí.
+- **En la ficha, asignar y quitar pintan lo que devuelve el servicio.**
+  - Perfiles, roles, activar y modificar dejan en la caché la respuesta, que `mto-users` relee de
+    Keycloak antes de contestar, y no se vuelve a pedir. Un perfil es un rol de realm, así que
+    cambiarlo relee la pestaña de roles (si se abrió).
+  - Lo demás se relee: las sesiones y las credenciales tras cualquier cierre, salga bien o no; la
+    cabecera y las credenciales tras fijar una contraseña (Keycloak añade «Cambiar la contraseña»); y
+    la cabecera, la lista y las sesiones tras «sacar a la persona».
+  - La cabecera (`['users', 'user', id]`) no es prefijo de sus pestañas: releerla no relee lo pintado.
+- **Las pestañas de una ficha piden sus datos al abrirse** (`LazyTabs`), nunca con las `Tabs` de
+  Mantine tal cual: montan todas a la vez y, en el navegador, reelegir una vuelve a pedirlo. Una
+  pestaña sin abrir no tiene consulta, así que releer no la pide.
+- **«Sacar a la persona» son tres llamadas en ese orden, y no se funden en una.** `takeOut` hace
+  `PATCH /enabled {false}`, `DELETE /sessions` y `DELETE /offline-sessions`, para en el primer fallo y
+  devuelve lo hecho y el paso que falló, que el aviso dice con su «Referencia». El botón pide
+  `users-write` **y** `users-sessions-write`.
+- **Una ficha que no existe se dice una vez y vuelve a su lista.** La consulta lleva
+  `meta.notFoundMessage` («No existe el usuario …»), que `queryClient.js` usa con un 404 en vez del
+  aviso genérico. Un id con «:» (los federados) va codificado en la ruta y en la llamada.
 - **La configuración del entorno llega en tiempo de ejecución** (`/config.json`): una imagen vale
   para todos los entornos. Nada de `VITE_*`; la base de la API es siempre `/api`.
 - **Un servicio nuevo (por ejemplo `mto-field`) se añade en un solo sitio por pieza**: su entrada en
@@ -251,14 +305,16 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
-- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`) — las pantallas con la tabla de
-  rutas real (`renderRoute(path, {session})` en `render.jsx`, con `createMemoryRouter` y Mantine en
-  `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
+- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`) —
+  las pantallas con la tabla de rutas real (`renderRoute(path, {session})` en `render.jsx`, con
+  `createMemoryRouter` y Mantine en `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
   son los de `ViewLayerTest` del backoffice, portados por fase. Se busca por rol y nombre
   (`getByRole('button', {name: 'Nuevo'})`). Lo que se sondea (los trabajos) corre con el reloj falso
   que avanza solo (`vi.useFakeTimers({shouldAdvanceTime: true})`): cada vuelta es
   `advanceTimersByTimeAsync(2000)` dentro de `act`, y `renderRoute` le pasa ese reloj a user-event.
+  Un `Textarea` con `autosize` no se usa: Mantine lee `document.fonts`, que jsdom no tiene (se pone
+  `rows` y `resize`, como en el alta múltiple de catálogos).
 - `src/test/app.test.js` — licencias, paridad de rutas y enlaces, configuración, nginx y el proxy de
   Vite, `.run/`.
 

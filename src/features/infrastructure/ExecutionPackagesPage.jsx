@@ -1,8 +1,8 @@
-import {formatDate} from '../../ui/format.js'
+import {formatDate, yesNo} from '../../ui/format.js'
+import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import ExecutionPackageEditor from './ExecutionPackageEditor.jsx'
-import {MASTERS, yesNo} from './masterResources.js'
+import {MASTERS} from './masterResources.js'
 import MasterPage from './MasterPage.jsx'
-import TriStateFilter from './TriStateFilter.jsx'
 import {useReferenceCatalog} from './useMasters.js'
 
 /** infraestructura/paquetes: los paquetes de ejecución con su empresa, sus fechas y su longitud. */

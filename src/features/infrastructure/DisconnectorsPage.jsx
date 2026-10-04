@@ -1,9 +1,10 @@
+import {yesNo} from '../../ui/format.js'
+import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import DisconnectorEditor from './DisconnectorEditor.jsx'
 import {codeOf} from './formValues.js'
-import {MASTERS, yesNo} from './masterResources.js'
+import {MASTERS} from './masterResources.js'
 import MasterPage from './MasterPage.jsx'
 import {disconnectorProfileLabel} from './references.js'
-import TriStateFilter from './TriStateFilter.jsx'
 import {useReferenceCatalog} from './useMasters.js'
 
 /**

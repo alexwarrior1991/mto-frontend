@@ -44,10 +44,10 @@ export const ROUTES = Object.freeze([
 
     {path: 'trabajos', title: 'Trabajos', page: 'jobs', requires: CONFIG, phase: 3, menu: {order: 30, icon: 'jobs'}},
 
-    {path: 'usuarios', title: 'Usuarios', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 40, icon: 'users'}},
-    {path: 'usuarios/perfiles', title: 'Perfiles de usuario', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 41, icon: 'userProfiles'}},
-    {path: 'usuarios/roles', title: 'Roles de cliente', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 42, icon: 'roles'}},
-    {path: 'usuarios/:userId', title: 'Usuario', requires: USERS, phase: 4},
+    {path: 'usuarios', title: 'Usuarios', page: 'users', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 40, icon: 'users'}},
+    {path: 'usuarios/perfiles', title: 'Perfiles de usuario', page: 'userProfiles', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 41, icon: 'userProfiles'}},
+    {path: 'usuarios/roles', title: 'Roles de cliente', page: 'clientRoles', requires: USERS, phase: 4, menu: {group: 'usuarios', order: 42, icon: 'roles'}},
+    {path: 'usuarios/:userId', title: 'Usuario', page: 'user', requires: USERS, phase: 4},
 
     {path: 'almacen', title: 'Existencias', requires: STOCK, phase: 5, menu: {group: 'almacen', order: 50, icon: 'warehouse'}},
     {path: 'almacen/materiales', title: 'Materiales', requires: STOCK, phase: 5, menu: {group: 'almacen', order: 51, icon: 'materials'}},
