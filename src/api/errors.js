@@ -131,7 +131,7 @@ export class ApiError extends Error {
     }
 }
 
-/** 400 o 422: datos no validos, o una regla de negocio si no trae errores por campo. */
+/** 400 o 422: datos no válidos, o una regla de negocio si no trae errores por campo. */
 export class ValidationError extends ApiError {
     get name() {
         return 'ValidationError'

@@ -6,6 +6,19 @@ import SectionInsulatorsPage from '../features/infrastructure/SectionInsulatorsP
 import StationsPage from '../features/infrastructure/StationsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
+import AssetsPage from '../features/maintenance/AssetsPage.jsx'
+import DefectDetailPage from '../features/maintenance/DefectDetailPage.jsx'
+import DefectsPage from '../features/maintenance/DefectsPage.jsx'
+import InspectionDetailPage from '../features/maintenance/InspectionDetailPage.jsx'
+import InspectionsPage from '../features/maintenance/InspectionsPage.jsx'
+import InspectionTemplatesPage from '../features/maintenance/InspectionTemplatesPage.jsx'
+import OrderDetailPage from '../features/maintenance/OrderDetailPage.jsx'
+import OrdersPage from '../features/maintenance/OrdersPage.jsx'
+import ReportsPage from '../features/maintenance/ReportsPage.jsx'
+import ShiftDetailPage from '../features/maintenance/ShiftDetailPage.jsx'
+import ShiftsPage from '../features/maintenance/ShiftsPage.jsx'
+import TaskTypesPage from '../features/maintenance/TaskTypesPage.jsx'
+import TeamsPage from '../features/maintenance/TeamsPage.jsx'
 import AssembliesPage from '../features/stock/AssembliesPage.jsx'
 import MaterialsPage from '../features/stock/MaterialsPage.jsx'
 import MovementsPage from '../features/stock/MovementsPage.jsx'
@@ -46,4 +59,17 @@ export const PAGES = Object.freeze({
     stockMovements: MovementsPage,
     stockReservations: ReservationsPage,
     stockAssemblies: AssembliesPage,
+    maintenanceOrders: OrdersPage,
+    maintenanceOrder: OrderDetailPage,
+    maintenanceShifts: ShiftsPage,
+    maintenanceShift: ShiftDetailPage,
+    maintenanceInspections: InspectionsPage,
+    maintenanceInspection: InspectionDetailPage,
+    maintenanceDefects: DefectsPage,
+    maintenanceDefect: DefectDetailPage,
+    maintenanceReports: ReportsPage,
+    maintenanceAssets: AssetsPage,
+    maintenanceTeams: TeamsPage,
+    maintenanceTaskTypes: TaskTypesPage,
+    maintenanceTemplates: InspectionTemplatesPage,
 })

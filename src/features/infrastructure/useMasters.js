@@ -61,15 +61,18 @@ function useReferenceList(kind, path, enabled) {
  * Los nombres de paquetes, estaciones, vías y empresas, cargados una vez por pantalla y compartidos
  * por la lista y los editores. Los paquetes se cargan siempre, porque nombran a estaciones y vías.
  * Los perfiles no están aquí, porque son miles: el que hace falta se busca en el servidor.
+ *
+ * Con enabled=false no se pide nada (mantenimiento sin config-read, que respondería 403): cada id se
+ * nombra #id y los desplegables salen vacíos.
  */
-export function useReferenceCatalog({stations = false, tracks = false, companies = false} = {}) {
-    const packageList = useReferenceList('packages', 'execution-packages', true)
-    const stationList = useReferenceList('stations', 'stations', stations)
-    const trackList = useReferenceList('tracks', 'tracks', tracks)
+export function useReferenceCatalog({stations = false, tracks = false, companies = false, enabled = true} = {}) {
+    const packageList = useReferenceList('packages', 'execution-packages', enabled)
+    const stationList = useReferenceList('stations', 'stations', enabled && stations)
+    const trackList = useReferenceList('tracks', 'tracks', enabled && tracks)
     const companyList = useQuery({
         queryKey: referencesKey('companies'),
         queryFn: ({signal}) => listBusinessEntities({signal}),
-        enabled: companies,
+        enabled: enabled && companies,
     })
     const packageRows = packageList.data
     const stationRows = stationList.data

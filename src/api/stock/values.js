@@ -1,3 +1,4 @@
+import {numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {prefixOf} from '../services.js'
 
 /**
@@ -37,20 +38,7 @@ export function summaryOf(entry) {
  * Una cantidad escrita (texto con punto decimal) como el número que espera el servicio. Los decimales
  * del servicio son seis y las cifras del almacén caben de sobra en un número de JavaScript.
  */
-export function toQuantity(value) {
-    if (value === null || value === undefined || String(value).trim() === '') {
-        return null
-    }
-    return Number(String(value).trim())
-}
+export const toQuantity = numberOrNull
 
-/** Un texto opcional: en blanco es null, porque una referencia externa en blanco es un 500 del servicio. */
-export function textOrNull(value) {
-    const text = typeof value === 'string' ? value.trim() : ''
-    return text === '' ? null : text
-}
-
-/** El cuerpo sin lo que no se dice: lo vacío no viaja, como el NON_NULL del backoffice. */
-export function withoutNulls(body) {
-    return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== null && value !== undefined))
-}
+// Una referencia externa en blanco es un 500 del servicio: textOrNull la deja en null.
+export {textOrNull, withoutNulls}

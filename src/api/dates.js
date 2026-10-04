@@ -22,7 +22,7 @@ export function toLocalDateParam(value) {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
         return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
     }
-    throw new Error(`Fecha no valida: ${value}`)
+    throw new Error(`Fecha no válida: ${value}`)
 }
 
 export function toYearMonthParam(value) {
@@ -41,7 +41,7 @@ export function toInstantParam(value) {
     }
     const date = value instanceof Date ? value : new Date(value)
     if (Number.isNaN(date.getTime())) {
-        throw new Error(`Instante no valido: ${value}`)
+        throw new Error(`Instante no válido: ${value}`)
     }
     return date.toISOString()
 }
@@ -57,14 +57,30 @@ export function localDateTimeToInstant(value) {
     }
     const match = LOCAL_DATE_TIME.exec(String(value).trim())
     if (!match) {
-        throw new Error(`Fecha y hora no validas: ${value}`)
+        throw new Error(`Fecha y hora no válidas: ${value}`)
     }
     const [year, month, day, hours, minutes, seconds] = match.slice(1).map((part) => Number(part ?? 0))
     const date = new Date(year, month - 1, day, hours, minutes, seconds)
     if (date.getMonth() !== month - 1 || date.getDate() !== day || hours > 23 || minutes > 59 || seconds > 59) {
-        throw new Error(`Fecha y hora no validas: ${value}`)
+        throw new Error(`Fecha y hora no válidas: ${value}`)
     }
     return date.toISOString()
+}
+
+/**
+ * Un Instant del servicio como fecha y hora de la zona del navegador (YYYY-MM-DD HH:mm:ss), que es lo
+ * que guarda un DateInput con hora: el camino de vuelta de localDateTimeToInstant. Vacío, null.
+ */
+export function instantToLocalDateTime(value) {
+    if (isEmpty(value)) {
+        return null
+    }
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+        throw new Error(`Instante no válido: ${value}`)
+    }
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+        + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 /** El comienzo de un dia (YYYY-MM-DD) en la zona del navegador, como Instant: el «desde» de un filtro. */
@@ -82,7 +98,7 @@ export function endOfDayInstant(localDate) {
 function parts(localDate) {
     const match = LOCAL_DATE.exec(toLocalDateParam(localDate) ?? '')
     if (!match) {
-        throw new Error(`Fecha no valida: ${localDate}`)
+        throw new Error(`Fecha no válida: ${localDate}`)
     }
     return [Number(match[1]), Number(match[2]), Number(match[3])]
 }
