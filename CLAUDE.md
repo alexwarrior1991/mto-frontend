@@ -58,14 +58,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `TokenRejectedError` 401, `ForbiddenError`, `NotFoundError`, `ConflictError`,
   `TooManyRequestsError` 429 con el cuerpo, `UnavailableError` 502/503/504, `NetworkError`),
   `correlation.js`, `paging.js` (las tres formas de paginar, y `toPageParams` y `toOffsetParams`, de
-  la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden de `mto-stock` y de
-  `mto-maintenance`), `enums.js` (`defineEnum`: enumerados tolerantes), `mergePatch.js`
-  (`buildMergePatch`, con `setFields` para las listas que el servicio guarda como conjunto),
-  `bodies.js` (cómo viaja un cuerpo en cualquier servicio: `textOrNull`, `withoutNulls`,
-  `numberOrNull`, `idOrNull`), `dates.js` (también `localDateTimeToInstant`, una fecha y hora
-  escritas como Instant, y `instantToLocalDateTime`, el camino de vuelta), `revisions.js` (el
-  historial de una fila: `REVISION_OPERATION` tolerante y `listRevisions`, sin `sort`; lo comparten
-  almacén y mantenimiento), `download.js` (fetch + Blob),
+  la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden con su desempate: el id
+  en `mto-stock` y `mto-maintenance`, la fecha o la secuencia en `mto-notification`), `enums.js`
+  (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`, con `setFields` para
+  las listas que el servicio guarda como conjunto), `bodies.js` (cómo viaja un cuerpo en cualquier
+  servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `idOrNull`), `dates.js` (también
+  `localDateTimeToInstant`, una fecha y hora escritas como Instant, y `instantToLocalDateTime`, el
+  camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
+  `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
@@ -116,6 +116,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     el defecto y la orden correctiva que generan), `maintenance/defects.js` (los defectos y sus
     transiciones: vincular a una orden, resolver, cerrar y descartar) y `maintenance/reports.js` (el
     parte de un turno, el avance y el mes, en JSON y como fichero).
+  `notification/` es `mto-notification`: `notification/values.js` (`notificationPath`, y quién y
+  sobre qué: `actorText` y `subjectText`), `notification/enums.js` (`ACTIVITY_CATEGORY`,
+  `ACTIVITY_SEVERITY`, `ACTOR_KIND` y `ACCESS_OUTCOME`, tolerantes, y `activityCategories`, las del
+  registro, sin los accesos), `notification/inbox.js` (la bandeja, el contador, marcar una o todas y
+  `unreadCountText`, con «100+»), `notification/activity.js` (el registro, el detalle de una línea con
+  su `payload` y los accesos; `searchActivity` rechaza antes de llamar la categoría `ACCESS`, y
+  `searchAccess`, una IP que no es un literal, `isIpLiteral`) y `notification/links.js`
+  (`notificationTarget`: a dónde lleva el enlace de una notificación).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -126,9 +134,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
 - `app/` — la composición: `AppProviders.jsx` (Mantine → configuración → OIDC → `AuthGate` → React
   Query → sesión → router), `runtimeConfig.js` (`/config.json`), `queryClient.js` (el aviso de error
   global), `theme.js`, **`routeTable.js`** (todas las rutas del backoffice, con su título, sus
-  permisos, su fase y su entrada de menú), `pages.js` (la pantalla de cada ruta; lo que falta lo
-  pinta `PendingPage`), `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú),
-  `layout/` (`RootLayout`, `AppHeader`, `MainMenu`) y `pages/` (Inicio con el diagnóstico y las
+  permisos, su fase y su entrada de menú), `pages.js` (la pantalla de cada ruta; desde la fase 7
+  todas tienen la suya, y `PendingPage` queda hasta el relevo), `routes.js`, `router.js`,
+  `RouteScreen.jsx`, `navigation.js` (el menú), `layout/` (`RootLayout`, `AppHeader` con la campana,
+  `MainMenu`) y `pages/` (Inicio con el diagnóstico y las
   sondas, pendiente, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
   `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `ErrorNotice.jsx`),
@@ -232,6 +241,19 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     (`saveErrors`: el error del servicio en su campo, con el diálogo abierto), `maintenanceRoutes.js`
     y `maintenanceTexts.js` (kp, avance, el estado de un activo, recuentos y las líneas del
     historial).
+
+  `notifications/` es el port de `ui/notification`:
+  - `InboxBell` (la campana de la barra, que `AppHeader` pone solo con `notification-inbox`) y
+    `NotificationsPage` (la bandeja: abre con las no leídas, marca al abrir y sigue el enlace con
+    `useFollowLink`);
+  - `ActivityPage` (el registro, que toma de la URL sus filtros de partida y lleva `key` por la URL) y
+    `AccessPage` (los accesos, con la IP comprobada antes de pedir);
+  - `EventDetailModal.jsx`: `ActivityEventModal`, que pide la línea con su `payload`, y
+    `AccessEventModal`, con la fila, porque la lista de accesos sí lo trae;
+  - `useNotifications.js` (las claves `['notifications', …]`, el contador cada 30 s sin aviso de
+    error, y marcar, que relee la bandeja y el contador sin esperarlos), `notificationRoutes.js` y
+    `notificationTexts.js` (recuentos, el nombre de la campana, los campos de una línea y su
+    `payload` clave a clave).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -266,8 +288,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   (`/mantenimiento/ordenes/{id}`, `/actividad?category=…`) y el correo las hace absolutas. Todas
   están en `routeTable.js` desde la fase 0; `app.test.js` las compara con las del backoffice y con
   los enlaces de `notification-rules.yml` (`fixtures/`). Las literales ganan a las de parámetro
-  (`usuarios/perfiles` a `usuarios/:userId`). Una pantalla que aún no ha llegado la pinta
-  `PendingPage`, con «Abrir en el backoffice» mientras convivan.
+  (`usuarios/perfiles` a `usuarios/:userId`). Desde la fase 7 cada ruta tiene su pantalla
+  (`viewLayer.shell` lo vigila); `PendingPage`, con «Abrir en el backoffice», queda hasta el relevo.
 - **La URL pedida sobrevive a la entrada.** Viaja en el `state` de OIDC y `restoreReturnTo` la
   restaura saneada (`safeReturnTo`: solo rutas de esta aplicación). El router se crea después, así
   que nunca ve `?code=…&state=…`.
@@ -278,7 +300,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `ui/errors/messages.js` con la tabla de `UiErrors` del backoffice (`CON-001` pide recargar y
   `BUS-002`, `USR-409` y el código repetido de un catálogo del almacén, `MAT-409`, `WH-409`,
   `SUP-409`, `PRJ-409` o `ASM-409`, no; los 409 de estado de mantenimiento no piden recargar; un 422
-  sin errores por campo es una regla de negocio). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  sin errores por campo es una regla de negocio; `NTF-404` y `ACT-404` dicen que esa notificación o
+  esa línea ya no existen). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -406,6 +429,39 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   llega como fracción y solo se pinta como porcentaje; aquí no se suma nada.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
+- **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el
+  token.** Aquí no se filtra por nadie ni se cuenta nada.
+  - La campana sale solo con `notification-inbox` (un rol de realm no la da). Pide el contador al
+    entrar y cada 30 s, y un fallo deja el número como estaba sin avisar (`meta: {notifyError:
+    false}`): cada 30 s y en cada pantalla, un aviso sería ruido. El número es el del servicio,
+    acotado (`capped` → «100+»).
+  - La bandeja abre con las no leídas (`unread=true`), porque el servicio no ordena por el estado de
+    lectura. Abrir una (la flecha o un doble clic) la marca **antes** de seguir su enlace; una leída
+    no se vuelve a marcar, y un 404 `NTF-404` (ya no es tuya) se avisa y no abre nada. Marcar relee
+    la bandeja y la campana sin esperarlas.
+  - «Marcar todas como leídas» es `POST /inbox/read-all`, que llega hasta la más reciente visible, no
+    hasta ahora.
+  - El enlace es una ruta de esta aplicación que ponen las reglas del servicio; `notificationTarget`
+    aplica la regla de los enlaces de arriba. El registro y los accesos toman al entrar los filtros
+    que llegan en la URL (`/actividad?category=…`, `/actividad/accesos?username=…`) e ignoran lo que
+    no conocen.
+- **Los accesos tienen su permiso aparte, y el registro nunca los enseña.** `actividad/accesos` pide
+  `notification-access-read`, que no viene con `notification-activity-read` ni al revés, porque un
+  acceso lleva usuario e IP.
+  - El registro no ofrece `ACCESS` como categoría, y `searchActivity` la rechaza antes de llamar (el
+    servicio responde 400). La línea del registro de una notificación de un acceso no se ofrece: sería
+    un 404 `ACT-404`.
+  - Una IP se busca completa: `searchAccess` rechaza la que no es un literal IPv4 o IPv6, y la
+    pantalla no pide nada mientras se escribe.
+  - Los tipos, los orígenes y los sujetos se escriben enteros y se comparan en el servicio: el
+    catálogo de tipos es suyo y aquí no se copia. Lo fundido solo viaja como `includeSuperseded=true`
+    cuando se pide.
+- **El detalle de una línea del registro se pide a su línea**: la lista no trae el `payload` y
+  `GET /activity/{id}` sí; el de un acceso viene en su fila. Se enseña tal cual, clave a clave,
+  ordenado y como texto: aquí no se interpreta nada.
+- **Las listas de `mto-notification` desempatan con lo que el servicio deja ordenar**: la bandeja por
+  `createdAt,desc`, porque no admite el id, y el registro y los accesos por `seq,desc`. Un `sort`
+  desconocido es un 400 `REQ-400`.
 - **Un trabajo se lanza y se sigue; no se espera.**
   - Lanzar responde 202 con el trabajo, o 429 con el trabajo ya rechazado y un `Retry-After`
     (`rejectedJobOf`): se apunta como rechazado y el aviso dice cuándo reintentar, no es un fallo.
@@ -466,10 +522,12 @@ Una capa por fichero; se añaden casos, no ficheros (salvo la vista, que va un f
 Todo corre en Node con Vitest y jsdom, sin Docker:
 
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
-  cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
+  cada caso). El único manejador por defecto (`server.js`, el de todos los ficheros) es el contador
+  de la campana, que pide toda pantalla de quien tiene `notification-inbox`: nada sin leer. Cada fase
+  añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
 - `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`,
-  `stock`, `maintenance`) —
+  `stock`, `maintenance`, `notifications`) —
   las pantallas con la tabla de rutas real (`renderRoute(path, {session})` en `render.jsx`, con
   `createMemoryRouter` y Mantine en `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
