@@ -108,8 +108,15 @@ function conflictMessage(error) {
             return 'La línea de material no admite esta operación.' + detail(error)
         case 'AST-001':
             return 'El activo está desactivado, o ese dato lo manda mto-configuration.' + detail(error)
+        // Un codigo repetido en mto-maintenance (activos y equipos) y en los catalogos de mto-stock:
+        // recargar no lo arregla, asi que no se pide.
         case 'AST-409':
         case 'TEA-409':
+        case 'MAT-409':
+        case 'WH-409':
+        case 'SUP-409':
+        case 'PRJ-409':
+        case 'ASM-409':
             return 'Ya existe otro con ese código.'
         // mto-users: un nombre de usuario o un email repetido. Recargar no lo arregla, asi que no se pide.
         case 'USR-409':

@@ -51,7 +51,7 @@ import {
     updateMaster,
 } from '../api/configuration/masters.js'
 import {fileNameFromDisposition, downloadFile} from '../api/download.js'
-import {endOfDayInstant, startOfDayInstant, toInstantParam, toLocalDateParam, toYearMonthParam} from '../api/dates.js'
+import {endOfDayInstant, localDateTimeToInstant, startOfDayInstant, toInstantParam, toLocalDateParam, toYearMonthParam} from '../api/dates.js'
 import {defineEnum, UNKNOWN} from '../api/enums.js'
 import {
     ApiError,
@@ -68,9 +68,51 @@ import {
 } from '../api/errors.js'
 import {apiFetch, buildUrl, configureHttp} from '../api/http.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
-import {hasNextOffsetPage, sortParam, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
+import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
+import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
+import {
+    assemblyBody,
+    catalogueEntryBody,
+    catalogueRevisionsPath,
+    createCatalogueEntry,
+    getAssemblyAvailability,
+    getCatalogueEntry,
+    isSynchronizedProject,
+    materialBody,
+    searchCatalogue,
+    updateCatalogueEntry,
+} from '../api/stock/catalogues.js'
+import {getMaterialStock, listLowStock} from '../api/stock/inventory.js'
+import {
+    ADJUSTMENT_DIRECTIONS,
+    adjustmentRequest,
+    entryRequest,
+    listMaterialMovements,
+    MOVEMENT_TYPE,
+    outputRequest,
+    registerAdjustment,
+    registerEntry,
+    registerOutput,
+    registerTransfer,
+    searchMovements,
+    transferRequest,
+} from '../api/stock/movements.js'
+import {
+    cancelReservation,
+    consumeReservation,
+    createReservation,
+    isActiveReservation,
+    releaseReservation,
+    RESERVATION_STATUS,
+    reservationRequest,
+    reservationRevisionsPath,
+    reservationUpdateRequest,
+    searchReservations,
+    updateReservation,
+} from '../api/stock/reservations.js'
+import {codeAndName, referenceLabel, summaryOf, textOrNull, toQuantity, withoutNulls} from '../api/stock/values.js'
 import {
     assignProfile,
     getProfile,
@@ -123,6 +165,7 @@ import {createQueryClient} from '../app/queryClient.js'
 import {errorMessage} from '../ui/errors/messages.js'
 import {applyServerErrors, toFormPath} from '../ui/errors/serverValidation.js'
 import {formatDate, formatDateTime, formatDayTime, formatPercent, formatQuantity} from '../ui/format.js'
+import {parseTypedDate, parseTypedDateTime} from '../ui/typedDates.js'
 import {server} from './server.js'
 
 /**
@@ -501,6 +544,17 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Datos no válidos: email no vale')
     })
 
+    it('mto-stock: un código repetido de un catálogo no pide recargar, y la falta de stock lleva su detalle', () => {
+        for (const code of ['MAT-409', 'WH-409', 'SUP-409', 'PRJ-409', 'ASM-409']) {
+            expect(errorMessage(new ConflictError(409, {problem: problem({code, detail: 'Code already exists: X-1'})})))
+                .toBe('Ya existe otro con ese código.')
+        }
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'STK-001', detail: 'requested 5, available 2'})})))
+            .toBe('No hay stock disponible suficiente. requested 5, available 2')
+        expect(errorMessage(new ValidationError(422, {problem: problem({code: 'PRJ-001', detail: 'Project is synchronized'})})))
+            .toBe('La operación no es posible. Project is synchronized')
+    })
+
     it('el resto de casos', () => {
         expect(errorMessage(new NotFoundError(404, {problem: problem({detail: 'Orden o1'})}))).toBe('No se ha encontrado lo que se pedía. Orden o1')
         expect(errorMessage(new SessionExpiredError(401))).toBe('La sesión ha caducado. Hay que volver a entrar.')
@@ -551,6 +605,33 @@ describe('ui/errors/serverValidation.js: los errores del servicio campo a campo'
         expect(applyServerErrors(form, error)).toEqual(['Conflicto con otro cambio: recarga y vuelve a intentarlo.'])
         expect(form.errors).toBeNull()
     })
+
+    it('un campo del servicio que en el formulario se llama de otra forma cae en el suyo por su alias', () => {
+        const form = fakeForm({warehouseId: null, targetWarehouseId: null, quantity: '3'})
+        const error = new ValidationError(400, {
+            problem: {
+                ...emptyProblem(),
+                errors: [
+                    {field: 'sourceWarehouseId', code: 'NotNull', message: 'must not be null'},
+                    {field: 'differentWarehouses', code: 'AssertTrue', message: 'source and target warehouses must be different'},
+                    {field: 'quantity', code: 'Positive', message: 'must be greater than 0'},
+                ],
+            },
+        })
+
+        expect(applyServerErrors(form, error, {aliases: {sourceWarehouseId: 'warehouseId', differentWarehouses: 'targetWarehouseId'}}))
+            .toEqual([])
+        expect(form.errors).toEqual({
+            warehouseId: 'must not be null',
+            targetWarehouseId: 'source and target warehouses must be different',
+            quantity: 'must be greater than 0',
+        })
+        expect(applyServerErrors(fakeForm({warehouseId: null}), error)).toEqual([
+            'sourceWarehouseId: must not be null',
+            'differentWarehouses: source and target warehouses must be different',
+            'quantity: must be greater than 0',
+        ])
+    })
 })
 
 describe('paging.js: las tres formas de paginar', () => {
@@ -579,6 +660,12 @@ describe('paging.js: las tres formas de paginar', () => {
         expect(sortParam({field: 'code', direction: 'desc'})).toBe('code,desc')
         expect(sortParam({field: 'code'})).toBe('code,asc')
         expect(sortParam(null)).toBeUndefined()
+    })
+
+    it('una lista de mto-stock lleva siempre su orden: el de la columna o el de la pantalla, y el id para desempatar', () => {
+        expect(sortWithTieBreak(null, 'code,asc')).toEqual(['code,asc', 'id,asc'])
+        expect(sortWithTieBreak({field: 'name', direction: 'desc'}, 'code,asc')).toEqual(['name,desc', 'id,asc'])
+        expect(sortWithTieBreak({field: 'quantity'}, 'occurredAt,desc')).toEqual(['quantity,asc', 'id,asc'])
     })
 })
 
@@ -638,6 +725,20 @@ describe('dates.js: las fechas en los parametros', () => {
         expect(to.getDate()).toBe(1)
         expect(to.getHours()).toBe(23)
         expect(to.getMilliseconds()).toBe(999)
+    })
+
+    it('una fecha y hora escritas viajan como el Instant de la zona del navegador; vacías no viajan y el servicio pone ahora', () => {
+        expect(parseTypedDateTime('01/02/2026 08:30')).toBe('2026-02-01 08:30:00')
+        expect(parseTypedDateTime('1/2/2026 8:05')).toBe('2026-02-01 08:05:00')
+        expect([parseTypedDateTime('31/02/2026 08:30'), parseTypedDateTime('01/02/2026 24:00'), parseTypedDateTime('01/02/2026 08:60'),
+            parseTypedDateTime('01/02/2026'), parseTypedDateTime('')]).toEqual([null, null, null, null, null])
+        expect([parseTypedDate('29/02/2028'), parseTypedDate('29/02/2026')]).toEqual(['2028-02-29', null])
+        expect(localDateTimeToInstant('2026-02-01 08:30:00')).toBe(new Date(2026, 1, 1, 8, 30).toISOString())
+        expect(localDateTimeToInstant('2026-02-01T08:30')).toBe(new Date(2026, 1, 1, 8, 30).toISOString())
+        expect([localDateTimeToInstant(''), localDateTimeToInstant(null), localDateTimeToInstant(undefined)])
+            .toEqual([undefined, undefined, undefined])
+        expect(() => localDateTimeToInstant('2026-02-30 08:30:00')).toThrow(/no validas/)
+        expect(() => localDateTimeToInstant('01/02/2026 08:30')).toThrow(/no validas/)
     })
 })
 
@@ -752,6 +853,20 @@ describe('queryClient.js: un fallo se avisa en un solo sitio', () => {
         await client.fetchQuery({queryKey: ['u', 'u-8'], queryFn: () => Promise.reject(unavailable), retry: false, meta}).catch(() => {})
 
         expect(notify.mock.calls).toEqual([[missing, {message: 'No existe el usuario u-9'}], [unavailable]])
+    })
+
+    it('un 404 de una consulta con silentNotFound es una respuesta, no un fallo; cualquier otro fallo se avisa igual', async () => {
+        const notify = vi.fn()
+        const client = createQueryClient({notify})
+        const none = new NotFoundError(404, {problem: {...emptyProblem(), code: 'RES-404'}})
+        const forbidden = new ForbiddenError(403)
+        const meta = {silentNotFound: true}
+
+        await client.fetchQuery({queryKey: ['revisions', 'r-1'], queryFn: () => Promise.reject(none), retry: false, meta}).catch(() => {})
+        await client.fetchQuery({queryKey: ['revisions', 'r-2'], queryFn: () => Promise.reject(forbidden), retry: false, meta}).catch(() => {})
+        await client.fetchQuery({queryKey: ['revisions', 'r-3'], queryFn: () => Promise.reject(none), retry: false}).catch(() => {})
+
+        expect(notify.mock.calls).toEqual([[forbidden], [none]])
     })
 
     it('solo se reintenta lo que no llego a ningun sitio, y una vez', () => {
@@ -1416,5 +1531,335 @@ describe('users/*.js: usuarios, roles y perfiles de mto-users', () => {
         expect(requiredActionLabel(null)).toBe('')
         expect(REQUIRED_ACTION.selectable().map((option) => option.value))
             .toEqual(['UPDATE_PASSWORD', 'VERIFY_EMAIL', 'UPDATE_PROFILE', 'CONFIGURE_TOTP', 'TERMS_AND_CONDITIONS'])
+    })
+})
+
+describe('stock/*.js: el almacén de mto-stock', () => {
+    const MAT = '1a2b3c4d-0000-4000-8000-000000000001'
+    const WH = '1a2b3c4d-0000-4000-8000-000000000002'
+    const WH2 = '1a2b3c4d-0000-4000-8000-000000000003'
+    const PRJ = '1a2b3c4d-0000-4000-8000-000000000004'
+    const RES = '1a2b3c4d-0000-4000-8000-000000000005'
+    const ASM = '1a2b3c4d-0000-4000-8000-000000000006'
+    const AUDIT = {createdAt: '2026-09-01T08:00:00Z', updatedAt: '2026-09-02T08:00:00Z', createdBy: 'almacen.responsable', updatedBy: 'almacen.operario'}
+    const MATERIAL = {id: MAT, code: 'MAT-001', name: 'Hilo de contacto', unitOfMeasure: 'm', active: true}
+    const WAREHOUSE = {id: WH, code: 'WH-001', name: 'Central', active: true}
+    const PROJECT = {id: PRJ, code: 'EP-42', name: 'Tramo', active: true}
+    const MOVEMENT = {
+        id: 'mv-1', type: 'OUTPUT', quantity: 3, signedQuantity: -3, material: MATERIAL, warehouse: WAREHOUSE, supplier: null,
+        project: PROJECT, reservation: null, relatedMovement: null, occurredAt: '2026-09-10T10:00:00Z', externalReference: 'OT-7',
+        notes: null, audit: AUDIT,
+    }
+    const page = (content, {number = 0, size = 50, totalElements = content.length} = {}) => ({
+        content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size), first: number === 0, last: true},
+    })
+    const json = (request) => JSON.parse(request.body)
+    const created = (body) => HttpResponse.json(body, {status: 201, headers: {Location: '/api/v1/inventory/x/1'}})
+
+    it('un catálogo pide search, active y el Pageable de Spring (desde 0), siempre con su orden y el id para desempatar', async () => {
+        useToken()
+        const warehouses = record('get', '/api/stock/warehouses', () => HttpResponse.json(page([{...WAREHOUSE, audit: AUDIT}],
+            {number: 1, size: 20, totalElements: 21})))
+        const suppliers = record('get', '/api/stock/suppliers', () => HttpResponse.json(page([])))
+
+        const central = await searchCatalogue('warehouses', {search: ' cen ', active: true, page: 2, size: 20})
+        await searchCatalogue('suppliers', {active: false, sort: {field: 'name', direction: 'desc'}})
+        await searchCatalogue('suppliers', {search: '   '})
+
+        expect(warehouses[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(warehouses[0].url.search).toBe('?search=cen&active=true&page=1&size=20&sort=code%2Casc&sort=id%2Casc')
+        expect(suppliers.map((request) => request.url.search)).toEqual([
+            '?active=false&page=0&size=50&sort=name%2Cdesc&sort=id%2Casc',
+            '?page=0&size=50&sort=code%2Casc&sort=id%2Casc',
+        ])
+        expect(central).toMatchObject({number: 1, size: 20, totalElements: 21, totalPages: 2})
+        expect(central.content[0].audit.updatedBy).toBe('almacen.operario')
+        await expect(searchCatalogue('movements')).rejects.toThrow(/desconocido: movements/)
+    })
+
+    it('el alta no lleva active y la modificación sí, porque su PUT es completo; un proyecto sincronizado es de mto-configuration', async () => {
+        useToken()
+        const supplierPosts = record('post', '/api/stock/suppliers', () => created({id: 'sup-1', code: 'SUP-001', name: 'Rail Supplier', active: true}))
+        const projectPuts = record('put', '/api/stock/projects/:id', () => HttpResponse.json({...PROJECT, code: 'PRJ-001', name: 'Renovación',
+            active: false, sourceService: null, synchronizedFromMasterData: false}))
+        const projectReads = record('get', '/api/stock/projects/:id', () => HttpResponse.json({...PROJECT, sourceService: 'mto-configuration',
+            synchronizedFromMasterData: true, newTomorrow: 1}))
+        const materialPosts = record('post', '/api/stock/materials', () => created({...MATERIAL, minimumStockLevel: 100}))
+        const materialPuts = record('put', '/api/stock/materials/:id', () => HttpResponse.json({...MATERIAL, active: false}))
+
+        const supplier = await createCatalogueEntry('suppliers', catalogueEntryBody({code: ' SUP-001 ', name: 'Rail Supplier ', active: false},
+            {creating: true}))
+        const retired = await updateCatalogueEntry('projects', PRJ, catalogueEntryBody({code: 'PRJ-001', name: 'Renovación', active: false},
+            {creating: false}))
+        const synchronizedProject = await getCatalogueEntry('projects', RES)
+        await createCatalogueEntry('materials', materialBody({code: 'MAT-001', name: 'Hilo de contacto', unitOfMeasure: ' m ',
+            minimumStockLevel: '100', active: true}, {creating: true}))
+        await updateCatalogueEntry('materials', MAT, materialBody({code: 'MAT-001', name: 'Hilo de contacto', unitOfMeasure: 'm',
+            minimumStockLevel: '12.5', active: false}, {creating: false}))
+
+        expect(json(supplierPosts[0])).toEqual({code: 'SUP-001', name: 'Rail Supplier'})
+        expect(supplier).toMatchObject({id: 'sup-1', active: true})
+        expect(projectPuts[0].url.pathname).toBe(`/api/stock/projects/${PRJ}`)
+        expect(json(projectPuts[0])).toEqual({code: 'PRJ-001', name: 'Renovación', active: false})
+        expect(projectReads[0].url.pathname).toBe(`/api/stock/projects/${RES}`)
+        expect([retired, synchronizedProject].map(isSynchronizedProject)).toEqual([false, true])
+        expect(synchronizedProject.sourceService).toBe('mto-configuration')
+        expect(json(materialPosts[0])).toEqual({code: 'MAT-001', name: 'Hilo de contacto', unitOfMeasure: 'm', minimumStockLevel: 100})
+        expect(json(materialPuts[0])).toEqual({code: 'MAT-001', name: 'Hilo de contacto', unitOfMeasure: 'm', minimumStockLevel: 12.5,
+            active: false})
+    })
+
+    it('las existencias: materiales por almacén y bajo mínimo, la lista bajo mínimo, las cifras de un material y su libro', async () => {
+        useToken()
+        const materials = record('get', '/api/stock/materials', () => HttpResponse.json(page([])))
+        const lowStock = record('get', '/api/stock/materials/low-stock', () => HttpResponse.json(page([{...MATERIAL, minimumStockLevel: 100}])))
+        const figures = record('get', '/api/stock/materials/:id/stock', () => HttpResponse.json({
+            material: MATERIAL, warehouse: WAREHOUSE, onHandQuantity: 12.5, activeReservedQuantity: 2, availableQuantity: 10.5,
+            minimumStockLevel: 100, lowStock: true, calculatedAt: '2026-09-21T10:00:00Z',
+        }))
+        const ledger = record('get', '/api/stock/materials/:id/movements', () => HttpResponse.json(page([MOVEMENT])))
+
+        await searchCatalogue('materials', {search: 'hilo', active: true, warehouseId: WH, belowMinimum: true, size: 20})
+        await searchCatalogue('materials', {belowMinimum: false})
+        const below = await listLowStock({size: 20})
+        await listLowStock({warehouseId: WH})
+        const stock = await getMaterialStock(MAT, {warehouseId: WH})
+        await getMaterialStock(MAT)
+        const movements = await listMaterialMovements(MAT, {fromDay: '2026-09-01', size: 20})
+
+        expect(materials.map((request) => request.url.search)).toEqual([
+            `?search=hilo&active=true&warehouseId=${WH}&belowMinimum=true&page=0&size=20&sort=code%2Casc&sort=id%2Casc`,
+            '?page=0&size=50&sort=code%2Casc&sort=id%2Casc',
+        ])
+        expect(lowStock.map((request) => request.url.search)).toEqual([
+            '?page=0&size=20&sort=code%2Casc&sort=id%2Casc',
+            `?warehouseId=${WH}&page=0&size=50&sort=code%2Casc&sort=id%2Casc`,
+        ])
+        expect(below.content[0].minimumStockLevel).toBe(100)
+        expect(figures.map((request) => request.url.pathname + request.url.search))
+            .toEqual([`/api/stock/materials/${MAT}/stock?warehouseId=${WH}`, `/api/stock/materials/${MAT}/stock`])
+        expect(stock).toMatchObject({availableQuantity: 10.5, activeReservedQuantity: 2, lowStock: true, warehouse: {code: 'WH-001'}})
+        expect(ledger[0].url.searchParams.get('dateFrom')).toBe(new Date(2026, 8, 1).toISOString())
+        expect(ledger[0].url.searchParams.has('dateTo')).toBe(false)
+        expect(ledger[0].url.searchParams.has('user')).toBe(false)
+        expect(ledger[0].url.searchParams.getAll('sort')).toEqual(['occurredAt,desc', 'id,asc'])
+        expect(movements.content[0]).toMatchObject({type: 'OUTPUT', signedQuantity: -3, project: {code: 'EP-42'}, supplier: null})
+        expect(MOVEMENT_TYPE.label(movements.content[0].type)).toBe('Salida')
+    })
+
+    it('el libro entero pide el tipo como movementType, los días enteros y quién lo registró, y sin columna lo último primero', async () => {
+        useToken()
+        const searches = record('get', '/api/stock/movements', () => HttpResponse.json(page([MOVEMENT])))
+
+        await searchMovements({
+            type: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, fromDay: '2026-09-01', toDay: '2026-09-30', user: ' ana ',
+            page: 3, size: 20, sort: {field: 'quantity', direction: 'asc'},
+        })
+        await searchMovements()
+
+        const filters = searches[0].url.searchParams
+        expect(Object.fromEntries(['movementType', 'warehouseId', 'projectId', 'materialId', 'user', 'page', 'size']
+            .map((name) => [name, filters.get(name)])))
+            .toEqual({movementType: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, user: 'ana', page: '2', size: '20'})
+        expect(filters.get('dateFrom')).toBe(new Date(2026, 8, 1).toISOString())
+        expect(filters.get('dateTo')).toBe(new Date(new Date(2026, 9, 1).getTime() - 1).toISOString())
+        expect(filters.getAll('sort')).toEqual(['quantity,asc', 'id,asc'])
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=occurredAt%2Cdesc&sort=id%2Casc')
+    })
+
+    it('cada movimiento va a su ruta con lo escrito: lo vacío no viaja, la fecha va en UTC y una transferencia devuelve sus dos apuntes', async () => {
+        useToken()
+        const entries = record('post', '/api/stock/movements/entries', () => created({...MOVEMENT, type: 'ENTRY', quantity: 10, signedQuantity: 10}))
+        const outputs = record('post', '/api/stock/movements/outputs', () => created(MOVEMENT))
+        const adjustments = record('post', '/api/stock/movements/adjustments', () => created({...MOVEMENT, type: 'NEGATIVE_ADJUSTMENT'}))
+        const transfers = record('post', '/api/stock/movements/transfers', () => created([
+            {...MOVEMENT, type: 'OUTGOING_TRANSFER'},
+            {...MOVEMENT, id: 'mv-2', type: 'INCOMING_TRANSFER', signedQuantity: 3, relatedMovement: {id: 'mv-1', type: 'OUTGOING_TRANSFER'}},
+        ]))
+
+        const entered = await registerEntry(entryRequest({materialId: MAT, warehouseId: WH, quantity: '10', externalReference: '  ', notes: ''}))
+        await registerOutput(outputRequest({
+            materialId: MAT, warehouseId: WH, projectId: PRJ, reservationId: RES, quantity: '3', externalReference: ' OT-7 ',
+            occurredAt: '2026-09-10 08:30:00',
+        }))
+        await registerAdjustment(adjustmentRequest({materialId: MAT, warehouseId: WH, direction: 'NEGATIVE', quantity: '1', notes: 'Rotura'}))
+        const transferred = await registerTransfer(transferRequest({materialId: MAT, warehouseId: WH, targetWarehouseId: WH2, quantity: '3'}))
+
+        expect(json(entries[0])).toEqual({materialId: MAT, warehouseId: WH, quantity: 10})
+        expect(entered.signedQuantity).toBe(10)
+        expect(json(outputs[0])).toEqual({
+            materialId: MAT, warehouseId: WH, projectId: PRJ, reservationId: RES, quantity: 3,
+            occurredAt: new Date(2026, 8, 10, 8, 30).toISOString(), externalReference: 'OT-7',
+        })
+        expect(json(adjustments[0])).toEqual({materialId: MAT, warehouseId: WH, direction: 'NEGATIVE', quantity: 1, notes: 'Rotura'})
+        expect(json(transfers[0])).toEqual({materialId: MAT, sourceWarehouseId: WH, targetWarehouseId: WH2, quantity: 3})
+        expect(transferred.map((movement) => movement.type)).toEqual(['OUTGOING_TRANSFER', 'INCOMING_TRANSFER'])
+        expect(transferred[1].relatedMovement.type).toBe('OUTGOING_TRANSFER')
+        expect(() => adjustmentRequest({materialId: MAT, warehouseId: WH, direction: 'SIDEWAYS', quantity: '1'})).toThrow(/Sentido/)
+        expect(ADJUSTMENT_DIRECTIONS.map((direction) => direction.value)).toEqual(['POSITIVE', 'NEGATIVE'])
+    })
+
+    it('una reserva: el alta, la modificación sin material, cancelar con un DELETE que la devuelve, y liberar y consumir con POST sin cuerpo', async () => {
+        useToken()
+        const reservation = (status, releasedAt = null) => ({
+            id: RES, material: MATERIAL, warehouse: WAREHOUSE, project: PROJECT, quantity: 2, status, reservedAt: '2026-09-10T10:00:00Z',
+            releasedAt, active: status === 'ACTIVE', audit: AUDIT,
+        })
+        const posts = record('post', '/api/stock/reservations', () => created(reservation('ACTIVE')))
+        const puts = record('put', '/api/stock/reservations/:id', () => HttpResponse.json({...reservation('ACTIVE'), quantity: 3}))
+        const deletes = record('delete', '/api/stock/reservations/:id', () => HttpResponse.json(reservation('CANCELLED', '2026-09-11T10:00:00Z')))
+        const releases = record('post', '/api/stock/reservations/:id/release', () => HttpResponse.json(reservation('RELEASED', '2026-09-11T10:00:00Z')))
+        const consumes = record('post', '/api/stock/reservations/:id/consume', () => HttpResponse.json(reservation('CONSUMED', '2026-09-11T10:00:00Z')))
+        const searches = record('get', '/api/stock/reservations', () => HttpResponse.json(page([reservation('ACTIVE')], {size: 20})))
+
+        const reserved = await createReservation(reservationRequest({materialId: MAT, warehouseId: WH, projectId: PRJ, quantity: '2'}))
+        await createReservation(reservationRequest({materialId: MAT, warehouseId: WH, projectId: PRJ, quantity: '2', reservedAt: '2026-09-10 12:00:00'}))
+        const updated = await updateReservation(RES, reservationUpdateRequest({warehouseId: WH2, projectId: PRJ, quantity: '3'}))
+        const cancelled = await cancelReservation(RES)
+        const released = await releaseReservation(RES)
+        const consumed = await consumeReservation(RES)
+        const active = await searchReservations({warehouseId: WH, status: 'ACTIVE', size: 20})
+        await searchReservations({sort: {field: 'status', direction: 'desc'}})
+
+        expect(json(posts[0])).toEqual({materialId: MAT, warehouseId: WH, projectId: PRJ, quantity: 2})
+        expect(json(posts[1]).reservedAt).toBe(new Date(2026, 8, 10, 12).toISOString())
+        expect(json(puts[0])).toEqual({warehouseId: WH2, projectId: PRJ, quantity: 3})
+        expect([deletes, releases, consumes].map((requests) => [requests[0].url.pathname, requests[0].body])).toEqual([
+            [`/api/stock/reservations/${RES}`, ''],
+            [`/api/stock/reservations/${RES}/release`, ''],
+            [`/api/stock/reservations/${RES}/consume`, ''],
+        ])
+        expect([reserved, updated, cancelled, released, consumed].map((result) => result.status))
+            .toEqual(['ACTIVE', 'ACTIVE', 'CANCELLED', 'RELEASED', 'CONSUMED'])
+        expect([reserved, cancelled, released, consumed].map(isActiveReservation)).toEqual([true, false, false, false])
+        expect(searches.map((request) => request.url.search)).toEqual([
+            `?warehouseId=${WH}&status=ACTIVE&page=0&size=20&sort=reservedAt%2Cdesc&sort=id%2Casc`,
+            '?page=0&size=50&sort=status%2Cdesc&sort=id%2Casc',
+        ])
+        expect(active.content[0].material.name).toBe('Hilo de contacto')
+    })
+
+    it('un conjunto lleva su lista de materiales entera; su disponibilidad se pide en un almacén y marca el componente que limita', async () => {
+        useToken()
+        const assembly = {
+            id: ASM, code: 'ASM-001', name: 'Ménsula', active: true, components: [{id: 'c-1', material: MATERIAL, quantity: 2, audit: AUDIT}],
+            audit: AUDIT,
+        }
+        const posts = record('post', '/api/stock/assemblies', () => created(assembly))
+        const puts = record('put', '/api/stock/assemblies/:id', () => HttpResponse.json(assembly))
+        const availability = record('get', '/api/stock/assemblies/:id/availability', () => HttpResponse.json({
+            assembly: {id: ASM, code: 'ASM-001', name: 'Ménsula', active: true}, warehouse: WAREHOUSE, availableQuantity: 5,
+            components: [{
+                material: MATERIAL, requiredQuantityPerAssembly: 2, onHandQuantity: 12, activeReservedQuantity: 2, availableQuantity: 10,
+                producibleAssemblyQuantity: 5, limitingComponent: true,
+            }],
+            calculatedAt: '2026-09-21T10:00:00Z',
+        }))
+
+        const made = await createCatalogueEntry('assemblies', assemblyBody({code: 'ASM-001', name: 'Ménsula'}, [{materialId: MAT, quantity: '2'}],
+            {creating: true}))
+        await updateCatalogueEntry('assemblies', ASM, assemblyBody({code: 'ASM-001', name: 'Ménsula', active: true},
+            [{materialId: MAT, quantity: '2.5'}, {materialId: 'm-2', quantity: 4}], {creating: false}))
+        const result = await getAssemblyAvailability(made.id, WH)
+
+        expect(json(posts[0])).toEqual({code: 'ASM-001', name: 'Ménsula', components: [{materialId: MAT, quantity: 2}]})
+        expect(json(puts[0])).toEqual({code: 'ASM-001', name: 'Ménsula', active: true,
+            components: [{materialId: MAT, quantity: 2.5}, {materialId: 'm-2', quantity: 4}]})
+        expect(availability[0].url.pathname + availability[0].url.search).toBe(`/api/stock/assemblies/${ASM}/availability?warehouseId=${WH}`)
+        expect(result).toMatchObject({availableQuantity: 5, warehouse: {name: 'Central'}})
+        expect(result.components[0].limitingComponent).toBe(true)
+        expect(() => getAssemblyAvailability(ASM, null)).toThrow(/almacen/)
+        expect(availability).toHaveLength(1)
+    })
+
+    it('el historial de una fila pide page y size sin sort, la más reciente primero; sin revisiones es un 404', async () => {
+        useToken()
+        const revision = {
+            revision: {revision: 3, revisionAt: '2026-09-02T08:00:00Z', operation: 'UPDATED', author: 'almacen.operario', source: 'HTTP', correlationId: 'c-1'},
+            entity: {...MATERIAL, minimumStockLevel: 100, audit: {createdAt: null, updatedAt: null, createdBy: null, updatedBy: null}},
+        }
+        const materialRevisions = record('get', '/api/stock/materials/:id/revisions', () => HttpResponse.json(page([revision],
+            {size: 10, totalElements: 3})))
+        const reservationRevisions = record('get', '/api/stock/reservations/:id/revisions', () => HttpResponse.json({
+            status: 404, error: 'NOT_FOUND', message: `No revisions found for reservation ${RES}`, errorCode: 'RES-404', validationErrors: [],
+        }, {status: 404}))
+
+        const history = await listRevisions(catalogueRevisionsPath('materials', MAT), {page: 1, size: 10})
+        const none = await failure(listRevisions(reservationRevisionsPath(RES)))
+
+        expect(materialRevisions[0].url.search).toBe('?page=0&size=10')
+        expect(history.totalElements).toBe(3)
+        expect(history.content[0].revision).toMatchObject({revision: 3, operation: 'UPDATED', author: 'almacen.operario', source: 'HTTP'})
+        expect(REVISION_OPERATION.label(history.content[0].revision.operation)).toBe('Modificación')
+        expect(reservationRevisions[0].url.pathname).toBe(`/api/stock/reservations/${RES}/revisions`)
+        expect(reservationRevisions[0].url.searchParams.get('size')).toBe(String(REVISIONS_PAGE_SIZE))
+        expect(none).toBeInstanceOf(NotFoundError)
+        expect(catalogueRevisionsPath('assemblies', ASM)).toBe(`/api/stock/assemblies/${ASM}/revisions`)
+    })
+
+    it('un valor que mto-stock estrene se lee como «Desconocido», no se ofrece y una reserva desconocida no está activa', async () => {
+        useToken()
+        record('get', '/api/stock/movements', () => HttpResponse.json(page([MOVEMENT, {...MOVEMENT, id: 'mv-9', type: 'RETURN_TO_SUPPLIER'}])))
+
+        const ledger = await searchMovements()
+
+        expect(ledger.content.map((movement) => movement.type)).toEqual(['OUTPUT', 'RETURN_TO_SUPPLIER'])
+        expect(ledger.content.map((movement) => MOVEMENT_TYPE.label(movement.type))).toEqual(['Salida', 'Desconocido'])
+        expect(MOVEMENT_TYPE.parse('RETURN_TO_SUPPLIER')).toBe(UNKNOWN)
+        expect(MOVEMENT_TYPE.selectable().map((option) => option.value)).toEqual(['ENTRY', 'OUTPUT', 'POSITIVE_ADJUSTMENT',
+            'NEGATIVE_ADJUSTMENT', 'INCOMING_TRANSFER', 'OUTGOING_TRANSFER'])
+        expect(RESERVATION_STATUS.label('EXPIRED')).toBe('Desconocido')
+        expect(isActiveReservation({status: 'EXPIRED', active: true})).toBe(false)
+        expect(isActiveReservation(null)).toBe(false)
+        expect(RESERVATION_STATUS.selectable().map((option) => option.value)).toEqual(['ACTIVE', 'RELEASED', 'CONSUMED', 'CANCELLED'])
+        expect(REVISION_OPERATION.label('RESTORED')).toBe('Desconocido')
+        expect(REVISION_OPERATION.selectable().map((option) => option.value)).toEqual(['CREATED', 'UPDATED', 'DELETED'])
+    })
+
+    it('el JSON de error de mto-stock se lee por sus alias, y cada código se dice como en el backoffice', async () => {
+        useToken()
+        record('post', '/api/stock/materials', () => HttpResponse.json({
+            timestamp: '2026-09-21T10:00:00Z', status: 400, error: 'BAD_REQUEST', message: 'Request validation failed.',
+            path: '/api/v1/inventory/materials', method: 'POST', errorCode: 'REQ-VALIDATION', correlationId: 'corr-s1',
+            validationErrors: [{field: 'code', message: 'must not be blank'}],
+        }, {status: 400, headers: {'X-Correlation-Id': 'corr-s1'}}))
+        record('post', '/api/stock/movements/outputs', () => HttpResponse.json({
+            status: 409, error: 'CONFLICT', message: `Insufficient stock for material ${MAT} in warehouse ${WH}: requested 5, available 2`,
+            errorCode: 'STK-001', correlationId: null, validationErrors: [],
+        }, {status: 409}))
+        record('post', '/api/stock/reservations/:id/release', () => HttpResponse.json({
+            status: 422, error: 'UNPROCESSABLE_CONTENT', message: 'Only active reservations can be changed', errorCode: 'RES-001', validationErrors: [],
+        }, {status: 422}))
+        record('post', '/api/stock/suppliers', () => HttpResponse.json({
+            status: 409, error: 'CONFLICT', message: 'Supplier code already exists: SUP-001', errorCode: 'SUP-409', validationErrors: [],
+        }, {status: 409}))
+
+        const validation = await failure(createCatalogueEntry('materials', {code: '', name: 'Hilo', unitOfMeasure: 'm', minimumStockLevel: 1}))
+        const insufficient = await failure(registerOutput({materialId: MAT, warehouseId: WH, quantity: 5}))
+        const rule = await failure(releaseReservation(RES))
+        const repeated = await failure(createCatalogueEntry('suppliers', {code: 'SUP-001', name: 'Otro'}))
+
+        expect(validation).toBeInstanceOf(ValidationError)
+        expect(validation).toMatchObject({status: 400, code: 'REQ-VALIDATION', reference: 'corr-s1'})
+        expect(validation.problem).toMatchObject({title: 'BAD_REQUEST', detail: 'Request validation failed.'})
+        expect(validation.fieldErrors).toEqual([{field: 'code', code: null, message: 'must not be blank'}])
+        expect(insufficient).toBeInstanceOf(ConflictError)
+        expect(errorMessage(insufficient)).toMatch(/^No hay stock disponible suficiente\. .*requested 5, available 2$/)
+        expect(rule).toBeInstanceOf(ValidationError)
+        expect(rule).toMatchObject({status: 422, code: 'RES-001'})
+        expect(errorMessage(rule)).toBe('La operación no es posible. Only active reservations can be changed')
+        expect(errorMessage(repeated)).toBe('Ya existe otro con ese código.')
+    })
+
+    it('cómo se nombra una referencia y cómo viajan una cantidad y un texto opcional', () => {
+        expect(codeAndName('MAT-001', 'Hilo')).toBe('MAT-001 - Hilo')
+        expect(codeAndName('MAT-001', ' ')).toBe('MAT-001')
+        expect(codeAndName(null, 'Hilo')).toBe('Hilo')
+        expect(referenceLabel(null)).toBe('')
+        expect(summaryOf({...MATERIAL, minimumStockLevel: 100, audit: AUDIT})).toEqual(MATERIAL)
+        expect(summaryOf({...WAREHOUSE, audit: AUDIT})).toEqual(WAREHOUSE)
+        expect([toQuantity(' 12.5 '), toQuantity(''), toQuantity(null), toQuantity(3)]).toEqual([12.5, null, null, 3])
+        expect([textOrNull('  '), textOrNull(' OT-7 '), textOrNull(null)]).toEqual([null, 'OT-7', null])
+        expect(withoutNulls({a: 1, b: null, c: undefined, d: false, e: 0})).toEqual({a: 1, d: false, e: 0})
     })
 })
