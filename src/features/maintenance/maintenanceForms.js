@@ -74,6 +74,20 @@ export function positiveQuantity(value) {
     return Number(text) > 0 ? null : 'Tiene que ser mayor que cero'
 }
 
+/** Una cantidad obligatoria que puede ser cero (lo previsto y lo consumido de una línea de material). */
+export function nonNegativeQuantity(message) {
+    return (value) => {
+        const text = String(value ?? '').trim()
+        if (!text) {
+            return message
+        }
+        if (!DECIMAL.test(text)) {
+            return text.startsWith('-') ? 'No puede ser negativo' : 'Un número con punto decimal y hasta seis decimales, como 12.5'
+        }
+        return null
+    }
+}
+
 /** Una cifra del servicio como texto de un campo. */
 export function toText(value) {
     return value === null || value === undefined ? '' : String(value)

@@ -38,6 +38,7 @@ import RevisionsModal from '../../ui/RevisionsModal.jsx'
 import {defectPath, inspectionPath, ORDERS_PATH} from './maintenanceRoutes.js'
 import {describeOrder, kpRange} from './maintenanceTexts.js'
 import OrderEditorModal from './OrderEditorModal.jsx'
+import OrderMaterialsPanel from './OrderMaterialsPanel.jsx'
 import OrderTasksPanel from './OrderTasksPanel.jsx'
 import OrderTransitionModal from './OrderTransitionModal.jsx'
 import ReasonModal from './ReasonModal.jsx'
@@ -68,6 +69,7 @@ function OrderDetail({orderId}) {
     const session = useSession()
     const canWrite = session.has(P.MAINTENANCE_WRITE)
     const canSupervise = session.hasAll(P.MAINTENANCE_WRITE, P.MAINTENANCE_SUPERVISE)
+    const canDelete = session.has(P.MAINTENANCE_DELETE)
     const navigate = useNavigate()
     const names = useConfigurationNames({tracks: true})
     const order = useOrder(orderId)
@@ -164,6 +166,7 @@ function OrderDetail({orderId}) {
             </Group>
             <LazyTabs tabs={[
                 {value: 'tasks', label: 'Tareas', render: () => <OrderTasksPanel order={current} canWrite={canWrite}/>},
+                {value: 'materials', label: 'Materiales', render: () => <OrderMaterialsPanel order={current} canWrite={canWrite} canDelete={canDelete}/>},
                 {value: 'history', label: 'Estados', render: () => <OrderStatusHistory order={current}/>},
             ]}/>
             {dialog === 'edit' && <OrderEditorModal order={current} onClose={close}/>}

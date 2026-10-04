@@ -17,6 +17,7 @@ import {loginAs, sessionWith} from './session.js'
 
 const BASE = '/api/maintenance'
 const CONFIGURATION = '/api/configuration'
+const STOCK = '/api/stock'
 
 const ASSET_SYNCED = '3c3c3c3c-0000-4000-8000-000000000001'
 const ASSET_OWN = '3c3c3c3c-0000-4000-8000-000000000002'
@@ -126,13 +127,39 @@ function serveConfiguration(requests) {
 }
 
 /**
+ * Los catálogos de mto-stock que nombran lo que mantenimiento solo guarda como id: la búsqueda de un
+ * desplegable (por código o nombre, y por activo) y la lectura de una entrada.
+ */
+function serveStock(requests, {materials = [], warehouses = [], projects = []} = {}) {
+    for (const [catalogue, rows] of Object.entries({materials, warehouses, projects})) {
+        server.use(
+            http.get(`${STOCK}/${catalogue}`, ({request}) => {
+                const url = new URL(request.url)
+                requests.push(url)
+                const search = (param(url, 'search') ?? '').toLowerCase()
+                const found = rows.filter((row) => (!has(url, 'active') || String(row.active) === param(url, 'active'))
+                    && (!search || `${row.code} ${row.name}`.toLowerCase().includes(search)))
+                return HttpResponse.json(pageOf(found, url))
+            }),
+            http.get(`${STOCK}/${catalogue}/:id`, ({request, params}) => {
+                requests.push(new URL(request.url))
+                const found = rows.find((row) => row.id === params.id)
+                return found ? HttpResponse.json(found) : HttpResponse.json({status: 404, error: 'Not Found', message: `${params.id} was not found`},
+                    {status: 404})
+            }),
+        )
+    }
+}
+
+/**
  * mto-maintenance en el gateway simulado: los activos filtran por lo que reciben, ordenan por los sort
- * que llegan y paginan; los catálogos llegan enteros. Sin revisiones, el historial es un 404. Apunta
- * cada lectura, también las de mto-configuration.
+ * que llegan y paginan; los catálogos llegan enteros. Sin revisiones, el historial es un 404. Las
+ * líneas de material de una orden son una lista o, si cambian entre lecturas, una función del número
+ * de lectura. Apunta cada lectura, también las de mto-configuration y mto-stock.
  */
 function serveMaintenance({
     assets = [], teams = [], taskTypes = [], templates = [], assetOrders = {}, revisions = {}, orders = [], tasks = {}, history = {},
-    materials = {},
+    materials = {}, stock = {},
 } = {}) {
     const requests = []
     const log = (request) => {
@@ -141,6 +168,8 @@ function serveMaintenance({
         return url
     }
     serveConfiguration(requests)
+    serveStock(requests, stock)
+    const materialReads = {}
     server.use(
         http.get(`${BASE}/assets`, ({request}) => {
             const url = log(request)
@@ -194,7 +223,9 @@ function serveMaintenance({
         }),
         http.get(`${BASE}/orders/:id/materials`, ({request, params}) => {
             log(request)
-            return HttpResponse.json(materials[params.id] ?? [])
+            materialReads[params.id] = (materialReads[params.id] ?? 0) + 1
+            const lines = materials[params.id] ?? []
+            return HttpResponse.json(typeof lines === 'function' ? lines(materialReads[params.id]) : lines)
         }),
         http.get(`${BASE}/:resource/:id/revisions`, ({request, params}) => {
             const url = log(request)
@@ -244,6 +275,11 @@ function firstColumn(name) {
 function rowOf(name, text) {
     return within(table(name)).getAllByRole('row')
         .find((row) => within(row).queryAllByRole('cell').some((cell) => cell.textContent === text))
+}
+
+/** Las filas con datos de una tabla, como elementos: para sus acciones, cuando varias se llaman igual. */
+function rowElements(name) {
+    return within(table(name)).getAllByRole('row').slice(1).filter((row) => within(row).queryAllByRole('cell').length > 1)
 }
 
 /** Los nombres de las acciones de una fila, en su orden. */
@@ -893,5 +929,287 @@ describe('las órdenes', () => {
         await openOrder(loginAs('mantenimiento.lector'), order())
         const menu = within(screen.getByRole('navigation', {name: 'Menú principal'}))
         expect(menu.getByRole('link', {name: 'Órdenes'})).toHaveAttribute('aria-current', 'page')
+    })
+})
+
+const MAT1 = '3c3c3c3c-0000-4000-8000-000000000041'
+const WH1 = '3c3c3c3c-0000-4000-8000-000000000042'
+const LINE_RESERVED = '3c3c3c3c-0000-4000-8000-000000000051'
+const LINE_FAILED = '3c3c3c3c-0000-4000-8000-000000000052'
+const LINE_CONSUMED = '3c3c3c3c-0000-4000-8000-000000000053'
+const PROJECT = '3c3c3c3c-0000-4000-8000-000000000054'
+const OTHER_PROJECT = '3c3c3c3c-0000-4000-8000-000000000055'
+const LINE_REJECTED = '3c3c3c3c-0000-4000-8000-000000000056'
+const LINE_OUTPUT = '3c3c3c3c-0000-4000-8000-000000000058'
+const REJECTION = "mto-stock rejected 'reserve' with 422 WH-001: Warehouse WH-000 is inactive"
+const STOCK_CATALOGUES = Object.freeze({
+    materials: [{id: MAT1, code: 'MAT-001', name: 'Péndola', unitOfMeasure: 'ud', minimumStockLevel: null, active: true}],
+    warehouses: [{id: WH1, code: 'WH-000', name: 'Central', active: true}],
+    projects: [
+        {id: PROJECT, code: 'EP-3', name: 'Paquete norte', active: true, sourceService: 'mto-configuration', synchronizedFromMasterData: true},
+        {id: OTHER_PROJECT, code: 'EP-5', name: 'Paquete sur', active: true, sourceService: 'mto-configuration', synchronizedFromMasterData: true},
+    ],
+})
+
+/** Una línea de material como la del backoffice: cuatro péndolas del almacén central. */
+function line(id, status, extra = {}) {
+    return {
+        id, orderId: ORDER1, taskId: null, materialId: MAT1, materialCode: 'MAT-001', materialDescriptionSnapshot: 'Péndola', warehouseId: WH1,
+        plannedQuantity: 4, consumedQuantity: status === 'CONSUMED' ? 4 : 0, unit: 'ud', allowOverConsumption: false,
+        stockReservationId: status === 'RESERVED' || status === 'CONSUMED' ? '3c3c3c3c-0000-4000-8000-000000000099' : null,
+        stockSyncStatus: status, stockSyncError: {FAILED: 'Stock service unavailable', REJECTED: REJECTION}[status] ?? null,
+        stockRequestInDoubt: null, version: 2, audit: null, ...extra,
+    }
+}
+
+/** Una línea fallida que mandó esa petición al almacén y se quedó sin respuesta. */
+function inDoubt(id, request) {
+    return line(id, 'FAILED', {stockSyncError: `${request === 'OUTPUT' ? 'consume' : 'reserve'}: Read timed out`, stockRequestInDoubt: request})
+}
+
+const MATERIALS = 'Materiales de MO-000001'
+const PENDOLA = 'MAT-001 - Péndola'
+
+/** Abre la ficha de una orden en la pestaña Materiales, con la tarea 1 y los catálogos de mto-stock. */
+async function openMaterials(session, current, lines, options = {}) {
+    const view = await openOrder(session, current, {tasks: {[ORDER1]: [task(TASK1, 1, 'PENDING')]}, materials: {[ORDER1]: lines},
+        stock: STOCK_CATALOGUES, ...options})
+    await view.user.click(screen.getByRole('tab', {name: 'Materiales'}))
+    const expected = typeof lines === 'function' ? lines(1).length : lines.length
+    if (expected > 0) {
+        await waitFor(() => expect(dataRows(MATERIALS)).toHaveLength(expected))
+    } else {
+        await screen.findByText('La orden no tiene materiales.')
+    }
+    return view
+}
+
+/** El texto del tooltip de un estado, al pasar por encima. */
+async function tooltipOf(user, element) {
+    await user.hover(element)
+    const tooltip = await screen.findByRole('tooltip')
+    const text = tooltip.textContent
+    await user.unhover(element)
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument())
+    return text
+}
+
+describe('las líneas de material', () => {
+    it('la pestaña enseña cada línea con su almacén y ofrece lo que admite cada una', async () => {
+        const {user, requests, unmount} = await openMaterials(loginAs('mantenimiento.responsable'), order({status: 'PLANNED'}), [
+            line(LINE_RESERVED, 'RESERVED', {taskId: TASK1}), line(LINE_FAILED, 'FAILED'), line(LINE_CONSUMED, 'CONSUMED'),
+            line(LINE_REJECTED, 'REJECTED'),
+        ])
+
+        await waitFor(() => expect(textsOf(dataRows(MATERIALS)[0]).slice(0, 5)).toEqual([PENDOLA, 'WH-000 - Central', '4 ud', '0 ud', 'Tarea 1']))
+        expect(readsOf(requests, `${STOCK}/warehouses/${WH1}`)).toHaveLength(1)
+        expect(textsOf(dataRows(MATERIALS)[1])[5]).toBe('Fallida')
+        expect(await tooltipOf(user, within(dataRows(MATERIALS)[1][5]).getByText('Fallida'))).toBe('Stock service unavailable')
+        expect(textsOf(dataRows(MATERIALS)[2])[5]).toBe('Consumida')
+        expect(await tooltipOf(user, within(dataRows(MATERIALS)[3][5]).getByText('Rechazada'))).toBe(REJECTION)
+
+        const rows = rowElements(MATERIALS)
+        expect(actionsOf(rows[0])).toEqual([`Modificar ${PENDOLA}`, `Comprobar la reserva de ${PENDOLA} en el almacén`, `Quitar ${PENDOLA}`])
+        expect(actionsOf(rows[1])).toEqual([`Modificar ${PENDOLA}`, `Sincronizar ${PENDOLA} con el almacén`, `Quitar ${PENDOLA}`])
+        expect(actionsOf(rows[2])).toEqual([])
+        expect(actionsOf(rows[3])).toEqual([`Modificar ${PENDOLA}`, `Sincronizar ${PENDOLA} con el almacén`, `Quitar ${PENDOLA}`])
+        expect(screen.getByRole('button', {name: 'Añadir material'})).toBeInTheDocument()
+        unmount()
+
+        await openMaterials(loginAs('mantenimiento.lector'), order({status: 'PLANNED'}), [line(LINE_FAILED, 'FAILED')])
+        expect(actionsOf(rowElements(MATERIALS)[0])).toEqual([])
+        expect(screen.queryByRole('button', {name: 'Añadir material'})).not.toBeInTheDocument()
+    })
+
+    it('una línea se registra desde el almacén, y de una reservada solo cambia lo consumido', async () => {
+        const reserved = line(LINE_RESERVED, 'RESERVED', {taskId: TASK1})
+        const posts = recordWrites('post', `${BASE}/orders/${ORDER1}/materials`, () => HttpResponse.json(reserved, {status: 201}))
+        const patches = recordWrites('patch', `${BASE}/orders/${ORDER1}/materials/${LINE_RESERVED}`, () => HttpResponse.json(reserved))
+        const {user, requests, unmount} = await openMaterials(loginAs('mantenimiento.tecnico'), order({status: 'PLANNED'}), [reserved])
+
+        await user.click(screen.getByRole('button', {name: 'Añadir material'}))
+        const add = await screen.findByRole('dialog', {name: 'Nuevo material en MO-000001'})
+        expect(add).toHaveTextContent('La orden ya está planificada: la línea se reserva al momento en el almacén.')
+        await choose(user, add, 'Material', PENDOLA)
+        await choose(user, add, 'Almacén', 'WH-000 - Central')
+        expect(readsOf(requests, `${STOCK}/materials`).length).toBeGreaterThan(0)
+        expect(readsOf(requests, `${STOCK}/materials`).every((url) => param(url, 'active') === 'true')).toBe(true)
+        expect(readsOf(requests, `${STOCK}/warehouses`).every((url) => param(url, 'active') === 'true')).toBe(true)
+        await typeInto(user, add, 'Previsto', '4')
+        await choose(user, add, 'Tarea', '1 · Perfil 12-2.27')
+        await user.click(within(add).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts.map((write) => write.body))
+            .toEqual([{materialId: MAT1, warehouseId: WH1, plannedQuantity: 4, unit: 'ud', taskId: TASK1}]))
+        expect(await screen.findByText('MAT-001 añadido a MO-000001')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: `Modificar ${PENDOLA}`}))
+        const edit = await screen.findByRole('dialog', {name: `Modificar ${PENDOLA}`})
+        expect(within(edit).getByRole('textbox', {name: 'Previsto'})).toHaveAttribute('readonly')
+        expect(edit).toHaveTextContent('Tiene reserva en el almacén: para cambiar lo previsto, quita la línea y regístrala de nuevo')
+        await typeInto(user, edit, 'Consumido', '3')
+        await user.click(within(edit).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toEqual([{body: {consumedQuantity: 3, version: 2}, contentType: MERGE_PATCH}]))
+        unmount()
+
+        const withoutStock = await openMaterials(sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE, P.CONFIG_READ]), order({status: 'PLANNED'}),
+            [reserved])
+        expect(screen.queryByRole('button', {name: 'Añadir material'})).not.toBeInTheDocument()
+        expect(screen.getByText('Añadir materiales pide leer el almacén (stock-read).')).toBeInTheDocument()
+        expect(textsOf(dataRows(MATERIALS)[0])[1]).toBe('#3c3c3c3c')
+        expect(withoutStock.requests.some((url) => url.pathname.startsWith(STOCK))).toBe(false)
+    })
+
+    it('el alta exige material, almacén y lo previsto, y no admite una cantidad negativa', async () => {
+        const posts = recordWrites('post', `${BASE}/orders/${ORDER1}/materials`, () => HttpResponse.json(line(LINE_FAILED, 'NOT_REQUESTED'),
+            {status: 201}))
+        const {user} = await openMaterials(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), [])
+
+        await user.click(screen.getByRole('button', {name: 'Añadir material'}))
+        const add = await screen.findByRole('dialog', {name: 'Nuevo material en MO-000001'})
+        expect(add).not.toHaveTextContent('La orden ya está planificada')
+        await typeInto(user, add, 'Previsto', '-1')
+        await user.click(within(add).getByRole('button', {name: 'Guardar'}))
+        expect(await within(add).findByText('El material es obligatorio')).toBeInTheDocument()
+        expect(within(add).getByText('El almacén es obligatorio')).toBeInTheDocument()
+        expect(within(add).getByText('No puede ser negativo')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+
+        await choose(user, add, 'Material', PENDOLA)
+        await choose(user, add, 'Almacén', 'WH-000 - Central')
+        await typeInto(user, add, 'Previsto', '0')
+        await user.click(within(add).getByRole('checkbox', {name: 'Admite consumir más de lo previsto'}))
+        await user.click(within(add).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts.map((write) => write.body))
+            .toEqual([{materialId: MAT1, warehouseId: WH1, plannedQuantity: 0, unit: 'ud', allowOverConsumption: true}]))
+    })
+
+    it('quitar una línea reservada avisa de su reserva, el almacén caído se avisa, y sincronizar una fallida dice cómo quedó', async () => {
+        const deletes = recordWrites('delete', `${BASE}/orders/${ORDER1}/materials/${LINE_RESERVED}`, (_body, call) => (call === 1
+            ? maintenanceError(503, 'STK-503', 'Stock service unavailable')
+            : new HttpResponse(null, {status: 204})))
+        const syncs = recordWrites('post', `${BASE}/orders/${ORDER1}/materials/${LINE_FAILED}/sync`,
+            () => HttpResponse.json(line(LINE_FAILED, 'RESERVED')))
+        const {user, requests} = await openMaterials(loginAs('mantenimiento.responsable'), order({status: 'PLANNED'}),
+            [line(LINE_RESERVED, 'RESERVED', {taskId: TASK1}), line(LINE_FAILED, 'FAILED')])
+        const reads = () => readsOf(requests, `${BASE}/orders/${ORDER1}/materials`).length
+
+        await user.click(within(rowElements(MATERIALS)[0]).getByRole('button', {name: `Quitar ${PENDOLA}`}))
+        const confirm = await screen.findByRole('dialog', {name: `Quitar ${PENDOLA}`})
+        expect(confirm).toHaveTextContent('Se libera antes su reserva en el almacén, y la línea desaparece (queda en su historial).')
+        await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
+        expect(await screen.findByText(
+            'El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde. Stock service unavailable')).toBeInTheDocument()
+        await waitFor(() => expect(reads()).toBe(2))
+
+        await user.click(within(rowElements(MATERIALS)[0]).getByRole('button', {name: `Quitar ${PENDOLA}`}))
+        await user.click(within(await screen.findByRole('dialog', {name: `Quitar ${PENDOLA}`})).getByRole('button', {name: 'Quitar'}))
+        expect(await screen.findByText('Quitado MAT-001')).toBeInTheDocument()
+        expect(deletes).toHaveLength(2)
+        await waitFor(() => expect(reads()).toBe(3))
+
+        await user.click(within(rowElements(MATERIALS)[1]).getByRole('button', {name: `Sincronizar ${PENDOLA} con el almacén`}))
+        expect(await screen.findByText('MAT-001: reservada')).toBeInTheDocument()
+        expect(syncs).toHaveLength(1)
+        await waitFor(() => expect(reads()).toBe(4))
+    })
+
+    it('sincronizar una rechazada dice por qué dijo que no el almacén y relee la línea; terminada la orden, solo queda reintentar', async () => {
+        recordWrites('post', `${BASE}/orders/${ORDER1}/materials/${LINE_REJECTED}/sync`, (_body, call) => (call === 1
+            ? maintenanceError(422, 'STK-422', REJECTION)
+            : maintenanceError(409, 'STK-001', "mto-stock rejected 'reserve' with 409 STK-001: Insufficient stock")))
+        const {user, requests, unmount} = await openMaterials(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS'}),
+            [line(LINE_REJECTED, 'REJECTED')])
+        const sync = () => user.click(screen.getByRole('button', {name: `Sincronizar ${PENDOLA} con el almacén`}))
+
+        await sync()
+        expect(await screen.findByText(`El almacén ha rechazado la operación. ${REJECTION}`)).toBeInTheDocument()
+        await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}/materials`)).toHaveLength(2))
+        await sync()
+        expect(await screen.findByText("No hay stock disponible suficiente. mto-stock rejected 'reserve' with 409 STK-001: Insufficient stock"))
+            .toBeInTheDocument()
+        unmount()
+
+        await openMaterials(loginAs('mantenimiento.responsable'), order({status: 'COMPLETED'}),
+            [line(LINE_REJECTED, 'REJECTED'), line(LINE_RESERVED, 'RESERVED')])
+        const rows = rowElements(MATERIALS)
+        expect(actionsOf(rows[0])).toEqual([`Sincronizar ${PENDOLA} con el almacén`])
+        expect(actionsOf(rows[1])).toEqual([])
+    })
+
+    it('un estado o una petición que no se conocen se pintan como «Desconocido» y no abren nada', async () => {
+        await openMaterials(loginAs('mantenimiento.responsable'), order({status: 'IN_PROGRESS'}), [
+            line(LINE_RESERVED, 'PARTIALLY_CONSUMED'), {...inDoubt(LINE_FAILED, 'RESERVATION'), stockRequestInDoubt: 'RETURN'},
+        ])
+
+        expect(textsOf(dataRows(MATERIALS)[0])[5]).toBe('Desconocido')
+        expect(textsOf(dataRows(MATERIALS)[1])[5]).toBe('Fallida · Desconocido')
+        const rows = rowElements(MATERIALS)
+        expect(actionsOf(rows[0])).toEqual([])
+        expect(actionsOf(rows[1])).toEqual([`Modificar ${PENDOLA}`, `Sincronizar ${PENDOLA} con el almacén`])
+    })
+
+    it('una línea esperando al almacén lo dice y solo ofrece lo que el servicio acepta mientras tanto', async () => {
+        const waiting = inDoubt(LINE_FAILED, 'RESERVATION')
+        const patches = recordWrites('patch', `${BASE}/orders/${ORDER1}/materials/${LINE_FAILED}`, () => HttpResponse.json(waiting))
+        const deletes = recordWrites('delete', `${BASE}/orders/${ORDER1}/materials/${LINE_FAILED}`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await openMaterials(loginAs('mantenimiento.responsable'), order({status: 'IN_PROGRESS'}),
+            [waiting, inDoubt(LINE_OUTPUT, 'OUTPUT')])
+
+        expect(textsOf(dataRows(MATERIALS)[0])[5]).toBe('Fallida · Reserva sin respuesta')
+        expect(await tooltipOf(user, within(dataRows(MATERIALS)[0][5]).getByText('Fallida · Reserva sin respuesta')))
+            .toMatch(/^reserve: Read timed out\. El almacén no contestó: se reintenta sola cada 5 minutos/)
+        expect(textsOf(dataRows(MATERIALS)[1])[5]).toBe('Fallida · Salida sin respuesta')
+        const rows = rowElements(MATERIALS)
+        expect(actionsOf(rows[0])).toEqual([`Modificar ${PENDOLA}`, `Sincronizar ${PENDOLA} con el almacén`, `Quitar ${PENDOLA}`])
+        expect(actionsOf(rows[1])).toEqual([`Modificar ${PENDOLA}`, `Sincronizar ${PENDOLA} con el almacén`])
+
+        await user.click(within(rows[0]).getByRole('button', {name: `Modificar ${PENDOLA}`}))
+        const edit = await screen.findByRole('dialog', {name: `Modificar ${PENDOLA}`})
+        expect(within(edit).getByRole('textbox', {name: 'Previsto'})).toHaveAttribute('readonly')
+        expect(within(edit).getByRole('textbox', {name: 'Consumido'})).toHaveAttribute('readonly')
+        expect(edit).toHaveTextContent('Reserva sin respuesta. El almacén no contestó')
+        await user.click(within(edit).getByRole('checkbox', {name: 'Admite consumir más de lo previsto'}))
+        await user.click(within(edit).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toEqual([{body: {allowOverConsumption: true, version: 2}, contentType: MERGE_PATCH}]))
+
+        await user.click(within(rowElements(MATERIALS)[0]).getByRole('button', {name: `Quitar ${PENDOLA}`}))
+        const confirm = await screen.findByRole('dialog', {name: `Quitar ${PENDOLA}`})
+        expect(confirm).toHaveTextContent('Antes se confirma con el almacén la reserva que se quedó sin respuesta y se libera')
+        await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
+        await waitFor(() => expect(deletes).toHaveLength(1))
+    })
+
+    it('el proyecto de almacén de una orden no se ofrece mientras una de sus líneas espera al almacén', async () => {
+        const planned = order({status: 'PLANNED'})
+        const patches = recordWrites('patch', `${BASE}/orders/${ORDER1}`, () => HttpResponse.json(planned))
+        const {user} = await openOrder(loginAs('mantenimiento.responsable'), planned, {stock: STOCK_CATALOGUES,
+            materials: {[ORDER1]: (read) => [read === 1 ? inDoubt(LINE_FAILED, 'RESERVATION') : line(LINE_FAILED, 'RESERVED')]}})
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar MO-000001'})
+        const project = await within(dialog).findByRole('combobox', {name: 'Proyecto de almacén'})
+        await waitFor(() => expect(project).toHaveAttribute('readonly'))
+        expect(dialog).toHaveTextContent('Hay líneas de material esperando respuesta del almacén: el proyecto no cambia hasta que contesten')
+        await choose(user, dialog, 'Prioridad', 'Crítica')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{priority: 'CRITICAL', version: 3}]))
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const again = await screen.findByRole('dialog', {name: 'Modificar MO-000001'})
+        await waitFor(() => expect(within(again).getByRole('combobox', {name: 'Proyecto de almacén'})).not.toHaveAttribute('readonly'))
+    })
+
+    it('la orden lleva su proyecto de almacén con su nombre, y el editor parte de él', async () => {
+        const withProject = order({status: 'DRAFT', stockProjectId: PROJECT})
+        const patches = recordWrites('patch', `${BASE}/orders/${ORDER1}`, () => HttpResponse.json({...withProject, stockProjectId: OTHER_PROJECT}))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), withProject, {stock: STOCK_CATALOGUES})
+
+        await waitFor(() => expect(screen.getByLabelText('Resumen de la orden')).toHaveTextContent('Proyecto de almacén: EP-3 - Paquete norte'))
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar MO-000001'})
+        expect(within(dialog).getByRole('combobox', {name: 'Proyecto de almacén'})).toHaveValue('EP-3 - Paquete norte')
+        await choose(user, dialog, 'Proyecto de almacén', 'EP-5 - Paquete sur')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{stockProjectId: OTHER_PROJECT, version: 3}]))
     })
 })

@@ -1,7 +1,7 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
 import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
-import {listOrderMaterials} from '../../api/maintenance/materials.js'
+import {listOrderMaterials, patchMaterial, registerMaterial, removeMaterial, syncMaterial} from '../../api/maintenance/materials.js'
 import {createOrder, getOrder, listOrderHistory, patchOrder, searchOrders, transitionOrder} from '../../api/maintenance/orders.js'
 import {cancelTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask} from '../../api/maintenance/tasks.js'
 
@@ -240,5 +240,41 @@ export function useSaveTaskCheckItem(orderId, taskId) {
     return useMutation({
         mutationFn: ({itemId, patch}) => patchCheckItem(orderId, taskId, itemId, patch),
         onSuccess: () => invalidateTasksOf(queryClient, orderId),
+    })
+}
+
+/** Lo que cambia con una línea de material son las líneas de su orden, que también mira el editor de la orden. */
+function invalidateMaterialsOf(queryClient, orderId) {
+    return queryClient.invalidateQueries({queryKey: maintenanceKey('order-materials', orderId)})
+}
+
+/** El alta o la modificación de una línea, desde su diálogo, que trata él mismo sus errores. */
+export function useSaveMaterial(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({lineId = null, body}) => (lineId === null ? registerMaterial(orderId, body) : patchMaterial(orderId, lineId, body)),
+        meta: {notifyError: false},
+        onSuccess: () => invalidateMaterialsOf(queryClient, orderId),
+    })
+}
+
+/**
+ * Sincronizar una línea con el almacén. Se relee salga bien o no: si el almacén sigue caído o dice que
+ * no, la respuesta es el error, pero la línea guarda lo que pasó (el motivo, el estado).
+ */
+export function useSyncMaterial(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (lineId) => syncMaterial(orderId, lineId),
+        onSettled: () => invalidateMaterialsOf(queryClient, orderId),
+    })
+}
+
+/** Quitar una línea; se relee salga bien o no (con el almacén caído, la línea se queda como estaba). */
+export function useRemoveMaterial(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (lineId) => removeMaterial(orderId, lineId),
+        onSettled: () => invalidateMaterialsOf(queryClient, orderId),
     })
 }
