@@ -2,6 +2,7 @@ import {MultiSelect, Select} from '@mantine/core'
 import {assetSummaryOf, searchAssets} from '../../api/maintenance/assets.js'
 import {isActiveTeam} from '../../api/maintenance/catalogs.js'
 import {assetLabel, taskTypeLabel, teamLabel} from '../../api/maintenance/values.js'
+import ServerSearchMultiSelect from '../../ui/ServerSearchMultiSelect.jsx'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {withCurrent} from '../infrastructure/references.js'
 import {maintenanceKey} from './useMaintenance.js'
@@ -33,6 +34,22 @@ export function AssetPicker({type = null, value, onChange, placeholder = 'Escrib
                             current={value ? toAssetOption(value) : null} value={value?.id ?? null}
                             onChange={(_id, option) => onChange(option?.entry ?? null)} searchWhenEmpty clearable
                             placeholder={placeholder}/>
+    )
+}
+
+/**
+ * Varios activos de un tipo, buscados en el servidor entre los activos (los seccionadores que se abren
+ * en un turno). El valor son sus ids; current, los resúmenes que ya tenía el campo, para nombrarlos.
+ */
+export function AssetsMultiPicker({type, current = [], value, onChange, placeholder = 'Escribe su nombre: HSA-NS5…', ...props}) {
+    const search = async (text, {signal}) => {
+        const page = await searchAssets({type, enabled: true, name: text, size: RESULTS, sort: null}, {signal})
+        return page.content.map(toAssetOption)
+    }
+    return (
+        <ServerSearchMultiSelect {...props} queryKey={maintenanceKey('picker', 'assets', type, 'multi')} search={search}
+                                 current={(current ?? []).map(toAssetOption)} value={value ?? []} onChange={(ids) => onChange(ids)}
+                                 searchWhenEmpty clearable placeholder={placeholder}/>
     )
 }
 

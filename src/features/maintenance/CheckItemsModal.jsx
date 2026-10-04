@@ -5,6 +5,7 @@ import {checkItemPatch, itemsInOrder, shownResult} from '../../api/maintenance/t
 import {formatQuantity} from '../../ui/format.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {toText} from './maintenanceForms.js'
+import {useSaveTaskCheckItem} from './useMaintenance.js'
 
 /**
  * Un checklist punto a punto (el port de CheckItemsDialog): el de una tarea abierta o el de una
@@ -31,6 +32,18 @@ export default function CheckItemsModal({title, items, save, onClose}) {
             </Stack>
         </Modal>
     )
+}
+
+/**
+ * El checklist de una tarea abierta, desde su orden o desde un turno: cada punto se guarda en la tarea
+ * de su orden, y la respuesta es la tarea entera.
+ *
+ * @param {string} [name] cómo se nombra la tarea en el título: «la tarea 1», «la tarea 1 de MO-000001»
+ */
+export function TaskChecklistModal({task, name = `la tarea ${task.sequence}`, onClose}) {
+    const saving = useSaveTaskCheckItem(task.orderId, task.id)
+    const save = (item, patch) => saving.mutateAsync({itemId: item.id, patch}).then((updated) => updated?.checkItems ?? [])
+    return <CheckItemsModal title={`Checklist de ${name}`} items={task.checkItems ?? []} save={save} onClose={onClose}/>
 }
 
 function CheckItemRow({item, save}) {

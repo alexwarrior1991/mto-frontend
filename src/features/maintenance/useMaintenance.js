@@ -1,9 +1,23 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {NotFoundError} from '../../api/errors.js'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
 import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
 import {listOrderMaterials, patchMaterial, registerMaterial, removeMaterial, syncMaterial} from '../../api/maintenance/materials.js'
+import {isOpenOrder} from '../../api/maintenance/enums.js'
 import {createOrder, getOrder, listOrderHistory, patchOrder, searchOrders, transitionOrder} from '../../api/maintenance/orders.js'
-import {cancelTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask} from '../../api/maintenance/tasks.js'
+import {getShiftReport} from '../../api/maintenance/reports.js'
+import {
+    assignTaskToShift,
+    cancelShift,
+    createShift,
+    getShift,
+    listShiftProfiles,
+    listShiftTasks,
+    patchShift,
+    searchShifts,
+    transitionShift,
+} from '../../api/maintenance/shifts.js'
+import {cancelTask, completeTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask, startTask} from '../../api/maintenance/tasks.js'
 
 /**
  * Las consultas y las escrituras del módulo de mantenimiento. Las claves van todas bajo
@@ -15,6 +29,8 @@ import {cancelTask, createTask, generateTasks, listOrderTasks, patchCheckItem, p
  * - las órdenes: la lista, ['maintenance', 'orders', lo que se pide]; la cabecera de una ficha,
  *   ['maintenance', 'order', id], que no es prefijo de sus pestañas: ['maintenance', 'order-tasks', id],
  *   'order-materials', 'order-defects', 'order-inspections' y 'order-history';
+ * - los turnos: la lista, ['maintenance', 'shifts', lo que se pide]; la cabecera de una ficha,
+ *   ['maintenance', 'shift', id], y sus pestañas, 'shift-tasks', 'shift-profiles' y 'shift-report';
  * - un desplegable: ['maintenance', 'picker', qué, filtro, texto];
  * - los nombres de mto-stock: ['maintenance', 'stock-names', catálogo, ids].
  *
@@ -141,8 +157,53 @@ export function useOrder(orderId) {
     })
 }
 
-export function useOrderTasks(orderId) {
-    return useQuery({queryKey: maintenanceKey('order-tasks', orderId), queryFn: ({signal}) => listOrderTasks(orderId, {signal}), staleTime: NOT_FRESH})
+/** Las tareas de una orden; con enabled=false (sin orden elegida) no se piden. */
+export function useOrderTasks(orderId, {enabled = true} = {}) {
+    return useQuery({
+        queryKey: maintenanceKey('order-tasks', orderId),
+        queryFn: ({signal}) => listOrderTasks(orderId, {signal}),
+        enabled: enabled && Boolean(orderId),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * Las órdenes abiertas de una vía, la prevista antes primero: de dónde asignar tareas a un turno. Van
+ * bajo 'orders', así que lo que relee las listas de órdenes las relee también.
+ */
+export function useOpenOrdersOnTrack(trackId) {
+    return useQuery({
+        queryKey: maintenanceKey('orders', {trackId, assignable: true}),
+        queryFn: async ({signal}) => {
+            const page = await searchOrders({trackId, size: 100, sort: {field: 'plannedDate', direction: 'asc'}}, {signal})
+            return page.content.filter((order) => isOpenOrder(order.status))
+        },
+        enabled: trackId !== null && trackId !== undefined,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * Los códigos de unas órdenes, para la columna «Orden» de las tareas de un turno: las tareas solo traen
+ * el id, y un turno tiene pocas órdenes. Una que ya no existe se pinta como «?».
+ */
+export function useOrderCodes(orderIds) {
+    const ids = [...new Set((orderIds ?? []).filter(Boolean))].sort()
+    return useQuery({
+        queryKey: maintenanceKey('order-codes', ids),
+        queryFn: async ({signal}) => Object.fromEntries(await Promise.all(ids.map(async (id) => {
+            try {
+                return [id, (await getOrder(id, {signal})).code]
+            } catch (error) {
+                if (error instanceof NotFoundError) {
+                    return [id, '?']
+                }
+                throw error
+            }
+        }))),
+        enabled: ids.length > 0,
+        staleTime: NOT_FRESH,
+    })
 }
 
 export function useOrderHistory(orderId) {
@@ -198,12 +259,26 @@ export function useOrderTransition(orderId) {
     })
 }
 
-/** Tras tocar una tarea se relee la cabecera (el avance y la estimación) y sus tareas. */
+/** Lo que un turno enseña de las tareas que trabaja: su lista, sus perfiles y su parte. */
+const SHIFT_TABS = Object.freeze(['shift-tasks', 'shift-profiles', 'shift-report'])
+
+/** Las pestañas de un turno, o las de todos: una tarea no sabe en qué turno se pinta. */
+function invalidateShiftTabs(queryClient, shiftId = undefined) {
+    return Promise.all(SHIFT_TABS.map((tab) => queryClient.invalidateQueries({
+        queryKey: shiftId === undefined ? maintenanceKey(tab) : maintenanceKey(tab, shiftId),
+    })))
+}
+
+/**
+ * Tras tocar una tarea se relee la cabecera de su orden (el avance y la estimación), sus tareas y lo
+ * que la enseña en un turno.
+ */
 function invalidateTasksOf(queryClient, orderId) {
     return Promise.all([
         queryClient.invalidateQueries({queryKey: maintenanceKey('order', orderId)}),
         queryClient.invalidateQueries({queryKey: maintenanceKey('order-tasks', orderId)}),
         invalidateOrderLists(queryClient),
+        invalidateShiftTabs(queryClient),
     ])
 }
 
@@ -225,12 +300,15 @@ export function useGenerateTasks(orderId) {
     })
 }
 
-/** Cancelar una tarea con su motivo; si el servicio dice que no, el diálogo sigue abierto. */
-export function useCancelTask(orderId) {
+/**
+ * Cancelar una tarea con su motivo; si el servicio dice que no, el diálogo sigue abierto. La orden es
+ * la de la ficha o, desde un turno, la de cada tarea ({orderId} en la llamada).
+ */
+export function useCancelTask(orderId = null) {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: ({taskId, reason}) => cancelTask(orderId, taskId, reason),
-        onSuccess: () => invalidateTasksOf(queryClient, orderId),
+        mutationFn: ({taskId, reason, orderId: taskOrder = orderId}) => cancelTask(taskOrder, taskId, reason),
+        onSuccess: (_task, {orderId: taskOrder = orderId}) => invalidateTasksOf(queryClient, taskOrder),
     })
 }
 
@@ -276,5 +354,127 @@ export function useRemoveMaterial(orderId) {
     return useMutation({
         mutationFn: (lineId) => removeMaterial(orderId, lineId),
         onSettled: () => invalidateMaterialsOf(queryClient, orderId),
+    })
+}
+
+export function useShiftList(params) {
+    return useQuery({
+        queryKey: maintenanceKey('shifts', params),
+        queryFn: ({signal}) => searchShifts({...params, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** La cabecera de una ficha de turno. Un turno que no existe se dice una vez y la ficha vuelve a la lista. */
+export function useShift(shiftId) {
+    return useQuery({
+        queryKey: maintenanceKey('shift', shiftId),
+        queryFn: ({signal}) => getShift(shiftId, {signal}),
+        staleTime: NOT_FRESH,
+        meta: {notFoundMessage: `No existe el turno ${shiftId}`},
+    })
+}
+
+export function useShiftTasks(shiftId) {
+    return useQuery({queryKey: maintenanceKey('shift-tasks', shiftId), queryFn: ({signal}) => listShiftTasks(shiftId, {signal}), staleTime: NOT_FRESH})
+}
+
+export function useShiftProfiles(shiftId, status) {
+    return useQuery({
+        queryKey: maintenanceKey('shift-profiles', shiftId, status),
+        queryFn: ({signal}) => listShiftProfiles(shiftId, {status, signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+export function useShiftReport(shiftId) {
+    return useQuery({queryKey: maintenanceKey('shift-report', shiftId), queryFn: ({signal}) => getShiftReport(shiftId, {signal}), staleTime: NOT_FRESH})
+}
+
+/** Los turnos en curso de una vía, para completar desde la orden una tarea de esa vía. */
+export function useInProgressShifts(trackId, {enabled = true} = {}) {
+    return useQuery({
+        queryKey: maintenanceKey('shifts', {trackId, status: 'IN_PROGRESS'}),
+        queryFn: ({signal}) => searchShifts({trackId, status: 'IN_PROGRESS', size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        enabled: enabled && trackId !== null && trackId !== undefined,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Tras cambiar un turno: su cabecera queda con lo que devolvió el servicio, y se releen sus pestañas y las listas. */
+function shiftChanged(queryClient, shift) {
+    queryClient.setQueryData(maintenanceKey('shift', shift.id), shift)
+    return Promise.all([invalidateShiftTabs(queryClient, shift.id), queryClient.invalidateQueries({queryKey: maintenanceKey('shifts')})])
+}
+
+/** El alta o la modificación de un turno, desde su editor, que trata él mismo sus errores. */
+export function useSaveShift() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createShift(body) : patchShift(id, body)),
+        meta: {notifyError: false},
+        onSuccess: (saved) => shiftChanged(queryClient, saved),
+    })
+}
+
+/**
+ * Iniciar, cerrar o cancelar un turno, desde su diálogo, que trata él mismo sus errores. Al cerrar o
+ * cancelar, las tareas sin terminar vuelven a su orden: se releen las tareas de las órdenes.
+ *
+ * @param {{transition: 'start'|'close'|'cancel', body: object}} variables
+ */
+export function useShiftTransition(shiftId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({transition, body}) => (transition === 'cancel' ? cancelShift(shiftId, body.reason) : transitionShift(shiftId, transition, body)),
+        meta: {notifyError: false},
+        onSuccess: (shift) => Promise.all([
+            shiftChanged(queryClient, shift),
+            queryClient.invalidateQueries({queryKey: maintenanceKey('order-tasks')}),
+        ]),
+    })
+}
+
+/**
+ * Asignar una tarea al turno; el diálogo las asigna una a una y cuenta las que el servicio rechaza.
+ * Al terminar, el diálogo relee lo que cambió con settled.
+ */
+export function useAssignTask(shiftId) {
+    const queryClient = useQueryClient()
+    const mutation = useMutation({
+        mutationFn: (taskId) => assignTaskToShift(shiftId, taskId),
+        meta: {notifyError: false},
+    })
+    const settled = (orderId) => Promise.all([
+        invalidateShiftTabs(queryClient, shiftId),
+        queryClient.invalidateQueries({queryKey: maintenanceKey('order-tasks', orderId)}),
+    ])
+    return {...mutation, settled}
+}
+
+/** Iniciar una tarea en un turno en curso. */
+export function useStartTask() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({orderId, taskId, shiftId}) => startTask(orderId, taskId, {shiftId}),
+        onSuccess: (_task, {orderId}) => invalidateTasksOf(queryClient, orderId),
+    })
+}
+
+/**
+ * Completar una tarea, desde su diálogo, que trata él mismo sus errores. Deja defectos y líneas de
+ * material en la orden y una fila en el parte del turno: se relee la orden entera y el turno.
+ */
+export function useCompleteTask(orderId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({taskId, body}) => completeTask(orderId, taskId, body),
+        meta: {notifyError: false},
+        onSuccess: () => Promise.all([
+            invalidateTasksOf(queryClient, orderId),
+            invalidateOrderTabs(queryClient, orderId),
+        ]),
     })
 }

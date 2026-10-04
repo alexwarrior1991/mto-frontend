@@ -67,6 +67,22 @@ export function localDateTimeToInstant(value) {
     return date.toISOString()
 }
 
+/**
+ * Un Instant del servicio como fecha y hora de la zona del navegador (YYYY-MM-DD HH:mm:ss), que es lo
+ * que guarda un DateInput con hora: el camino de vuelta de localDateTimeToInstant. Vacío, null.
+ */
+export function instantToLocalDateTime(value) {
+    if (isEmpty(value)) {
+        return null
+    }
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+        throw new Error(`Instante no valido: ${value}`)
+    }
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+        + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
 /** El comienzo de un dia (YYYY-MM-DD) en la zona del navegador, como Instant: el «desde» de un filtro. */
 export function startOfDayInstant(localDate) {
     const [year, month, day] = parts(localDate)

@@ -51,10 +51,12 @@ export function cancelTask(orderId, taskId, reason) {
     return apiFetch(taskPath(orderId, taskId, 'cancel'), {method: 'POST', json: {reason}})
 }
 
+/** Iniciar una tarea pendiente en un turno en curso de su vía, con la orden en curso. */
 export function startTask(orderId, taskId, body) {
     return apiFetch(taskPath(orderId, taskId, 'start'), {method: 'POST', json: body})
 }
 
+/** Completar una tarea en un turno en curso de su vía: la fila del parte. Responde con la tarea. */
 export function completeTask(orderId, taskId, body) {
     return apiFetch(taskPath(orderId, taskId, 'complete'), {method: 'POST', json: body})
 }
@@ -118,4 +120,62 @@ export function checkItemPatch(item, values) {
 /** El resultado de un punto como lo enseña su desplegable: uno desconocido, vacío. */
 export function shownResult(item) {
     return CHECK_ITEM_RESULT.isKnown(item?.itemResult) ? item.itemResult : null
+}
+
+/**
+ * Completar una tarea, desde su diálogo (el port de CompleteTaskRequest).
+ *
+ * - Los tipos solo viajan si cambiaron, y nunca vacíos: sustituyen a los de la tarea antes de que el
+ *   servicio compruebe la posesión.
+ * - Las notas y los defectos del parte, solo si cambiaron (vaciar uno manda texto vacío).
+ * - Con el trabajo sin terminar viaja workComplete=false y la fecha de reparación: los defectos quedan
+ *   abiertos. Si no, nacen resueltos en este turno.
+ * - Los defectos en línea y los materiales, si hay. Un material lleva el resumen de mto-stock elegido,
+ *   y viaja con la unidad del material: el servicio lo registra como línea de la orden, ya consumida.
+ *
+ * @param {object} task la tarea como se leyó
+ * @param {{inlineDefects: Array, materials: Array}} lists lo añadido en el diálogo
+ */
+export function completeRequest(task, values, {inlineDefects = [], materials = []} = {}) {
+    const codes = values.taskTypeCodes ?? []
+    const original = task.taskTypeCodes ?? []
+    const sameTypes = codes.length === original.length && codes.every((code) => original.includes(code))
+    const workComplete = values.workComplete !== false
+    return withoutNulls({
+        shiftId: values.shiftId ?? null,
+        taskTypeCodes: sameTypes || codes.length === 0 ? null : codes,
+        notes: changedText(values.notes, task.notes),
+        defectsFound: changedText(values.defectsFound, task.defectsFound),
+        workComplete: workComplete ? null : false,
+        repairPlannedDate: workComplete ? null : values.repairPlannedDate ?? null,
+        inlineDefects: inlineDefects.length > 0 ? inlineDefects.map(inlineDefectRequest) : null,
+        materials: materials.length > 0 ? materials.map(taskMaterialRequest) : null,
+    })
+}
+
+/** El texto recortado si cambió respecto a lo leído (vaciarlo es texto vacío); si no, null. */
+function changedText(value, original) {
+    const current = String(value ?? '').trim()
+    return current === (original ?? '') ? null : current
+}
+
+/** Un defecto encontrado al completar: gravedad y descripción obligatorias. */
+export function inlineDefectRequest(values) {
+    return withoutNulls({
+        severity: values.severity ?? null,
+        description: textOrNull(values.description),
+        technicalNotes: textOrNull(values.technicalNotes),
+        correctionType: textOrNull(values.correctionType),
+        partsReplaced: textOrNull(values.partsReplaced),
+    })
+}
+
+/** Un material usado: el material y el almacén elegidos en mto-stock, la cantidad y la unidad del material. */
+export function taskMaterialRequest(line) {
+    return withoutNulls({
+        materialId: line.material?.id ?? null,
+        warehouseId: line.warehouse?.id ?? null,
+        quantity: numberOrNull(line.quantity),
+        unit: line.material?.unitOfMeasure ?? null,
+    })
 }

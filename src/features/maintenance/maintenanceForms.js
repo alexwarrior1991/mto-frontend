@@ -62,6 +62,23 @@ export function optionalPositiveInteger(value) {
     return Number.isInteger(Number(value)) && Number(value) > 0 ? null : 'Tiene que ser un entero mayor que cero'
 }
 
+/** Un entero opcional que puede ser cero: los minutos netos de un turno. */
+export function optionalNonNegativeInteger(value) {
+    const text = String(value ?? '').trim()
+    if (!text) {
+        return null
+    }
+    return /^\d+$/.test(text) ? null : 'Tiene que ser un entero, cero o más'
+}
+
+/** Una fecha y hora posterior a la de otro campo, si están las dos (YYYY-MM-DD HH:mm:ss se compara como texto). */
+export function dateTimeAfter(startField, message) {
+    return (value, values) => {
+        const start = values[startField]
+        return !value || !start || value > start ? null : message
+    }
+}
+
 /** Una cantidad obligatoria y mayor que cero, con hasta seis decimales, como la guarda el servicio. */
 export function positiveQuantity(value) {
     const text = String(value ?? '').trim()

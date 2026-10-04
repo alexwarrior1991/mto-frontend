@@ -1,6 +1,6 @@
 import {screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
-import {describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {endOfDayInstant} from '../api/dates.js'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
@@ -114,7 +114,7 @@ const param = (url, name) => url.searchParams.get(name)
 function serveConfiguration(requests) {
     const lists = {
         'execution-packages': [{id: 3, name: 'PAQ NORTE'}, {id: 5, name: 'PAQ SUR'}],
-        tracks: [{id: 12, name: 'VIA 1', executionPackageId: 3}],
+        tracks: [{id: 12, name: 'VIA 1', executionPackageId: 3}, {id: 14, name: 'VIA 2', executionPackageId: 3}],
         stations: [{id: 4, name: 'Sants', executionPackageId: 3}],
     }
     for (const [path, rows] of Object.entries(lists)) {
@@ -159,7 +159,7 @@ function serveStock(requests, {materials = [], warehouses = [], projects = []} =
  */
 function serveMaintenance({
     assets = [], teams = [], taskTypes = [], templates = [], assetOrders = {}, revisions = {}, orders = [], tasks = {}, history = {},
-    materials = {}, stock = {},
+    materials = {}, stock = {}, shifts = [], shiftTasks = {}, shiftProfiles = {}, shiftReports = {},
 } = {}) {
     const requests = []
     const log = (request) => {
@@ -226,6 +226,40 @@ function serveMaintenance({
             materialReads[params.id] = (materialReads[params.id] ?? 0) + 1
             const lines = materials[params.id] ?? []
             return HttpResponse.json(typeof lines === 'function' ? lines(materialReads[params.id]) : lines)
+        }),
+        http.get(`${BASE}/shifts`, ({request}) => {
+            const url = log(request)
+            const rows = shifts.filter((row) => ['status', 'possessionType', 'executionPackageId']
+                .every((name) => !has(url, name) || String(row[name]) === param(url, name))
+                && (!has(url, 'teamId') || row.team?.id === param(url, 'teamId'))
+                && (!has(url, 'trackId') || row.trackIds.map(String).includes(param(url, 'trackId')))
+                && (!has(url, 'dateFrom') || row.shiftDate >= param(url, 'dateFrom'))
+                && (!has(url, 'dateTo') || row.shiftDate <= param(url, 'dateTo')))
+            return HttpResponse.json(pageOf(sorted(rows, url), url))
+        }),
+        http.get(`${BASE}/shifts/:id`, ({request, params}) => {
+            log(request)
+            const found = shifts.find((row) => row.id === params.id)
+            return found ? HttpResponse.json(found) : maintenanceError(404, 'SHF-404', `Maintenance shift with id ${params.id} was not found`)
+        }),
+        http.get(`${BASE}/shifts/:id/tasks`, ({request, params}) => {
+            log(request)
+            return HttpResponse.json(shiftTasks[params.id] ?? [])
+        }),
+        http.get(`${BASE}/shifts/:id/profiles`, ({request, params}) => {
+            const url = log(request)
+            const profiles = shiftProfiles[params.id] ?? []
+            return HttpResponse.json(typeof profiles === 'function' ? profiles(param(url, 'status')) : profiles)
+        }),
+        http.get(`${BASE}/shifts/:id/report`, ({request, params}) => {
+            const url = log(request)
+            if (has(url, 'format')) {
+                return new HttpResponse(new Uint8Array([80, 75, 3, 4]), {headers: {
+                    'content-type': 'application/octet-stream',
+                    'content-disposition': `attachment; filename="shift-report-2026-10-05-SH-000001.${param(url, 'format')}"`,
+                }})
+            }
+            return HttpResponse.json(shiftReports[params.id])
         }),
         http.get(`${BASE}/:resource/:id/revisions`, ({request, params}) => {
             const url = log(request)
@@ -1211,5 +1245,358 @@ describe('las líneas de material', () => {
         await choose(user, dialog, 'Proyecto de almacén', 'EP-5 - Paquete sur')
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
         await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{stockProjectId: OTHER_PROJECT, version: 3}]))
+    })
+})
+
+const SHIFT1 = '3c3c3c3c-0000-4000-8000-000000000031'
+const DISC1 = '3c3c3c3c-0000-4000-8000-000000000032'
+const ORDER2 = '3c3c3c3c-0000-4000-8000-000000000013'
+const TASK3 = '3c3c3c3c-0000-4000-8000-000000000023'
+const DISCONNECTOR = Object.freeze({id: DISC1, code: 'DIS-0005', name: 'HSA-NS5', type: 'DISCONNECTOR', trackId: 12, startKp: 12, endKp: 12,
+    sectioning: null, enabled: true})
+
+/** Un turno como el del backoffice: la noche del 5 de octubre en la vía 12, con posesión total y un seccionador abierto. */
+function shift(status, extra = {}) {
+    return {
+        id: SHIFT1, code: 'SH-000001', shiftDate: '2026-10-05', team: TEAM_SUMMARY, baseName: 'Base Norte', vehicle: 'DR-2', possessionType: 'FULL',
+        plannedStart: null, plannedEnd: null, actualStart: null, actualEnd: null, voltageCutoffAt: null, netWorkMinutes: null,
+        blockingDisconnectors: [DISCONNECTOR], earthingPoints: null, parkingPlace: null, executionPackageId: 3, trackIds: [12], startKp: 12,
+        endKp: 14, personnel: null, measurementEquipment: null, status, observations: null, audit: null, version: 3, ...extra,
+    }
+}
+
+async function openShift(session, current, options = {}) {
+    const requests = serveMaintenance({teams: TEAMS, taskTypes: TASK_TYPES, ...options, shifts: [current, ...(options.shifts ?? [])]})
+    const view = renderRoute(`/mantenimiento/turnos/${current.id}`, {session})
+    await screen.findByRole('heading', {name: `${current.code} · 05/10/2026`})
+    return {...view, requests}
+}
+
+const shiftStatus = () => screen.getByLabelText('Estado del turno')
+
+/** Lo que guarda el navegador al descargar: el nombre de cada fichero. */
+function captureDownloads() {
+    Object.defineProperty(URL, 'createObjectURL', {value: vi.fn(() => 'blob:mto/1'), configurable: true})
+    Object.defineProperty(URL, 'revokeObjectURL', {value: vi.fn(), configurable: true})
+    const saved = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click() {
+        saved.push(this.download)
+    })
+    return saved
+}
+
+describe('los turnos', () => {
+    afterEach(() => {
+        delete URL.createObjectURL
+        delete URL.revokeObjectURL
+    })
+
+    it('se filtran en el servidor, el más reciente primero, y una fila abre su ficha, que quien solo lee no puede tocar', async () => {
+        const requests = serveMaintenance({teams: TEAMS, shifts: [shift('IN_PROGRESS')]})
+        const {user} = await open('/mantenimiento/turnos', loginAs('mantenimiento.lector'), 'Turnos', 1)
+        const lists = () => readsOf(requests, `${BASE}/shifts`)
+
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=shiftDate%2Cdesc&sort=id%2Casc')
+        expect(textsOf(dataRows('Turnos')[0]).slice(0, 7))
+            .toEqual(['SH-000001', '05/10/2026', 'EQ-01 - Brigada norte', 'Total', 'VIA 1 (PAQ NORTE)', '12 - 14', 'En curso'])
+        await user.type(screen.getByRole('textbox', {name: 'Desde'}), '01/10/2026')
+        await user.type(screen.getByRole('textbox', {name: 'Hasta'}), '31/10/2026')
+        await user.tab()
+        await choose(user, document.body, 'Equipo', 'EQ-01 - Brigada norte')
+        await choose(user, document.body, 'Vía', 'VIA 1 (PAQ NORTE)')
+        await choose(user, document.body, 'Paquete', 'PAQ NORTE')
+        await choose(user, document.body, 'Estado', 'En curso')
+        await choose(user, document.body, 'Posesión', 'Total')
+        await waitFor(() => expect(param(lists().at(-1), 'possessionType')).toBe('FULL'))
+        const last = lists().at(-1)
+        expect(['dateFrom', 'dateTo', 'teamId', 'trackId', 'executionPackageId', 'status'].map((name) => param(last, name)))
+            .toEqual(['2026-10-01', '2026-10-31', TEAM1, '12', '3', 'IN_PROGRESS'])
+        await waitFor(() => expect(firstColumn('Turnos')).toEqual(['SH-000001']))
+        expect(screen.queryByRole('button', {name: 'Nuevo turno'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Abrir SH-000001'}))
+        expect(await screen.findByRole('heading', {name: 'SH-000001 · 05/10/2026'})).toBeInTheDocument()
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent(
+            'Equipo: EQ-01 - Brigada norte · Base: Base Norte · Vehículo: DR-2')
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Vías: VIA 1 (PAQ NORTE) · KP 12 - 14 · Paquete: PAQ NORTE')
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Seccionadores abiertos: DIS-0005 - HSA-NS5')
+        for (const name of ['Modificar', 'Asignar tareas', 'Cerrar', 'Cancelar']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+    })
+
+    it('un turno nuevo pide una vía y manda sus seccionadores, y abre su ficha', async () => {
+        const created = shift('PLANNED')
+        const posts = recordWrites('post', `${BASE}/shifts`, () => HttpResponse.json(created, {status: 201}))
+        const requests = serveMaintenance({teams: TEAMS, shifts: [created], assets: [DISCONNECTOR]})
+        const {user, router} = await open('/mantenimiento/turnos', loginAs('mantenimiento.tecnico'), 'Turnos', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo turno'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo turno'})
+        const date = within(dialog).getByRole('textbox', {name: 'Fecha'})
+        await user.clear(date)
+        await user.type(date, '05/10/2026')
+        await choose(user, dialog, 'Posesión', 'Total')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Al menos una vía')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+
+        await choose(user, dialog, 'Vías', 'VIA 1 (PAQ NORTE)')
+        await choose(user, dialog, 'Seccionadores que se abren', 'DIS-0005 - HSA-NS5')
+        const search = readsOf(requests, `${BASE}/assets`).at(-1)
+        expect([param(search, 'type'), param(search, 'enabled')]).toEqual(['DISCONNECTOR', 'true'])
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(posts.map((write) => write.body))
+            .toEqual([{shiftDate: '2026-10-05', possessionType: 'FULL', blockingDisconnectorIds: [DISC1], trackIds: [12]}]))
+        await waitFor(() => expect(router.state.location.pathname).toBe(`/mantenimiento/turnos/${SHIFT1}`))
+        expect(await screen.findByRole('heading', {name: 'SH-000001 · 05/10/2026'})).toBeInTheDocument()
+    })
+
+    it('sin config-read no se ofrece el alta: no habría vías entre las que elegir', async () => {
+        const requests = serveMaintenance({teams: TEAMS, shifts: [shift('PLANNED')]})
+        await open('/mantenimiento/turnos', sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE]), 'Turnos', 1)
+
+        expect(screen.queryByRole('button', {name: 'Nuevo turno'})).not.toBeInTheDocument()
+        expect(textsOf(dataRows('Turnos')[0])[4]).toBe('#12')
+        expect(requests.some((request) => request.pathname.startsWith(CONFIGURATION))).toBe(false)
+    })
+
+    it('el editor manda solo lo cambiado con la versión leída: las vías enteras y los seccionadores quitados, a null', async () => {
+        const patches = recordWrites('patch', `${BASE}/shifts/${SHIFT1}`, () => HttpResponse.json(shift('PLANNED', {trackIds: [12, 14],
+            blockingDisconnectors: [], baseName: null, version: 4})))
+        const {user} = await openShift(loginAs('mantenimiento.tecnico'), shift('PLANNED'))
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SH-000001'})
+        expect(within(dialog).getByRole('textbox', {name: 'Fecha'})).toHaveValue('05/10/2026')
+        await typeInto(user, dialog, 'Base', '')
+        await choose(user, dialog, 'Vías', 'VIA 2 (PAQ NORTE)')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Seccionadores que se abren'}))
+        await user.keyboard('{Backspace}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toEqual({body: {baseName: null, blockingDisconnectorIds: null, trackIds: [12, 14], version: 3}, contentType: MERGE_PATCH})
+        expect(await screen.findByText('Guardado SH-000001')).toBeInTheDocument()
+        await waitFor(() => expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Vías: VIA 1 (PAQ NORTE), VIA 2 (PAQ NORTE)'))
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Seccionadores abiertos: -')
+    })
+
+    it('la ficha ofrece lo que admite su estado, e iniciar y cerrar repintan el turno', async () => {
+        const starts = recordWrites('post', `${BASE}/shifts/${SHIFT1}/start`, () => HttpResponse.json(shift('IN_PROGRESS', {
+            actualStart: '2026-10-05T21:00:00Z'})))
+        const closes = recordWrites('post', `${BASE}/shifts/${SHIFT1}/close`, () => HttpResponse.json(shift('CLOSED', {
+            actualStart: '2026-10-05T21:00:00Z', actualEnd: '2026-10-06T03:00:00Z', netWorkMinutes: 240})))
+        const {user} = await openShift(loginAs('mantenimiento.tecnico'), shift('PLANNED'), {orders: [order({status: 'IN_PROGRESS'})],
+            shiftTasks: {[SHIFT1]: [task(TASK1, 1, 'PENDING', {shiftId: SHIFT1})]}})
+
+        for (const name of ['Modificar', 'Asignar tareas', 'Iniciar', 'Cancelar']) {
+            expect(screen.getByRole('button', {name})).toBeInTheDocument()
+        }
+        await waitFor(() => expect(actionsOf(rowElements('Tareas de SH-000001')[0]))
+            .toEqual(['Abrir la orden de la tarea 1 de MO-000001', 'Cancelar la tarea 1 de MO-000001']))
+        expect(screen.queryByRole('button', {name: 'Cerrar'})).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Iniciar'}))
+        const start = await screen.findByRole('dialog', {name: 'Iniciar SH-000001'})
+        await user.click(within(start).getByRole('button', {name: 'Iniciar'}))
+        await waitFor(() => expect(starts.map((write) => write.body)).toEqual([{}]))
+        expect(await screen.findByText('SH-000001: en curso')).toBeInTheDocument()
+        await waitFor(() => expect(shiftStatus()).toHaveTextContent('En curso'))
+        expect(screen.queryByRole('button', {name: 'Iniciar'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Cerrar'}))
+        const finish = await screen.findByRole('dialog', {name: 'Cerrar SH-000001'})
+        expect(finish).toHaveTextContent('Las tareas que no se terminaron vuelven a su orden, sin cancelarse.')
+        await typeInto(user, finish, 'Minutos netos de trabajo', '240')
+        await user.click(within(finish).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(closes.map((write) => write.body)).toEqual([{netWorkMinutes: 240}]))
+        await waitFor(() => expect(shiftStatus()).toHaveTextContent('Cerrado'))
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Neto: 240 min')
+        for (const name of ['Modificar', 'Asignar tareas', 'Cerrar', 'Cancelar']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+    })
+
+    it('cancelar pide un motivo, y un turno que no existe se dice una vez y vuelve a la lista', async () => {
+        const cancels = recordWrites('post', `${BASE}/shifts/${SHIFT1}/cancel`, () => HttpResponse.json(shift('CANCELLED', {
+            observations: 'Cancelled: Lluvia'})))
+        const {user, unmount} = await openShift(loginAs('mantenimiento.tecnico'), shift('PLANNED'))
+
+        await user.click(screen.getByRole('button', {name: 'Cancelar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Cancelar SH-000001'})
+        await user.type(within(dialog).getByRole('textbox', {name: 'Motivo'}), 'Lluvia')
+        await user.click(within(dialog).getByRole('button', {name: 'Cancelar el turno'}))
+        expect(await screen.findByText('SH-000001 cancelado')).toBeInTheDocument()
+        expect(cancels.map((write) => write.body)).toEqual([{reason: 'Lluvia'}])
+        await waitFor(() => expect(shiftStatus()).toHaveTextContent('Cancelado'))
+        expect(screen.getByLabelText('Resumen del turno')).toHaveTextContent('Observaciones: Cancelled: Lluvia')
+        unmount()
+
+        serveMaintenance({teams: TEAMS})
+        const missing = '3c3c3c3c-0000-4000-8000-0000000000fe'
+        const {router} = renderRoute(`/mantenimiento/turnos/${missing}`, {session: loginAs('mantenimiento.lector')})
+        expect(await screen.findByText(`No existe el turno ${missing}`)).toBeInTheDocument()
+        await waitFor(() => expect(router.state.location.pathname).toBe('/mantenimiento/turnos'))
+    })
+
+    it('asignar tareas solo ofrece las órdenes abiertas de la vía y cuenta las que el servicio rechaza', async () => {
+        recordWrites('post', `${BASE}/shifts/${SHIFT1}/tasks/${TASK1}`, () => HttpResponse.json(task(TASK1, 1, 'PENDING', {shiftId: SHIFT1})))
+        recordWrites('post', `${BASE}/shifts/${SHIFT1}/tasks/${TASK2}`, () => maintenanceError(409, 'SHF-001',
+            'Shift SH-000001 has partial possession; the task includes work that needs full track possession'))
+        const {user, requests} = await openShift(loginAs('mantenimiento.tecnico'), shift('IN_PROGRESS'), {
+            orders: [order({status: 'IN_PROGRESS'}), order({id: ORDER2, code: 'MO-000002', status: 'COMPLETED'})],
+            tasks: {[ORDER1]: [task(TASK1, 1, 'PENDING'), task(TASK2, 2, 'PENDING'), task(TASK3, 3, 'COMPLETED')]},
+        })
+
+        await user.click(screen.getByRole('button', {name: 'Asignar tareas'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Asignar tareas a SH-000001'})
+        await user.click(within(dialog).getByRole('combobox', {name: 'Orden'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['MO-000001 · Revisión tramo 12 (en curso)'])
+        const search = readsOf(requests, `${BASE}/orders`).at(-1)
+        expect([param(search, 'trackId'), param(search, 'size'), search.searchParams.getAll('sort')])
+            .toEqual(['12', '100', ['plannedDate,asc', 'id,asc']])
+        await user.click(screen.getByRole('option', {name: 'MO-000001 · Revisión tramo 12 (en curso)'}))
+        await waitFor(() => expect(dataRows('Tareas pendientes para SH-000001')).toHaveLength(2))
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Elegir la tarea 1'}))
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Elegir la tarea 2'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Asignar'}))
+
+        expect(await screen.findByText('Asignadas: 1. Rechazadas: tarea 2 (El turno no admite ese trabajo. Shift SH-000001 has partial '
+            + 'possession; the task includes work that needs full track possession)')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Asignar tareas a SH-000001'})).toBeInTheDocument()
+    })
+
+    it('una tarea se inicia, se rellena su checklist y se completa en el turno con sus defectos y materiales', async () => {
+        const withChecklist = task(TASK1, 1, 'PENDING', {shiftId: SHIFT1, checkItems: [checkItem()]})
+        const starts = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/start`, () => HttpResponse.json({...withChecklist,
+            status: 'IN_PROGRESS'}))
+        const items = recordWrites('patch', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/check-items/${ITEM1}`, (_body, call) => (call === 1
+            ? maintenanceError(422, 'INS-001', 'Item P-01 is out of range (5250 mm) and cannot be OK unless adjusted into range')
+            : HttpResponse.json({...withChecklist, checkItems: [checkItem({measuredValue: 5250, itemResult: 'DEFECT', outOfRange: true, version: 2})]})))
+        const completes = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/complete`, () => HttpResponse.json({...withChecklist,
+            status: 'COMPLETED'}))
+        const {user, requests} = await openShift(loginAs('mantenimiento.tecnico'), shift('IN_PROGRESS'), {
+            orders: [order({status: 'IN_PROGRESS'})], shiftTasks: {[SHIFT1]: [withChecklist]}, stock: STOCK_CATALOGUES,
+        })
+        const name = 'la tarea 1 de MO-000001'
+
+        await waitFor(() => expect(firstColumn('Tareas de SH-000001')).toEqual(['MO-000001']))
+        expect(readsOf(requests, `${BASE}/orders/${ORDER1}`)).toHaveLength(1)
+        await user.click(screen.getByRole('button', {name: `Iniciar ${name}`}))
+        await waitFor(() => expect(starts.map((write) => write.body)).toEqual([{shiftId: SHIFT1}]))
+        expect(await screen.findByText('Tarea 1 iniciada')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: `Checklist de ${name}`}))
+        const checklist = await screen.findByRole('dialog', {name: `Checklist de ${name}`})
+        const point = within(checklist).getByRole('group', {name: 'Punto P-01'})
+        await typeInto(user, point, 'Medida', '5250')
+        await choose(user, point, 'Resultado', 'Correcto')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        expect(await screen.findByText('La inspección o su checklist no admiten esta operación. Item P-01 is out of range (5250 mm) and cannot be '
+            + 'OK unless adjusted into range')).toBeInTheDocument()
+        await choose(user, point, 'Resultado', 'Defecto')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        await waitFor(() => expect(items.at(-1)).toEqual({body: {measuredValue: 5250, itemResult: 'DEFECT', version: 1}, contentType: MERGE_PATCH}))
+        await user.click(within(checklist).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+
+        await user.click(screen.getByRole('button', {name: `Completar ${name}`}))
+        const complete = await screen.findByRole('dialog', {name: `Completar ${name} · PRF-0001 - 12-2.27`})
+        expect(within(complete).getByRole('combobox', {name: 'Turno'})).toHaveValue('SH-000001 · 05/10/2026 · EQ-01 - Brigada norte')
+        await user.click(within(complete).getByRole('button', {name: 'Añadir defecto'}))
+        const defect = await screen.findByRole('dialog', {name: 'Defecto encontrado'})
+        await choose(user, defect, 'Gravedad', 'Alta')
+        await user.type(within(defect).getByRole('textbox', {name: 'Descripción'}), 'Péndola rota')
+        await user.click(within(defect).getByRole('button', {name: 'Añadir'}))
+        await user.click(within(complete).getByRole('button', {name: 'Añadir material'}))
+        const material = await screen.findByRole('dialog', {name: 'Material usado'})
+        await choose(user, material, 'Material', PENDOLA)
+        await choose(user, material, 'Almacén', 'WH-000 - Central')
+        await typeInto(user, material, 'Cantidad', '2')
+        await user.click(within(material).getByRole('button', {name: 'Añadir'}))
+        expect(textsOf(dataRows(`Defectos de ${name}`)[0]).slice(0, 2)).toEqual(['Alta', 'Péndola rota'])
+        expect(textsOf(dataRows(`Materiales de ${name}`)[0]).slice(0, 3)).toEqual([PENDOLA, 'WH-000 - Central', '2 ud'])
+        await user.click(within(complete).getByRole('checkbox', {name: 'Trabajo terminado en este turno'}))
+        await user.type(within(complete).getByRole('textbox', {name: 'Reparación prevista'}), '12/10/2026')
+        await user.click(within(complete).getByRole('button', {name: 'Completar'}))
+
+        await waitFor(() => expect(completes.map((write) => write.body)).toEqual([{
+            shiftId: SHIFT1, workComplete: false, repairPlannedDate: '2026-10-12',
+            inlineDefects: [{severity: 'HIGH', description: 'Péndola rota'}],
+            materials: [{materialId: MAT1, warehouseId: WH1, quantity: 2, unit: 'ud'}],
+        }]))
+        expect(await screen.findByText('Tarea 1 completada')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: `Completar ${name} · PRF-0001 - 12-2.27`})).not.toBeInTheDocument())
+        // Al entrar, tras iniciar, tras guardar el punto y tras completar: el turno enseña lo que dice el servicio.
+        await waitFor(() => expect(readsOf(requests, `${BASE}/shifts/${SHIFT1}/tasks`).length).toBeGreaterThanOrEqual(4))
+    })
+
+    it('completar desde la orden elige un turno en curso de su vía, y sin stock-read no se eligen materiales', async () => {
+        const completes = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/complete`, () => HttpResponse.json(task(TASK1, 1,
+            'COMPLETED')))
+        const {user, requests} = await openOrder(sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE, P.CONFIG_READ]), order({status: 'IN_PROGRESS'}),
+            {tasks: {[ORDER1]: [task(TASK1, 1, 'PENDING')]}, shifts: [shift('IN_PROGRESS')]})
+
+        await user.click(await screen.findByRole('button', {name: 'Completar la tarea 1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Completar la tarea 1 · PRF-0001 - 12-2.27'})
+        expect(within(dialog).queryByRole('button', {name: 'Añadir material'})).not.toBeInTheDocument()
+        expect(dialog).toHaveTextContent('Elegir materiales pide leer el almacén (stock-read).')
+        await user.click(within(dialog).getByRole('button', {name: 'Completar'}))
+        expect(await within(dialog).findByText('Hace falta un turno en curso de su vía')).toBeInTheDocument()
+        expect(completes).toHaveLength(0)
+
+        await choose(user, dialog, 'Turno', 'SH-000001 · 05/10/2026 · EQ-01 - Brigada norte')
+        const search = readsOf(requests, `${BASE}/shifts`).at(-1)
+        expect([param(search, 'trackId'), param(search, 'status')]).toEqual(['12', 'IN_PROGRESS'])
+        await user.click(within(dialog).getByRole('button', {name: 'Completar'}))
+        await waitFor(() => expect(completes.map((write) => write.body)).toEqual([{shiftId: SHIFT1}]))
+        expect(requests.some((request) => request.pathname.startsWith(STOCK))).toBe(false)
+    })
+
+    it('los perfiles empiezan en los ya revisados y se filtran por el estado de su tarea', async () => {
+        const profile = {id: ASSET_SYNCED, code: 'PRF-0001', name: '12-2.27', type: 'PROFILE', trackId: 12, startKp: 12.27, endKp: 12.27,
+            sectioning: 'S-3', enabled: true}
+        const {user, requests} = await openShift(loginAs('mantenimiento.lector'), shift('IN_PROGRESS'), {
+            shiftProfiles: {[SHIFT1]: (status) => (status === 'COMPLETED' ? [profile] : [])},
+        })
+
+        await user.click(screen.getByRole('tab', {name: 'Perfiles'}))
+        await waitFor(() => expect(dataRows('Perfiles de SH-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Perfiles de SH-000001')[0])).toEqual(['12-2.27', 'PRF-0001', '12.27', 'S-3'])
+        expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`)[0], 'status')).toBe('COMPLETED')
+        await choose(user, document.body, 'Tareas', 'Pendiente')
+        expect(await screen.findByText('Ningún perfil.')).toBeInTheDocument()
+        expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`).at(-1), 'status')).toBe('PENDING')
+    })
+
+    it('el parte se pide al abrir su pestaña, enseña lo que compone el servicio y descarga sus ficheros', async () => {
+        const closed = shift('CLOSED')
+        const row = {number: 1, taskId: TASK1, orderCode: 'MO-000001', executionPackageId: 3, trackId: 12, profileCode: 'PRF-0001',
+            profileName: '12-2.27', kp: 12.27, sectioning: 'S-3', switches: [], taskTypeCodes: ['RG-01', 'RG-04'], worksPerformed: 'Revisión general',
+            defectsFound: 'DEF-000001', materials: ['MAT-001 2 m'], startedAt: null, completedAt: null, status: 'COMPLETED', workComplete: true,
+            repairPlannedDate: null, photoRefs: []}
+        const {user, requests} = await openShift(loginAs('mantenimiento.lector'), closed, {shiftReports: {[SHIFT1]: {
+            shift: closed, tasksCompleted: 2, tasksPending: 1, profilesReviewed: 2, defectsFound: 1, defectsResolved: 0, rows: [row]}}})
+        const saved = captureDownloads()
+        expect(readsOf(requests, `${BASE}/shifts/${SHIFT1}/report`)).toHaveLength(0)
+
+        await user.click(screen.getByRole('tab', {name: 'Parte'}))
+        expect(await screen.findByLabelText('Resumen del parte')).toHaveTextContent(
+            'Tareas: 2 completadas, 1 pendiente · Perfiles revisados: 2 · Defectos: 1 encontrado, 0 resueltos')
+        expect(textsOf(dataRows('Parte de SH-000001')[0])).toEqual(['1', 'MO-000001', '12-2.27', '12.27', 'RG-01, RG-04', 'Revisión general',
+            'DEF-000001', 'MAT-001 2 m', 'Completada'])
+        await user.click(screen.getByRole('button', {name: 'Excel'}))
+        await waitFor(() => expect(saved).toEqual(['shift-report-2026-10-05-SH-000001.xlsx']))
+        expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/report`).at(-1), 'format')).toBe('xlsx')
+        expect(screen.getByRole('button', {name: 'PDF'})).toBeInTheDocument()
+    })
+
+    it('el historial de un turno dice cómo quedó en cada revisión', async () => {
+        const {user} = await openShift(loginAs('mantenimiento.lector'), shift('CLOSED', {netWorkMinutes: 240}), {revisions: {[SHIFT1]: [
+            revision(2, 'UPDATED', 'mantenimiento.tecnico', 'HTTP', shift('CLOSED', {netWorkMinutes: 240}))]}})
+
+        await user.click(screen.getByRole('button', {name: 'Historial'}))
+        await waitFor(() => expect(dataRows('Historial de SH-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Historial de SH-000001')[0])).toContain('Cerrado · 05/10/2026 · EQ-01 · ocupación Total · 240 min netos')
     })
 })
