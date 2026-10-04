@@ -6,6 +6,14 @@ import SectionInsulatorsPage from '../features/infrastructure/SectionInsulatorsP
 import StationsPage from '../features/infrastructure/StationsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
+import AssembliesPage from '../features/stock/AssembliesPage.jsx'
+import MaterialsPage from '../features/stock/MaterialsPage.jsx'
+import MovementsPage from '../features/stock/MovementsPage.jsx'
+import ProjectsPage from '../features/stock/ProjectsPage.jsx'
+import ReservationsPage from '../features/stock/ReservationsPage.jsx'
+import StockPage from '../features/stock/StockPage.jsx'
+import SuppliersPage from '../features/stock/SuppliersPage.jsx'
+import WarehousesPage from '../features/stock/WarehousesPage.jsx'
 import ClientRolesPage from '../features/users/ClientRolesPage.jsx'
 import UserDetailPage from '../features/users/UserDetailPage.jsx'
 import UserProfilesPage from '../features/users/UserProfilesPage.jsx'
@@ -30,4 +38,12 @@ export const PAGES = Object.freeze({
     userProfiles: UserProfilesPage,
     clientRoles: ClientRolesPage,
     user: UserDetailPage,
+    stock: StockPage,
+    stockMaterials: MaterialsPage,
+    stockWarehouses: WarehousesPage,
+    stockSuppliers: SuppliersPage,
+    stockProjects: ProjectsPage,
+    stockMovements: MovementsPage,
+    stockReservations: ReservationsPage,
+    stockAssemblies: AssembliesPage,
 })

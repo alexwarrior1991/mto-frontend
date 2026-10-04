@@ -9,10 +9,14 @@ import {notifyApiError} from '../ui/errors/notifyError.js'
  *
  * Una ficha que no existe («No existe el usuario …») lo dice con meta.notFoundMessage: un 404 de esa
  * consulta se avisa con ese texto, una sola vez, y la pantalla vuelve a su lista.
+ *
+ * Una consulta para la que un 404 es una respuesta y no un fallo lo dice con meta.silentNotFound: el
+ * historial de una fila sin revisiones, que se pinta como «sin historial todavía». Los demás fallos de
+ * esa consulta se avisan igual.
  */
 export function createQueryClient({notify = notifyApiError} = {}) {
     const report = (error, meta) => {
-        if (meta?.notifyError === false) {
+        if (meta?.notifyError === false || (meta?.silentNotFound && error instanceof NotFoundError)) {
             return
         }
         if (meta?.notFoundMessage && error instanceof NotFoundError) {

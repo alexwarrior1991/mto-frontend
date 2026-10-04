@@ -10,6 +10,7 @@
 
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 const YEAR_MONTH = /^(\d{4})-(\d{2})$/
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
 
 export function toLocalDateParam(value) {
     if (isEmpty(value)) {
@@ -41,6 +42,27 @@ export function toInstantParam(value) {
     const date = value instanceof Date ? value : new Date(value)
     if (Number.isNaN(date.getTime())) {
         throw new Error(`Instante no valido: ${value}`)
+    }
+    return date.toISOString()
+}
+
+/**
+ * Una fecha y hora escritas (YYYY-MM-DD HH:mm[:ss], como las deja un DateInput con hora) en la zona
+ * del navegador, como Instant: cuándo ocurrió un movimiento o se hizo una reserva. Vacía no viaja, y
+ * el servicio pone ahora.
+ */
+export function localDateTimeToInstant(value) {
+    if (isEmpty(value)) {
+        return undefined
+    }
+    const match = LOCAL_DATE_TIME.exec(String(value).trim())
+    if (!match) {
+        throw new Error(`Fecha y hora no validas: ${value}`)
+    }
+    const [year, month, day, hours, minutes, seconds] = match.slice(1).map((part) => Number(part ?? 0))
+    const date = new Date(year, month - 1, day, hours, minutes, seconds)
+    if (date.getMonth() !== month - 1 || date.getDate() !== day || hours > 23 || minutes > 59 || seconds > 59) {
+        throw new Error(`Fecha y hora no validas: ${value}`)
     }
     return date.toISOString()
 }

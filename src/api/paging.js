@@ -64,6 +64,20 @@ export function sortParam(sort) {
     return `${sort.field},${sort.direction === 'desc' ? 'desc' : 'asc'}`
 }
 
+/**
+ * El orden de una lista de mto-stock, que no tiene orden por defecto: el de la columna elegida o, sin
+ * ella, el de la pantalla, y siempre id,asc al final. Sin ese desempate, dos filas con la misma fecha
+ * (los dos apuntes de una transferencia) o el mismo valor de la columna podrían salir en las dos
+ * páginas o en ninguna. Solo atributos de la entidad: uno desconocido es un 500.
+ *
+ * @param {{field: string, direction: 'asc'|'desc'}|null} sort la columna elegida
+ * @param {string} fallback el orden de la pantalla, como campo,dir
+ * @returns {string[]} los sort que viajan, en su orden
+ */
+export function sortWithTieBreak(sort, fallback) {
+    return [sortParam(sort) ?? fallback, 'id,asc']
+}
+
 function numberOr(value, fallback) {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }

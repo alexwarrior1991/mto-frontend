@@ -58,8 +58,11 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `TokenRejectedError` 401, `ForbiddenError`, `NotFoundError`, `ConflictError`,
   `TooManyRequestsError` 429 con el cuerpo, `UnavailableError` 502/503/504, `NetworkError`),
   `correlation.js`, `paging.js` (las tres formas de paginar, y `toPageParams` y `toOffsetParams`, de
-  la página de la pantalla a la del servicio), `enums.js` (`defineEnum`: enumerados
-  tolerantes), `mergePatch.js` (`buildMergePatch`), `dates.js`, `download.js` (fetch + Blob),
+  la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden de `mto-stock`),
+  `enums.js` (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`), `dates.js`
+  (también `localDateTimeToInstant`, una fecha y hora escritas como Instant), `revisions.js` (el
+  historial de una fila: `REVISION_OPERATION` tolerante y `listRevisions`, sin `sort`; lo comparte
+  mantenimiento), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
@@ -80,6 +83,17 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   clientes, sus roles y sus miembros, los roles de una persona, añadir con `PUT {roles}` y quitar con
   un `DELETE` con el mismo cuerpo) y `users/profiles.js` (el catálogo, lo que concede un perfil, sus
   miembros, los de una persona, asignar con un `PUT` sin cuerpo y quitar).
+  `stock/` es `mto-stock`: `stock/values.js` (`stockPath`, el port de `StockLabels` con `codeAndName`
+  y `referenceLabel`, `summaryOf`, y cómo viajan una cantidad y un texto opcional: `toQuantity`,
+  `textOrNull`, `withoutNulls`), `stock/catalogues.js` (los cinco catálogos: `searchCatalogue` con
+  `search`, `active` y el `Pageable`, el alta y la modificación, `isSynchronizedProject`, la
+  disponibilidad de un conjunto, y los cuerpos `catalogueEntryBody`, `materialBody` y `assemblyBody`:
+  el alta sin `active` y la modificación con él), `stock/inventory.js` (las cifras de un material y
+  los bajo mínimo), `stock/movements.js` (`MOVEMENT_TYPE` tolerante, `ADJUSTMENT_DIRECTIONS`, el libro
+  entero y el de un material, las cuatro altas y sus peticiones) y `stock/reservations.js`
+  (`RESERVATION_STATUS` tolerante, `isActiveReservation`, la lista, el alta, la modificación sin
+  material, cancelar con un `DELETE` que devuelve la reserva, y liberar y consumir con `POST` sin
+  cuerpo).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -102,9 +116,12 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   orden, `Pagination` y acciones por fila), `DataTable.jsx` (una lista que ya está entera en la
   pantalla, sin paginar), `RowActionButton.jsx` (una acción de fila con su nombre completo,
   «Modificar VIA 1»), `TriStateFilter.jsx` (todo, sí o no; «todo» no viaja), `LazyTabs.jsx` (el port
-  de `LazyPanel`: pestañas que piden sus datos la primera vez que se abren y no al reelegirlas) y
-  `OffsetPager.jsx` (anteriores y siguientes para una lista sin total). Cada fase añade aquí lo que
-  comparte (`RevisionsModal`…).
+  de `LazyPanel`: pestañas que piden sus datos la primera vez que se abren y no al reelegirlas),
+  `OffsetPager.jsx` (anteriores y siguientes para una lista sin total), `ServerSearchSelect.jsx` (un
+  desplegable que busca en el servidor mientras se escribe y conserva lo elegido: el perfil de un
+  seccionador y los desplegables del almacén), `RevisionsModal.jsx` (el port de `RevisionsDialog`: el
+  historial de una fila) y `typedDates.js` (las fechas, y fechas y horas, escritas en un `DateInput`).
+  Cada fase añade aquí lo que comparte.
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
   `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
   de `ui/lov`:
@@ -149,6 +166,23 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     pide la lista), `userForms.js` (lo que exigen los formularios y los valores de partida),
     `userAttributes.js` (el port de `UserAttributes`: `clave=valor` por línea) y `userTexts.js`
     (textos, recuentos, la ruta de una ficha y las filas de los roles).
+
+  `stock/` es el port de `ui/stock`:
+  - `StockCataloguePage` (el port de `StockCatalogueView`): la lista de un catálogo con su búsqueda,
+    su estado y su orden, y sus acciones por fila (modificar, las del catálogo y el historial); una
+    página por catálogo (`MaterialsPage`, `WarehousesPage`, `SuppliersPage`, `ProjectsPage`,
+    `AssembliesPage`) pone columnas y editor;
+  - `CatalogueEditorFrame` (el marco de cada editor), `CatalogueEntryModal` (almacenes, proveedores y
+    proyectos), `MaterialEditorModal` y `AssemblyEditorModal` con `BomEditor`, la lista de materiales;
+    `AssemblyAvailabilityModal`, la disponibilidad por almacén;
+  - `StockPage` (Existencias: las cifras y el libro de un material y los bajo mínimo),
+    `MovementsPage` (el libro entero con sus filtros) y `ReservationsPage` con `ReservationModal`;
+  - `MovementModal` (las cuatro operaciones, y la salida con reserva), `StockOperations` (sus botones
+    por permiso), `MovementsTable` (las columnas del libro) y `StockPicker` (una referencia del almacén
+    sobre `ServerSearchSelect`);
+  - `useStock.js` (las claves `['stock', …]`, las consultas y las escrituras con lo que releen),
+    `stockForms.js` (lo que exigen los formularios) y `stockTexts.js` (nombres, recuentos, las líneas
+    del historial y los avisos).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -193,8 +227,9 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   respuesta, si no el id que se mandó.
 - **Los errores se tipan en `api/errors.js`**, no en las pantallas, y se dicen en
   `ui/errors/messages.js` con la tabla de `UiErrors` del backoffice (`CON-001` pide recargar y
-  `BUS-002` y `USR-409` no; los 409 de estado de mantenimiento no piden recargar; un 422 sin errores
-  por campo es una regla de negocio). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  `BUS-002`, `USR-409` y el código repetido de un catálogo del almacén, `MAT-409`, `WH-409`,
+  `SUP-409`, `PRJ-409` o `ASM-409`, no; los 409 de estado de mantenimiento no piden recargar; un 422
+  sin errores por campo es una regla de negocio). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -241,6 +276,41 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.
+- **Las listas de `mto-stock` llevan siempre su orden, y el id para desempatar** (`sortWithTieBreak`):
+  el servicio no tiene orden por defecto y un `sort` desconocido es un 500. Viaja el de la columna
+  elegida o el de la pantalla (`code,asc` en catálogos, bajo mínimo y desplegables; `occurredAt,desc`
+  en el libro; `reservedAt,desc` en reservas), y siempre `id,asc` al final: sin él, dos filas iguales
+  en la columna (los dos apuntes de una transferencia) podrían salir en dos páginas o en ninguna. Solo
+  atributos de la entidad; lo que el servicio calcula (la cantidad con signo) no se ordena.
+- **En el almacén, lo vacío no viaja** (`textOrNull` y `withoutNulls`): una referencia externa en
+  blanco es un 500 de `mto-stock`. Una fecha y hora vacías tampoco: el servicio pone ahora.
+- **Un catálogo del almacén no se borra: se retira.** El alta no lleva `active` (nace activo) y la
+  modificación lo lleva siempre, porque su `PUT` es completo; desmarcar «Activo» es retirar. Un
+  proyecto sincronizado desde `mto-configuration` no ofrece modificar (el servicio responde 422
+  `PRJ-001`); se enseña su origen. Un código repetido es `X-409` y no pide recargar.
+- **Las cifras del almacén son del servicio.** Físico, reservado, disponible y «bajo mínimo» vienen de
+  `GET /materials/{id}/stock`; aquí no se suma ni se resta. Nada del almacén se da por fresco, y tras
+  cada escritura se relee lo que ha podido cambiar con ella (`useStock.js`): un movimiento, las
+  cifras, los libros, bajo mínimo y la disponibilidad; una reserva, las reservas, las cifras, bajo
+  mínimo y la disponibilidad, y además los libros si se consume, porque deja una salida. Lo que el
+  diálogo exige es lo evidente (material, almacén, una cantidad positiva, otro almacén de destino);
+  que haya disponible lo dice el servicio (409 `STK-001`), con el diálogo abierto.
+- **Solo una reserva activa cambia, y cada cambio es su llamada.** Modificar (`PUT`, sin el
+  material), liberar y consumir (`POST` sin cuerpo) y cancelar (`DELETE`, con `stock-delete`) se
+  confirman y no se funden; una reserva no activa, también una de un estado desconocido, solo ofrece
+  su historial. «Salida con esta reserva» es la salida con `reservationId`: material, almacén y
+  cantidad van fijos porque el servicio exige que coincidan, y el proyecto viene de la reserva porque
+  el servicio no lo copia.
+- **Un conjunto no tiene stock.** Su lista de materiales va entera en el alta y en la modificación,
+  no puede ir vacía (se rechaza antes de llamar) y no repite material: añadir uno que ya está
+  sustituye su cantidad. Cuántos se montan lo calcula el servicio por almacén
+  (`/assemblies/{id}/availability`), sin almacén no se pide, y se ofrece también a quien solo lee.
+- **El historial de una fila es el del servicio**: paginado, la más reciente primero, sin `sort`. Sin
+  revisiones el servicio responde 404, que es «sin historial todavía» y no se avisa
+  (`meta.silentNotFound`).
+- **Un desplegable del almacén busca en el servidor** (`StockPicker` sobre `ServerSearchSelect`): en
+  un diálogo solo ofrece lo activo, porque el servicio rechaza lo retirado; en un filtro y en
+  Existencias, también lo retirado, marcado como tal, para encontrar lo de antes.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **Un trabajo se lanza y se sigue; no se espera.**
@@ -305,7 +375,8 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 - `src/test/clientLayer.test.js` — `api/` contra el gateway simulado con **MSW** (`server.use` en
   cada caso; sin manejadores por defecto). Cada fase añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
-- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`) —
+- `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`,
+  `stock`) —
   las pantallas con la tabla de rutas real (`renderRoute(path, {session})` en `render.jsx`, con
   `createMemoryRouter` y Mantine en `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
