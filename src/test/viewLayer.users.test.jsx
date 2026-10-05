@@ -349,14 +349,22 @@ describe('la lista de usuarios', () => {
         expect(screen.queryByRole('button', {name: 'Borrar ana'})).not.toBeInTheDocument()
     })
 
-    it('la fila abre la ficha con su botón y con doble clic', async () => {
+    it('la fila abre la ficha con su botón y con doble clic; un clic no abre nada', async () => {
         serveDetail(ana())
-        const {user: person, router} = await openList(loginAs('usuarios.lector'))
+        const first = await openList(loginAs('usuarios.lector'))
 
-        await person.click(screen.getByRole('button', {name: 'Abrir la ficha de ana'}))
+        await first.user.click(screen.getByRole('button', {name: 'Abrir la ficha de ana'}))
         expect(await screen.findByRole('heading', {name: 'ana', level: 2})).toBeInTheDocument()
-        expect(router.state.location.pathname).toBe(ANA_PATH)
+        expect(first.router.state.location.pathname).toBe(ANA_PATH)
         expect(screen.queryByRole('table', {name: 'Usuarios'})).not.toBeInTheDocument()
+        first.unmount()
+
+        const second = await openList(loginAs('usuarios.lector'))
+        await second.user.click(rowOf('Usuarios', 'ana'))
+        expect(second.router.state.location.pathname).toBe('/usuarios')
+        await second.user.dblClick(rowOf('Usuarios', 'ana'))
+        expect(await screen.findByRole('heading', {name: 'ana', level: 2})).toBeInTheDocument()
+        expect(second.router.state.location.pathname).toBe(ANA_PATH)
     })
 })
 

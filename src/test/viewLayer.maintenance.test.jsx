@@ -2057,3 +2057,39 @@ describe('los informes', () => {
         expect(['month', 'executionPackageId', 'format'].map((name) => param(reads().at(-1), name))).toEqual([yearMonth(last), '3', 'pdf'])
     })
 })
+
+describe('abrir una fila', () => {
+    it('una orden, un turno, una inspección o un defecto se abren con doble clic; un clic no abre nada', async () => {
+        const created = {id: 'h1', previousStatus: null, newStatus: 'OPEN', changedAt: '2026-09-20T08:00:00Z', changedBy: 'ana', comment: null}
+        serveMaintenance({teams: TEAMS, orders: [order()], shifts: [shift('IN_PROGRESS')], inspections: [inspection('MAJOR_DEFECT')],
+            defects: [defect('OPEN')], defectHistory: {[DEFECT1]: [created]}})
+        const lists = [
+            ['/mantenimiento', 'Órdenes', 'MO-000001', 'MO-000001 · Revisión tramo 12', `/mantenimiento/ordenes/${ORDER1}`],
+            ['/mantenimiento/turnos', 'Turnos', 'SH-000001', 'SH-000001 · 05/10/2026', `/mantenimiento/turnos/${SHIFT1}`],
+            ['/mantenimiento/inspecciones', 'Inspecciones', 'INS-000001', 'INS-000001 · 20/09/2026', `/mantenimiento/inspecciones/${INSPECTION1}`],
+            ['/mantenimiento/defectos', 'Defectos', 'DEF-000001', 'DEF-000001', `/mantenimiento/defectos/${DEFECT1}`],
+        ]
+        for (const [path, name, code, heading, detail] of lists) {
+            const {user, router, unmount} = await open(path, loginAs('mantenimiento.lector'), name, 1)
+            await user.click(rowOf(name, code))
+            expect(router.state.location.pathname).toBe(path)
+            await user.dblClick(rowOf(name, code))
+            expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument()
+            expect(router.state.location.pathname).toBe(detail)
+            unmount()
+        }
+    })
+
+    it('las órdenes de un activo también se abren con doble clic', async () => {
+        serveMaintenance({assets: [ownSection(ASSET_OWN, 'TS-0001', true)], assetOrders: {[ASSET_OWN]: [order()]}, orders: [order()]})
+        const {user, router} = await open('/mantenimiento/activos', loginAs('mantenimiento.lector'), 'Activos', 1)
+
+        await user.click(within(rowOf('Activos', 'TS-0001')).getByRole('button', {name: 'Órdenes de TS-0001 - Tramo TS-0001'}))
+        await waitFor(() => expect(firstColumn('Órdenes de TS-0001 - Tramo TS-0001')).toEqual(['MO-000001']))
+        await user.click(rowOf('Órdenes de TS-0001 - Tramo TS-0001', 'MO-000001'))
+        expect(router.state.location.pathname).toBe('/mantenimiento/activos')
+        await user.dblClick(rowOf('Órdenes de TS-0001 - Tramo TS-0001', 'MO-000001'))
+        expect(await screen.findByRole('heading', {name: 'MO-000001 · Revisión tramo 12'})).toBeInTheDocument()
+        expect(router.state.location.pathname).toBe(`/mantenimiento/ordenes/${ORDER1}`)
+    })
+})
