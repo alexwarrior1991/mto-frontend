@@ -1,23 +1,17 @@
-import {MantineProvider} from '@mantine/core'
-import {render, screen, waitFor, within} from '@testing-library/react'
+import {screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
-import {createMemoryRouter} from 'react-router'
-import {RouterProvider} from 'react-router/dom'
 import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {PAGES} from '../app/pages.js'
-import PendingPage from '../app/pages/PendingPage.jsx'
 import {ROUTES} from '../app/routeTable.js'
-import {RuntimeConfigContext} from '../app/runtimeConfigContext.js'
-import {theme} from '../app/theme.js'
 import {P} from '../auth/permissions.js'
 import {renderRoute, TEST_CONFIG} from './render.jsx'
 import {server} from './server.js'
 import {loginAs, sessionWith} from './session.js'
 
 /**
- * Las pantallas del marco: Inicio, el menu, lo que pasa sin permiso, las pantallas que aun no han
- * llegado y la sesion caducada. Con la tabla de rutas real y el gateway simulado.
+ * Las pantallas del marco: Inicio, el menu, lo que pasa sin permiso, el salto a la misma pantalla en
+ * el backoffice y la sesion caducada. Con la tabla de rutas real y el gateway simulado.
  */
 
 function menu() {
@@ -107,29 +101,8 @@ describe('rutas: las mismas que el backoffice', () => {
         expect(router.state.location.search).toBe('?username=config.lector')
     })
 
-    it('ya no queda ninguna pantalla pendiente: cada ruta tiene la suya', () => {
+    it('cada ruta tiene su pantalla', () => {
         expect(ROUTES.filter((route) => !PAGES[route.page]).map((route) => route.path)).toEqual([])
-    })
-
-    // PendingPage se queda hasta el relevo (la fase 8 la retira con el enlace al backoffice), aunque ya
-    // no la pinte ninguna ruta: se prueba sola.
-    it('la pantalla de lo que aún no ha llegado dice en qué fase llega y abre la misma ruta en el backoffice', async () => {
-        const router = createMemoryRouter([{path: '*', element: <PendingPage route={{phase: 8}} title="Una pantalla nueva"/>}],
-            {initialEntries: ['/una/ruta?con=filtros']})
-        render(
-            <MantineProvider theme={theme} env="test">
-                <RuntimeConfigContext value={TEST_CONFIG}>
-                    <RouterProvider router={router}/>
-                </RuntimeConfigContext>
-            </MantineProvider>,
-        )
-
-        expect(await screen.findByRole('heading', {name: 'Una pantalla nueva'})).toBeInTheDocument()
-        expect(screen.getByText('Llega en la fase 8')).toBeInTheDocument()
-        const link = screen.getByRole('link', {name: 'Abrir en el backoffice'})
-        expect(link).toHaveAttribute('href', 'http://backoffice.test/una/ruta?con=filtros')
-        expect(link).toHaveAttribute('target', '_blank')
-        expect(link.getAttribute('rel')).toContain('noopener')
     })
 
     it('un catalogo lleva su titulo y ya no esta pendiente, y uno que no existe no existe', async () => {
@@ -150,6 +123,29 @@ describe('rutas: las mismas que el backoffice', () => {
 
         expect(await screen.findByRole('heading', {name: 'Esta pantalla no existe'})).toBeInTheDocument()
         expect(screen.getByRole('link', {name: 'Volver al inicio'})).toHaveAttribute('href', '/')
+    })
+})
+
+describe('el backoffice: las mismas pantallas, a un clic', () => {
+    it('la barra abre la misma pantalla en el backoffice, con su query y en otra pestaña', async () => {
+        const {user, router} = renderRoute('/actividad/accesos?username=config.lector', {session: loginAs('config.responsable')})
+
+        const link = await screen.findByRole('link', {name: 'Abrir en el backoffice'})
+        expect(link).toHaveAttribute('href', 'http://backoffice.test/actividad/accesos?username=config.lector')
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link.getAttribute('rel')).toContain('noopener')
+
+        // Sigue a la pantalla en la que se está, no a la de entrada.
+        await user.click(menu().getByRole('link', {name: 'Inicio'}))
+        await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+        expect(screen.getByRole('link', {name: 'Abrir en el backoffice'})).toHaveAttribute('href', 'http://backoffice.test/')
+    })
+
+    it('sin la dirección del backoffice en la configuración, la barra no lo ofrece', async () => {
+        renderRoute('/', {session: loginAs('config.lector'), config: {...TEST_CONFIG, backofficeUrl: null}})
+
+        expect(await screen.findByRole('heading', {name: 'Inicio'})).toBeInTheDocument()
+        expect(screen.queryByRole('link', {name: 'Abrir en el backoffice'})).not.toBeInTheDocument()
     })
 })
 

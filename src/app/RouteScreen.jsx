@@ -4,11 +4,11 @@ import RequirePermission from '../auth/RequirePermission.jsx'
 import {usePageTitle} from '../ui/usePageTitle.js'
 import {PAGES} from './pages.js'
 import NotFoundPage from './pages/NotFoundPage.jsx'
-import PendingPage from './pages/PendingPage.jsx'
 
 /**
- * Pinta la pantalla de una entrada de routeTable.js tras sus permisos, o PendingPage si aun no ha
- * llegado. Un catalogo que no existe (catalogos/lo-que-sea) es «no existe», no «sin permiso».
+ * Pinta la pantalla de una entrada de routeTable.js tras sus permisos. Cada ruta tiene la suya
+ * (viewLayer.shell lo vigila). Un catalogo que no existe (catalogos/lo-que-sea) es «no existe», no
+ * «sin permiso».
  */
 export default function RouteScreen() {
     const route = useMatches().at(-1)?.handle?.route
@@ -16,10 +16,10 @@ export default function RouteScreen() {
     const title = titleOf(route, params)
     usePageTitle(title)
 
-    if (!route || title === null) {
+    const Page = PAGES[route?.page]
+    if (!route || title === null || !Page) {
         return <NotFoundPage/>
     }
-    const Page = PAGES[route.page] ?? PendingPage
     return (
         <RequirePermission all={route.requires ?? []} title={title}>
             <Page route={route} title={title}/>

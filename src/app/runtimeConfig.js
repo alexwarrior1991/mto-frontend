@@ -25,7 +25,7 @@ export function validateRuntimeConfig(raw) {
     return Object.freeze({
         oidc: Object.freeze({authority: authority.trim().replace(/\/+$/, ''), clientId: clientId.trim()}),
         environment: typeof raw.environment === 'string' ? raw.environment.trim() : '',
-        // Mientras convivan los dos frontales, las pantallas pendientes enlazan al backoffice.
+        // La raiz del backoffice, para «Abrir en el backoffice» de la barra; sin ella, la barra no lo ofrece.
         backofficeUrl: isHttpUrl(raw.backofficeUrl) ? raw.backofficeUrl.trim().replace(/\/+$/, '') : null,
     })
 }

@@ -17,8 +17,8 @@ const AUTHORITY = trimSlash(process.env.MTO_OIDC_AUTHORITY ?? devConfig()?.oidc?
 const CLIENT_ID = process.env.MTO_OIDC_CLIENT_ID ?? devConfig()?.oidc?.clientId ?? 'mto-frontend'
 const GATEWAY = trimSlash(process.env.MTO_DEV_GATEWAY_URL ?? 'http://localhost:8090')
 const HOSTS_FILE = process.platform === 'win32' ? 'C:\\Windows\\System32\\drivers\\etc\\hosts' : '/etc/hosts'
-const START_PLATFORM = 'Levanta la plataforma desde ../mto-platform: «docker compose --profile all up -d» y después '
-    + '«./keycloak/apply-partials.sh» (en Windows, desde Git Bash).'
+const START_PLATFORM = 'Levanta la plataforma desde ../mto-platform: «docker compose --profile all up -d», después '
+    + '«./keycloak/apply-partials.sh» (en Windows, desde Git Bash) y, para npm run dev, «docker compose stop frontend».'
 
 const checks = [
     {name: 'Node 22.22 o posterior', run: checkNode},

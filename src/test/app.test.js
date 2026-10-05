@@ -79,7 +79,6 @@ describe('las rutas son las del backoffice', () => {
     it('cada ruta pide sus permisos, salvo Inicio', () => {
         for (const route of ROUTES.filter((entry) => entry.path !== '')) {
             expect(route.requires?.length, route.path).toBeGreaterThan(0)
-            expect(route.phase, route.path).toBeGreaterThanOrEqual(1)
         }
     })
 })
