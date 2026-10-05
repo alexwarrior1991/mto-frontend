@@ -37,6 +37,16 @@ async function pick(page, container, fieldLabel, entry) {
     await page.getByRole('option', {name: label(entry)}).click()
 }
 
+/**
+ * Guardar solo cierra el diálogo si el servicio lo acepta (si no, el error va a su campo y el diálogo sigue
+ * abierto): es la señal de que se guardó. El aviso «Guardado …» puede coincidir con el de un guardado
+ * anterior de la misma fila que aún no se ha ido, como el alta, la modificación y la retirada del conjunto.
+ */
+async function saved(page, dialog, code) {
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText(`Guardado ${code}`).last()).toBeVisible()
+}
+
 async function create(page, entry, extra = async () => {}) {
     await page.getByRole('button', {name: 'Nuevo'}).click()
     const dialog = page.getByRole('dialog', {name: /^Alta de /})
@@ -44,8 +54,7 @@ async function create(page, entry, extra = async () => {}) {
     await dialog.getByRole('textbox', {name: 'Nombre'}).fill(entry.name)
     await extra(dialog)
     await dialog.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${entry.code}`)).toBeVisible()
-    await expect(dialog).toBeHidden()
+    await saved(page, dialog, entry.code)
 }
 
 async function retire(page, entry) {
@@ -54,7 +63,7 @@ async function retire(page, entry) {
     const dialog = page.getByRole('dialog', {name: new RegExp(`^Modificar .* ${entry.code}$`)})
     await dialog.getByRole('checkbox', {name: 'Activo'}).uncheck()
     await dialog.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${entry.code}`)).toBeVisible()
+    await saved(page, dialog, entry.code)
 }
 
 test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y retirarlo todo', async ({page}) => {
@@ -140,7 +149,7 @@ test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y
     await editor.getByRole('button', {name: 'Añadir'}).click()
     await expect(editor.getByRole('table', {name: 'Lista de materiales'}).getByText('4 m')).toBeVisible()
     await editor.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${ASSEMBLY.code}`)).toBeVisible()
+    await saved(page, editor, ASSEMBLY.code)
     await page.getByRole('button', {name: `Disponibilidad de ${label(ASSEMBLY)}`}).click()
     availability = page.getByRole('dialog', {name: `Disponibilidad de ${label(ASSEMBLY)}`})
     await pick(page, availability, 'Almacén', WAREHOUSE)
