@@ -153,7 +153,7 @@ test.describe('con su propia vía', () => {
         await assigning.getByRole('checkbox', {name: 'Elegir la tarea 1'}).check()
         await assigning.getByRole('button', {name: 'Asignar', exact: true}).click()
         await expect(page.getByText('Asignadas: 1.')).toBeVisible()
-        await assigning.getByRole('button', {name: 'Cerrar'}).click()
+        await assigning.getByRole('button', {name: 'Cerrar'}).last().click()
 
         const task = `la tarea 1 de ${order}`
         await page.getByRole('button', {name: `Iniciar ${task}`}).click()
@@ -167,7 +167,7 @@ test.describe('con su propia vía', () => {
         await page.getByRole('button', {name: 'Cerrar', exact: true}).click()
         const closing = page.getByRole('dialog', {name: `Cerrar ${shift}`})
         await closing.getByRole('textbox', {name: 'Minutos netos de trabajo'}).fill('120')
-        await closing.getByRole('button', {name: 'Cerrar'}).click()
+        await closing.getByRole('button', {name: 'Cerrar'}).last().click()
         await expect(page.getByText(`${shift}: cerrado`)).toBeVisible()
         // El parte del turno: la tarea, con sus notas como trabajos hechos.
         await page.getByRole('tab', {name: 'Parte'}).click()
@@ -193,7 +193,7 @@ test.describe('con su propia vía', () => {
         await page.getByRole('button', {name: 'Historial', exact: true}).click()
         const history = page.getByRole('dialog', {name: `Historial de ${order}`})
         await expect(history.getByRole('table').getByText('Alta', {exact: true})).toBeVisible()
-        await history.getByRole('button', {name: 'Cerrar'}).click()
+        await history.getByRole('button', {name: 'Cerrar'}).last().click()
 
         // El informe se descarga a través de la aplicación, con el token: lo que se consultó.
         await openFromMenu(page, 'Informes')

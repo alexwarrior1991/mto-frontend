@@ -62,6 +62,8 @@ test('exportar los perfiles de una vía hasta «Terminado» y descargar el CSV',
     await newPackage.getByRole('textbox', {name: 'Longitud'}).fill('1000')
     await newPackage.getByRole('textbox', {name: 'Inicio'}).fill('01/01/2026')
     await newPackage.getByRole('textbox', {name: 'Fin'}).fill('31/12/2026')
+    // El calendario de la fecha se queda abierto encima de los botones hasta salir del campo.
+    await newPackage.getByRole('textbox', {name: 'Fin'}).press('Tab')
     await newPackage.getByRole('button', {name: 'Guardar'}).click()
     await expect(newPackage).toBeHidden()
 

@@ -99,12 +99,16 @@ test('un alta y una baja de usuario avisan a quien administra las cuentas: la ba
         .filter({hasText: 'targetUsername'}).filter({hasText: username})).toBeVisible()
     await detail.getByRole('button', {name: 'Cerrar'}).last().click()
 
-    // Los accesos de la propia cuenta: el de este recorrido llega con la siguiente lectura de Keycloak.
+    // Los accesos de la propia cuenta: el de este recorrido llega con la siguiente lectura de Keycloak. El
+    // filtro se aplica al dejar de escribir, así que se espera a una fila de esta cuenta, no a la primera.
     await openFromMenu(page, 'Accesos', 'Actividad')
     await page.getByRole('textbox', {name: 'Usuario'}).fill('usuarios.responsable')
-    const accesses = page.getByRole('table', {name: 'Accesos'})
-    await reloadUntilVisible(page, accesses.getByRole('cell', {name: 'access.login', exact: true}).first(), 120_000)
-    await page.getByRole('button', {name: 'Detalle de access.login'}).first().click()
+    const own = page.getByRole('table', {name: 'Accesos'}).getByRole('row')
+        .filter({has: page.getByRole('cell', {name: 'access.login', exact: true})})
+        .filter({has: page.getByRole('cell', {name: 'usuarios.responsable', exact: true})})
+        .first()
+    await reloadUntilVisible(page, own, 120_000)
+    await own.getByRole('button', {name: 'Detalle de access.login'}).click()
     const access = page.getByRole('dialog', {name: 'access.login'})
     await expect(access.getByRole('table', {name: 'Cabecera de la línea'}).getByText('usuarios.responsable')).toBeVisible()
     await access.getByRole('button', {name: 'Cerrar'}).last().click()

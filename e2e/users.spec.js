@@ -70,7 +70,10 @@ test('dar de alta a una persona, administrarla desde su ficha, sacarla y borrarl
 
     await page.getByRole('button', {name: 'Acciones por correo'}).click()
     const mail = page.getByRole('dialog', {name: `Correo de acciones para ${username}`})
-    await chooseOption(page, mail, 'Acciones', 'Verificar el email')
+    // «Acciones» no busca: su campo de texto va oculto bajo la caja que lo envuelve, que es la que recibe el
+    // clic. Se abre con el teclado; Escape cierra solo el desplegable, no el diálogo.
+    await mail.getByRole('combobox', {name: 'Acciones'}).press('ArrowDown')
+    await page.getByRole('option', {name: 'Verificar el email'}).click()
     await page.keyboard.press('Escape')
     await mail.getByRole('button', {name: 'Enviar'}).click()
     await expect(page.getByText(`Correo enviado a ${email}`)).toBeVisible()

@@ -130,7 +130,7 @@ test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y
     let availability = page.getByRole('dialog', {name: `Disponibilidad de ${label(ASSEMBLY)}`})
     await pick(page, availability, 'Almacén', WAREHOUSE)
     await expect(availability.getByText(`2 conjuntos montables en ${WAREHOUSE.code}`)).toBeVisible()
-    await availability.getByRole('button', {name: 'Cerrar'}).click()
+    await availability.getByRole('button', {name: 'Cerrar'}).last().click()
 
     // Modificar la lista: volver a añadir el material cambia su cantidad, y la lista viaja entera.
     await page.getByRole('button', {name: `Modificar ${label(ASSEMBLY)}`}).click()
@@ -145,13 +145,13 @@ test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y
     availability = page.getByRole('dialog', {name: `Disponibilidad de ${label(ASSEMBLY)}`})
     await pick(page, availability, 'Almacén', WAREHOUSE)
     await expect(availability.getByText(`1 conjunto montable en ${WAREHOUSE.code}`)).toBeVisible()
-    await availability.getByRole('button', {name: 'Cerrar'}).click()
+    await availability.getByRole('button', {name: 'Cerrar'}).last().click()
 
     await page.getByRole('button', {name: `Historial de ${label(ASSEMBLY)}`}).click()
     const history = page.getByRole('dialog', {name: `Historial de ${label(ASSEMBLY)}`})
     await expect(history.getByText(/revisi(ón|ones), la más reciente primero/)).toBeVisible()
     await expect(history.getByRole('table').getByText('Alta', {exact: true})).toBeVisible()
-    await history.getByRole('button', {name: 'Cerrar'}).click()
+    await history.getByRole('button', {name: 'Cerrar'}).last().click()
 
     await retire(page, ASSEMBLY)
     await openFromMenu(page, 'Materiales')
