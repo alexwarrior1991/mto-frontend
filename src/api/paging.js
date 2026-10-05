@@ -65,24 +65,33 @@ export function sortParam(sort) {
 }
 
 /**
- * El orden de una lista de mto-stock o de mto-maintenance: el de la columna elegida o, sin ella, el de
- * la pantalla, y siempre id,asc al final.
+ * El orden de una lista de mto-stock, mto-maintenance o mto-notification: el de la columna elegida o,
+ * sin ella, el de la pantalla, y siempre un desempate al final (id,asc salvo que se diga otro).
  *
  * - mto-stock no tiene orden por defecto, y uno desconocido es un 500.
  * - El de mto-maintenance no es único (dos turnos del mismo día, dos perfiles en el mismo kp), y la
  *   columna elegida lo sustituye entero. Allí uno desconocido es un 400 REQ-400.
+ * - mto-notification no admite id en su sort (400 REQ-400): el registro y los accesos desempatan por
+ *   seq, que es único, y la bandeja por createdAt.
  *
  * Sin el desempate, dos filas iguales en el orden (los dos apuntes de una transferencia) podrían salir
- * en las dos páginas o en ninguna. Solo atributos de la entidad: lo que calcula el servicio no se
- * ordena.
+ * en las dos páginas o en ninguna. Si el orden ya lleva el campo del desempate, no se repite. Solo
+ * atributos de la entidad: lo que calcula el servicio no se ordena.
  *
  * @param {{field: string, direction: 'asc'|'desc'}|null} sort la columna elegida
  * @param {string|string[]} fallback el orden de la pantalla, como campo,dir, o varios en su orden
+ * @param {string} [tieBreak] el desempate, como campo,dir
  * @returns {string[]} los sort que viajan, en su orden
  */
-export function sortWithTieBreak(sort, fallback) {
+export function sortWithTieBreak(sort, fallback, tieBreak = 'id,asc') {
     const chosen = sortParam(sort)
-    return [...(chosen ? [chosen] : [fallback].flat()), 'id,asc']
+    const orders = chosen ? [chosen] : [fallback].flat()
+    const tieField = fieldOf(tieBreak)
+    return orders.some((order) => fieldOf(order) === tieField) ? orders : [...orders, tieBreak]
+}
+
+function fieldOf(order) {
+    return String(order).split(',')[0]
 }
 
 function numberOr(value, fallback) {

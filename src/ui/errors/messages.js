@@ -61,6 +61,12 @@ function notFoundMessage(error) {
             return 'Esa sesión ya no existe o no es de este usuario.'
         case 'CRED-404':
             return 'Esa credencial ya no existe o no es de este usuario.'
+        // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
+        case 'NTF-404':
+            return 'Esa notificación ya no existe o no va dirigida a ti.'
+        // mto-notification: una línea purgada, o un acceso, que nunca sale por /activity.
+        case 'ACT-404':
+            return 'Esa línea del registro ya no existe.'
         default:
             return 'No se ha encontrado lo que se pedía.' + detail(error)
     }
