@@ -49,6 +49,9 @@ async function openFromMenu(page, name, group) {
 }
 
 test('un alta y una baja de usuario avisan a quien administra las cuentas: la bandeja, el registro y los accesos', async ({page}) => {
+    // Lo que llega por el broker y la lectura de los accesos de Keycloak, que en el peor caso tarda dos
+    // minutos en una plataforma recién levantada (y con todo en la misma máquina, en el CI).
+    test.setTimeout(240_000)
     const username = `e2e.aviso.${SUFFIX}`
     await page.goto('/usuarios')
     await signIn(page, 'usuarios.responsable')
@@ -100,7 +103,7 @@ test('un alta y una baja de usuario avisan a quien administra las cuentas: la ba
     await openFromMenu(page, 'Accesos', 'Actividad')
     await page.getByRole('textbox', {name: 'Usuario'}).fill('usuarios.responsable')
     const accesses = page.getByRole('table', {name: 'Accesos'})
-    await reloadUntilVisible(page, accesses.getByRole('cell', {name: 'access.login', exact: true}).first(), 60_000)
+    await reloadUntilVisible(page, accesses.getByRole('cell', {name: 'access.login', exact: true}).first(), 120_000)
     await page.getByRole('button', {name: 'Detalle de access.login'}).first().click()
     const access = page.getByRole('dialog', {name: 'access.login'})
     await expect(access.getByRole('table', {name: 'Cabecera de la línea'}).getByText('usuarios.responsable')).toBeVisible()

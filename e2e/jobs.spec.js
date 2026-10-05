@@ -13,8 +13,9 @@ import {signIn} from './keycloak.js'
 
 const SUFFIX = Date.now().toString(36).toUpperCase()
 const LOV_MASTER = path.resolve(process.cwd(), '../mto-configuration/data/lov-master.xlsx')
-// Lo que tarda un trabajo en cola y en curso en la plataforma local, con margen.
-const JOB_TIMEOUT_MS = 45_000
+// Lo que tarda un trabajo en cola y en curso en la plataforma local, con margen; en el CI, con la
+// plataforma entera en la misma máquina, más.
+const JOB_TIMEOUT_MS = process.env.CI ? 120_000 : 45_000
 
 function menu(page) {
     return page.getByRole('navigation', {name: 'Menú principal'})
