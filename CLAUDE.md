@@ -5,19 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Proyecto
 
 `mto-frontend`: frontal web del dominio `MTO` (infraestructura ferroviaria de catenaria). SPA en
-**React 19 + Vite 8 + Mantine 9**, en **JavaScript** (sin TypeScript), que **sustituye fase a fase a
-`mto-backoffice`** (Vaadin) con las mismas pantallas, las mismas rutas y las mismas reglas. Es un
+**React 19 + Vite 8 + Mantine 9**, en **JavaScript** (sin TypeScript), que **convive con
+`mto-backoffice`** (Vaadin): las mismas pantallas, las mismas rutas y las mismas reglas, y las dos
+aplicaciones se usan indistintamente. Es un
 **cliente**: sin base de datos y sin lógica de negocio. Lo que una pantalla necesita y la API no da
 bien se arregla en el servicio (`mto-configuration`, `mto-users`, `mto-stock`, `mto-maintenance` o
 `mto-notification`), no aquí. `README.md` es la referencia funcional y operativa (probar en local,
 WebStorm, desplegar).
 
-⚠️ `mto-backoffice` es la **especificación funcional**: su `CLAUDE.md` («Reglas que no se rompen») y
-su código (`client/**`, `ui/**`) dicen qué hace cada pantalla. Cada fase empieza releyendo el módulo
-del backoffice que porta. Los servicios y `mto-gateway` son **repos hermanos independientes**; la
-infraestructura local (Keycloak, el gateway, los servicios) la levanta `mto-platform`. El cliente
-`mto-frontend` del realm vive en el realm base de `mto-platform` (`keycloak/mto-realm.json` y
-`mto-realm-local.json`, con la misma edición en los dos), no en este repositorio.
+⚠️ **Las dos aplicaciones hacen lo mismo.** `mto-backoffice` fue la especificación funcional al
+portar cada fase: su `CLAUDE.md` («Reglas que no se rompen») y su código (`client/**`, `ui/**`)
+dicen qué hace cada pantalla. Desde la fase 8 se mantienen a la par: un cambio de comportamiento en
+una (una regla, un fallo arreglado, una llamada distinta) se lleva a la otra en el mismo cambio; los
+textos no tienen que coincidir. Los servicios y `mto-gateway` son **repos hermanos
+independientes**; la infraestructura local (Keycloak, el gateway, los servicios) la levanta
+`mto-platform`. El cliente `mto-frontend` del realm vive en el realm base de `mto-platform`
+(`keycloak/mto-realm.json` y `mto-realm-local.json`, con la misma edición en los dos), no en este
+repositorio.
 
 ⚠️ Solo licencias libres (MIT, Apache-2.0, BSD…). Nada con versión de pago (MUI X Pro, AG Grid
 Enterprise, Highcharts…); `src/test/app.test.js` recorre el lock y falla si aparece.
@@ -41,11 +45,13 @@ npm run e2e                           # Playwright contra la plataforma levantad
 ```
 
 Entorno local: `cd ../mto-platform && docker compose --profile all up -d && ./keycloak/apply-partials.sh`
-(con `127.0.0.1 auth.mto.local otel.mto.local` en el fichero hosts). Puerto **4200** fijo
-(`strictPort`): es el redirect URI del cliente en el realm, y lo comparten Vite y el contenedor,
-nunca a la vez. Node 22 (`.nvmrc`); `jsdom` va fijado a la 29 porque la 30 exige Node 22.22.2.
-Todo lo que se ejecuta en local es npm o Node (también `scripts/doctor.mjs`): funciona igual en
-Windows desde WebStorm, con las configuraciones compartidas de `.run/`.
+(con `127.0.0.1 auth.mto.local otel.mto.local` en el fichero hosts). `--profile all` levanta las dos
+aplicaciones, el backoffice en el 8085 y esta en el 4200: para `npm run dev`, antes
+`docker compose stop frontend`. Puerto **4200** fijo (`strictPort`): es el redirect URI del cliente
+en el realm, y lo comparten Vite y el contenedor, nunca a la vez. Node 22 (`.nvmrc`); `jsdom` va
+fijado a la 29 porque la 30 exige Node 22.22.2. Todo lo que se ejecuta en local es npm o Node
+(también `scripts/doctor.mjs`): funciona igual en Windows desde WebStorm, con las configuraciones
+compartidas de `.run/`.
 
 ## Arquitectura
 
@@ -134,11 +140,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
 - `app/` — la composición: `AppProviders.jsx` (Mantine → configuración → OIDC → `AuthGate` → React
   Query → sesión → router), `runtimeConfig.js` (`/config.json`), `queryClient.js` (el aviso de error
   global), `theme.js`, **`routeTable.js`** (todas las rutas del backoffice, con su título, sus
-  permisos, su fase y su entrada de menú), `pages.js` (la pantalla de cada ruta; desde la fase 7
-  todas tienen la suya, y `PendingPage` queda hasta el relevo), `routes.js`, `router.js`,
-  `RouteScreen.jsx`, `navigation.js` (el menú), `layout/` (`RootLayout`, `AppHeader` con la campana,
-  `MainMenu`) y `pages/` (Inicio con el diagnóstico y las
-  sondas, pendiente, sin permiso, no existe, error de ruta, error fatal).
+  permisos y su entrada de menú), `pages.js` (la pantalla de cada ruta: todas tienen la suya),
+  `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú), `layout/` (`RootLayout`,
+  `AppHeader` con «Abrir en el backoffice» y la campana, `MainMenu`) y `pages/` (Inicio con el
+  diagnóstico y las sondas, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
   `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `ErrorNotice.jsx`),
   `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
@@ -288,8 +293,12 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   (`/mantenimiento/ordenes/{id}`, `/actividad?category=…`) y el correo las hace absolutas. Todas
   están en `routeTable.js` desde la fase 0; `app.test.js` las compara con las del backoffice y con
   los enlaces de `notification-rules.yml` (`fixtures/`). Las literales ganan a las de parámetro
-  (`usuarios/perfiles` a `usuarios/:userId`). Desde la fase 7 cada ruta tiene su pantalla
-  (`viewLayer.shell` lo vigila); `PendingPage`, con «Abrir en el backoffice», queda hasta el relevo.
+  (`usuarios/perfiles` a `usuarios/:userId`). Cada ruta tiene su pantalla (`viewLayer.shell` lo
+  vigila).
+- **«Abrir en el backoffice» lleva a la misma pantalla allí** (`AppHeader`): la ruta en la que se
+  está, con su query, sobre `backofficeUrl` de `/config.json` (`MTO_BACKOFFICE_URL`), en otra pestaña
+  con `noopener`. Sin `backofficeUrl` la barra no lo ofrece. El backoffice tiene el mismo enlace
+  hacia aquí («Abrir en mto-frontend»), y las dos entran por el SSO de Keycloak.
 - **La URL pedida sobrevive a la entrada.** Viaja en el `state` de OIDC y `restoreReturnTo` la
   restaura saneada (`safeReturnTo`: solo rutas de esta aplicación). El router se crea después, así
   que nunca ve `?code=…&state=…`.

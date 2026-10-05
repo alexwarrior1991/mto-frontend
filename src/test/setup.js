@@ -1,10 +1,15 @@
 import '@testing-library/jest-dom/vitest'
 import {notifications} from '@mantine/notifications'
-import {cleanup} from '@testing-library/react'
+import {cleanup, configure} from '@testing-library/react'
 import {afterAll, afterEach, beforeAll} from 'vitest'
 import {configureHttp} from '../api/http.js'
 import {sessionExpired} from '../auth/sessionExpired.js'
 import {server} from './server.js'
+
+// Con todos los ficheros a la vez, el primer render de un fichero (con sus módulos aún sin cargar) puede
+// pasar del segundo que espera por defecto un findBy o un waitFor, y el test fallaba sin motivo: se les
+// dan cinco. Lo que aparece antes no espera más.
+configure({asyncUtilTimeout: 5000})
 
 // Lo que jsdom no trae y Mantine necesita. Funciones normales y no vi.fn: restoreMocks las vaciaria.
 window.matchMedia = window.matchMedia ?? ((query) => ({

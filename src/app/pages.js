@@ -37,8 +37,8 @@ import UsersPage from '../features/users/UsersPage.jsx'
 import HomePage from './pages/HomePage.jsx'
 
 /**
- * La pantalla de cada ruta de routeTable.js, por su clave. Cada fase anade aqui las suyas; una ruta
- * sin pantalla la pinta PendingPage.
+ * La pantalla de cada ruta de routeTable.js, por su clave. Una ruta nueva anade aqui la suya: sin ella,
+ * la ruta dice «no existe» (y viewLayer.shell falla).
  */
 export const PAGES = Object.freeze({
     home: HomePage,

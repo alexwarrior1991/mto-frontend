@@ -1,9 +1,9 @@
 # mto-frontend
 
 Frontal web del dominio `MTO` (infraestructura ferroviaria de catenaria): una aplicación de página
-única (SPA) en **React 19 + Vite 8 + Mantine 9**, en JavaScript, que **sustituye fase a fase al
-backoffice Vaadin** (`mto-backoffice`) con las mismas pantallas, las mismas rutas y las mismas
-reglas. Como el backoffice, es un **cliente**: sin base de datos y sin lógica de negocio. Lo que una
+única (SPA) en **React 19 + Vite 8 + Mantine 9**, en JavaScript, que **convive con el backoffice
+Vaadin** (`mto-backoffice`): las mismas pantallas, las mismas rutas y las mismas reglas, y las dos
+aplicaciones se usan indistintamente. Como el backoffice, es un **cliente**: sin base de datos y sin lógica de negocio. Lo que una
 pantalla necesita y la API no da bien se arregla en el servicio, no aquí.
 
 ```
@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 7
+## Estado: fase 8
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -129,8 +129,15 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     resultado. Una IP a medio escribir no se pide.
   - Con alexwarrior1991/mto-notification#8, el servicio deja de consultar el DNS cuando le llega una
     IP mal escrita; esta pantalla no la manda.
-- Ya no queda ninguna pantalla pendiente: cada ruta del backoffice tiene la suya, y los enlaces de
-  las notificaciones abren la de esta aplicación. Queda el relevo, que retira el backoffice.
+- **Fase 8 · Convivencia**: cada ruta del backoffice tiene aquí su pantalla, y las dos aplicaciones
+  se usan indistintamente.
+  - `--profile all` de `mto-platform` levanta las dos: el backoffice en el 8085 y la SPA en el 4200.
+  - «Abrir en el backoffice», el icono de la barra, abre la misma pantalla en el backoffice, con sus
+    filtros de la URL y en otra pestaña. El backoffice tiene el mismo enlace hacia aquí.
+  - El backoffice se pone al día con lo que esta aplicación hacía distinto en cada fase, para que las
+    dos se comporten igual (en `mto-backoffice`).
+  - Los correos de `mto-notification` siguen yendo al backoffice; como las rutas son las mismas,
+    valdrían igual hacia aquí.
 
 | Fase | Contenido | Equivale en el backoffice |
 |---|---|---|
@@ -141,7 +148,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F5 | Almacén | F6 |
 | F6 | Mantenimiento: activos, órdenes con sus tareas y materiales, turnos, inspecciones, defectos, informes y catálogos | F8 |
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
-| F8 | Relevo: se retira el backoffice | — |
+| F8 | Convivencia: las dos aplicaciones en la plataforma, el salto entre ellas y el backoffice al día | — |
 
 ## Probar en local
 
@@ -231,13 +238,13 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
    ```bash
    docker compose --profile all up -d
    ./keycloak/apply-partials.sh
+   docker compose stop frontend
    ```
 
    y desde `mto-frontend`, `npm run dev` (o *Arrancar (dev)* en WebStorm). Abre
    http://localhost:4200 y entra con `config.responsable` / `local`. Cada cambio en `src/` se ve al
-   guardar. Mientras convivan los dos frontales, el contenedor de la SPA no está en
-   `--profile all`, así que el 4200 está libre para Vite; `--profile all` sigue trayendo el
-   backoffice en el 8085.
+   guardar. `--profile all` levanta también el contenedor de la SPA, en el 4200, que es el puerto de
+   Vite: por eso se para antes. El backoffice queda en el 8085, con las mismas pantallas.
 3. **La imagen, como en producción.** Con Vite parado, desde `mto-platform`:
 
    ```bash
@@ -256,6 +263,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
 - **Inicio** dice con quién has entrado, las seis audiencias del token con ✔ (si alguna sale ✘, ese
   servicio rechazará el token), tus permisos por cliente y tus roles de realm (solo informativos).
 - **Comprobar servicios**, en Inicio: cada servicio que puedes leer responde a través del gateway.
+- **Abrir en el backoffice**, el icono de la barra, abre la misma pantalla en el backoffice
+  (http://localhost:8085), en otra pestaña y sin volver a pedir la contraseña. Desde el backoffice,
+  «Abrir en mto-frontend» vuelve aquí.
 - El **menú** cambia con la persona: `config.responsable` ve Infraestructura, Trabajos, la bandeja,
   el registro de actividad y los Catálogos; `usuarios.lector`, Usuarios; `almacen.lector`, el
   Almacén; `mantenimiento.lector`, Mantenimiento y, en lectura, Infraestructura, Catálogos, Trabajos
@@ -376,7 +386,7 @@ al salir**, que el gateway responde y que el 4200 está libre. Para cada fallo d
 | «No se puede contactar con Keycloak» | Falta la línea del fichero hosts, o Keycloak no ha arrancado (`npm run doctor`) |
 | «Invalid redirect uri» al salir | El realm no tiene el cambio de la fase 0: `docker compose up -d --force-recreate keycloak` y `./keycloak/apply-partials.sh` en `mto-platform` |
 | «Invalid parameter: redirect_uri» al entrar | La SPA no está en el 4200: Vite no salta de puerto (`strictPort`), así que algo más lo ocupa |
-| «Port 4200 is already in use» | El contenedor `frontend` (`docker compose stop frontend`) u otro `npm run dev` |
+| «Port 4200 is already in use» | El contenedor `frontend`, que levanta `--profile all` (`docker compose stop frontend`), u otro `npm run dev` |
 | Aviso «El servicio no está disponible ahora mismo» | Ese servicio, o el gateway, no está levantado; la «Referencia» del aviso se busca en `docker compose logs gateway` |
 | Aviso «El servicio no acepta tu token» | Al token le falta la audiencia de ese servicio: míralo en Inicio |
 | En un catálogo, «Modificado» y «Por» salen vacíos, o modificar una cimentación, un pórtico o una cimentación de anclaje falla | `mto-configuration` es anterior a la versión que publica la versión de los catálogos: `docker compose pull configuration && docker compose up -d configuration` en `mto-platform` |
@@ -440,7 +450,7 @@ configuración llega por variables y nginx la sirve en `/config.json`.
 | `MTO_GATEWAY_URL` | El gateway visto desde el contenedor, `http(s)://host:puerto` sin ruta. Obligatoria |
 | `MTO_OIDC_CLIENT_ID` | `mto-frontend` (por defecto) |
 | `MTO_ENVIRONMENT` | La etiqueta del entorno en la cabecera (vacía en producción) |
-| `MTO_BACKOFFICE_URL` | Mientras convivan los dos frontales, a dónde lleva «Abrir en el backoffice» de una pantalla pendiente (desde la fase 7 no queda ninguna; se retira con el relevo) |
+| `MTO_BACKOFFICE_URL` | El backoffice, tal como lo ve el navegador: «Abrir en el backoffice», en la barra, lleva a la misma pantalla allí. Vacía, la barra no lo ofrece |
 
 Sin las dos obligatorias, o con un valor que no vale, el contenedor no arranca y dice por qué. En el
 realm de ese entorno, el cliente `mto-frontend` necesita la URL pública de la SPA como *redirect
@@ -458,7 +468,7 @@ CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde u
 |---|---|
 | `src/test/clientLayer.test.js` | `src/api` contra el gateway simulado: Bearer y correlación, la query, los cinco formatos de error, el 401 con renovación, la paginación, los enumerados, merge-patch, fechas, descargas, los textos de los avisos y, por servicio, sus contratos (los catálogos: rutas y cuerpos, la versión leída, el tipo por su id y los dos 409; los maestros: el `/filter` con su página, su orden y su cuerpo limpio, la fila leída con los hijos a `null`, `{id, code}` y `{}`, el esquema y las empresas; los trabajos: las importaciones multipart con `dryRun`, la exportación y el republicado sin barra final, la lista sin `sort`, el detalle por familia, el fichero por familia e id con el 410, el 429 con el trabajo rechazado, qué está terminado y qué se descarga, y lo desconocido; los usuarios: la búsqueda con `first`/`max` y su total, el atributo repetido y codificado, lo que se rechaza antes de llamar, el alta y el `PUT` parcial con solo lo cambiado, el `PATCH` de activo, la contraseña y el correo, las sesiones y las credenciales, los roles con el `DELETE` con cuerpo, los perfiles con el `PUT` sin cuerpo, los catálogos y sus miembros sin total, «sacar a la persona» en su orden y parando en el primer fallo, y un id con «:» codificado; el almacén: los catálogos con su búsqueda, su estado, el `Pageable` y el orden siempre con el id para desempatar, el alta sin `active` y la modificación con él, el proyecto sincronizado, las cifras, bajo mínimo y el libro de un material, el libro entero con sus filtros, las cuatro operaciones con lo vacío fuera y la fecha en UTC, la vida de una reserva, el conjunto con su lista y su disponibilidad, el historial con su 404, lo desconocido y el JSON de error de `mto-stock`; el mantenimiento: las listas con su orden y el id para desempatar, lo desconocido, su JSON de error, el merge-patch con lo cambiado, lo vaciado y la versión (los conjuntos sin orden, lo que admite cada estado y el proyecto de almacén sin `stock-read`), los activos, los catálogos y los equipos enteros, el ciclo de una orden con el cuerpo de cada transición, las tareas, los turnos, trabajar una tarea, las inspecciones y los defectos con lo que generan, las líneas de material con su petición en duda y el almacén caído o diciendo que no, los informes en JSON y como fichero, y el historial con su 404; las notificaciones: la bandeja con sus filtros y su orden, que desempata por la fecha, el contador acotado, las marcas como `POST` sin cuerpo y el `NTF-404`, el registro con todos sus filtros, sin los accesos (que se rechazan antes de llamar) y con `includeSuperseded` solo cuando es verdadero, el detalle con su `payload`, los accesos con la IP comprobada antes de llamar, lo desconocido, el `REQ-400` de un `sort` y a dónde lleva un enlace) |
 | `src/test/securityLayer.test.js` | `src/auth`: los permisos solo de los cinco clientes, un rol de realm que no abre nada, el catálogo comparado con el realm, el token solo en memoria, la renovación de un solo vuelo y la URL de vuelta |
-| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, pendientes, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso, y los usuarios (los casos de `ViewLayerTest` del backoffice: la lista en el servicio con la exclusión entre búsqueda y atributo, el editor con solo lo cambiado, la ficha con sus pestañas perezosas y cada botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña con el KC-400 de verdad, el correo con su 502, las sesiones, las credenciales, «sacar a la persona» y los catálogos con sus miembros), y el almacén (los casos de `ViewLayerTest` del backoffice: los catálogos en el servicio, la lectura sin controles, el alta sin estado y la modificación con él, los errores por campo, el proyecto sincronizado y el editor de materiales; las cifras y el libro de un material y los bajo mínimo; el libro entero filtrado; la entrada, la salida sin stock, la transferencia y el ajuste con su permiso; las reservas con lo que admite cada una; los conjuntos con su lista y su disponibilidad; el historial y su 404. Y lo que el backoffice no hacía: un código repetido sin pedir recargar, los filtros con lo retirado, el error sobre la lista de materiales bajo ella y consumir dejando viejo el libro), y el mantenimiento (los casos de `ViewLayerTest` del backoffice: el menú y lo que el perfil lee de los otros módulos, los activos con su origen y quién los desactivó, los catálogos, las órdenes con lo que admite su estado, el merge-patch con el `CON-001` y el diálogo abierto, las tareas, las líneas de material con su petición en duda, los turnos con sus tareas asignadas y trabajadas, las inspecciones y los defectos con lo que generan, los informes con sus descargas y el historial de cada ficha), y las notificaciones (los casos de `ViewLayerTest` del backoffice: la campana con su número, tras su permiso, refrescada cada 30 s y con un fallo que deja el número; el menú con cada pantalla tras su permiso; la bandeja que abre con las no leídas, filtra y ordena en el servicio, marca al abrir y sigue el enlace con sus filtros, «marcar todas» y el `NTF-404`; el registro con sus filtros y los de la URL, sin los accesos, y el detalle con su `payload`; los accesos desde el enlace de una regla. Y lo que el backoffice no hacía: el detalle que pide los datos publicados, ninguna línea del registro para una notificación de un acceso, un enlace absoluto en otra pestaña y otro esquema descartado, y una IP a medio escribir sin pedir) |
+| `src/test/viewLayer.*.test.jsx` | Las pantallas con la tabla de rutas real, un fichero por módulo: el marco (Inicio, el menú, sin permiso, el salto al backoffice, las sondas, la sesión caducada), los catálogos (los casos de `ViewLayerTest` del backoffice y el tipo de los tres que lo exigen) y la infraestructura (las listas en el servicio, los editores con la fila leída, las ménsulas y las agujas, vaciar una referencia, el perfil de un seccionador y el esquema de una vía) y los trabajos (lanzar y seguir hasta la descarga y los errores, la simulación, el 429, el trabajo fuera de la página, la lista en el servicio, lo desconocido, los permisos, la pestaña oculta, el fallo del sondeo, los 20 MB y el 410), con el reloj falso, y los usuarios (los casos de `ViewLayerTest` del backoffice: la lista en el servicio con la exclusión entre búsqueda y atributo, el editor con solo lo cambiado, la ficha con sus pestañas perezosas y cada botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña con el KC-400 de verdad, el correo con su 502, las sesiones, las credenciales, «sacar a la persona» y los catálogos con sus miembros), y el almacén (los casos de `ViewLayerTest` del backoffice: los catálogos en el servicio, la lectura sin controles, el alta sin estado y la modificación con él, los errores por campo, el proyecto sincronizado y el editor de materiales; las cifras y el libro de un material y los bajo mínimo; el libro entero filtrado; la entrada, la salida sin stock, la transferencia y el ajuste con su permiso; las reservas con lo que admite cada una; los conjuntos con su lista y su disponibilidad; el historial y su 404. Y lo que el backoffice no hacía: un código repetido sin pedir recargar, los filtros con lo retirado, el error sobre la lista de materiales bajo ella y consumir dejando viejo el libro), y el mantenimiento (los casos de `ViewLayerTest` del backoffice: el menú y lo que el perfil lee de los otros módulos, los activos con su origen y quién los desactivó, los catálogos, las órdenes con lo que admite su estado, el merge-patch con el `CON-001` y el diálogo abierto, las tareas, las líneas de material con su petición en duda, los turnos con sus tareas asignadas y trabajadas, las inspecciones y los defectos con lo que generan, los informes con sus descargas y el historial de cada ficha), y las notificaciones (los casos de `ViewLayerTest` del backoffice: la campana con su número, tras su permiso, refrescada cada 30 s y con un fallo que deja el número; el menú con cada pantalla tras su permiso; la bandeja que abre con las no leídas, filtra y ordena en el servicio, marca al abrir y sigue el enlace con sus filtros, «marcar todas» y el `NTF-404`; el registro con sus filtros y los de la URL, sin los accesos, y el detalle con su `payload`; los accesos desde el enlace de una regla. Y lo que el backoffice no hacía: el detalle que pide los datos publicados, ninguna línea del registro para una notificación de un acceso, un enlace absoluto en otra pestaña y otro esquema descartado, y una IP a medio escribir sin pedir) |
 | `src/test/app.test.js` | Licencias libres, las rutas del backoffice y los enlaces de `mto-notification`, la configuración, nginx y el proxy de Vite sin `Origin`, las configuraciones de WebStorm |
 | `e2e/*.spec.js` | Playwright contra la plataforma real (solo en local): la entrada y el marco, un catálogo de punta a punta con entradas de usar y tirar, un paquete, una estación y una vía de usar y tirar con su esquema, una exportación hasta su descarga y la simulación del catálogo de LOV, una persona de usar y tirar de su alta a su borrado (con su atributo, un perfil, un rol, la contraseña temporal, el correo en Mailpit y «sacar a la persona») y los dos catálogos de usuarios, y un almacén, un proyecto, un material y un conjunto de usar y tirar (una entrada, una reserva consumida que sale en el libro, un ajuste que deja el material bajo mínimo, la disponibilidad antes y después de modificar la lista, el historial y la retirada de todo), y un tramo de usar y tirar con una orden de principio a fin (planificada e iniciada, su tarea trabajada en un turno con posesión total que se inicia y se cierra, y completada con sus estados y su historial), el informe de avance de su vía descargado, el tramo desactivado al final y el mantenimiento en lectura, y un alta y una baja de usuario que avisan en la bandeja (la campana, cada una abierta y marcada siguiendo su enlace hasta la ficha y hasta el registro con sus filtros, el detalle con sus datos publicados, los accesos de la propia cuenta y «marcar todas») y el registro sin los accesos |
 
