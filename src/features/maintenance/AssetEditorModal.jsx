@@ -73,7 +73,7 @@ export default function AssetEditorModal({asset, names, onClose}) {
 
     const interval = (
         <NumberInput label="Intervalo preventivo (días)" description="Cada cuánto toca un preventivo; vacío, sin plan" min={1}
-                     allowDecimal={false} allowNegative={false} {...form.getInputProps('preventiveIntervalDays')}/>
+                     clampBehavior="none" allowDecimal={false} allowNegative={false} {...form.getInputProps('preventiveIntervalDays')}/>
     )
     const description = <Textarea label="Descripción" rows={3} {...form.getInputProps('description')}/>
 

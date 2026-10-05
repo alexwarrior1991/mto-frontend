@@ -12,7 +12,8 @@ export const NAME_MAX_LENGTH = 255
 export const UNIT_MAX_LENGTH = 32
 export const REFERENCE_MAX_LENGTH = 128
 
-const DECIMAL = /^\d{1,13}(\.\d{1,6})?$/
+// También +5, 5. y .5, que el campo numérico del backoffice admite y son el mismo número.
+const DECIMAL = /^\+?(\d{1,13}(\.\d{0,6})?|\.\d{1,6})$/
 const DECIMAL_MESSAGE = 'Un número con punto decimal y hasta seis decimales, como 12.5'
 
 /** Obligatorio y con su longitud de columna. */

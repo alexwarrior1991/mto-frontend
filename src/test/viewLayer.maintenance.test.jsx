@@ -475,6 +475,33 @@ describe('los activos', () => {
         expect(await screen.findByText('Guardado TS-0002 - Tramo TS-0002')).toBeInTheDocument()
     })
 
+    it('un intervalo de cero días es un error, sin convertirse en uno; un kp se escribe también como +12.5 o 13.', async () => {
+        serveMaintenance()
+        const writes = recordWrites('post', `${BASE}/assets`, () => HttpResponse.json(ownSection(ASSET_OWN, 'TS-0002', true), {status: 201}))
+        const {user} = await open('/mantenimiento/activos', loginAs('mantenimiento.tecnico'), 'Activos', 0)
+
+        await user.click(await screen.findByRole('button', {name: 'Nuevo tramo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo tramo de vía'})
+        await typeInto(user, dialog, 'Código', 'TS-0002')
+        await typeInto(user, dialog, 'Nombre', 'Tramo 13')
+        await choose(user, dialog, 'Vía', 'VIA 1 (PAQ NORTE)')
+        await typeInto(user, dialog, 'Kp inicial', '+12.5')
+        await typeInto(user, dialog, 'Kp final', '13.')
+        const interval = within(dialog).getByRole('textbox', {name: 'Intervalo preventivo (días)'})
+        await user.type(interval, '0')
+        await user.tab()
+        expect(interval).toHaveValue('0')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Tiene que ser un entero mayor que cero')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await user.clear(interval)
+        await user.type(interval, '30')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toMatchObject({startKp: 12.5, endKp: 13, preventiveIntervalDays: 30})
+    })
+
     it('uno sincronizado solo cambia descripción e intervalo, y desactivarlo avisa de que sobrevive a los datos maestros', async () => {
         serveMaintenance({assets: [syncedProfile()]})
         const disables = recordWrites('delete', `${BASE}/assets/${ASSET_SYNCED}`, () => new HttpResponse(null, {status: 204}))
@@ -976,6 +1003,27 @@ describe('las órdenes', () => {
         expect(await screen.findByText('Guardado P-01')).toBeInTheDocument()
         expect(items).toEqual([{body: {measuredValue: 5800, itemResult: 'DEFECT', version: 1}, contentType: MERGE_PATCH}])
         expect(await within(dialog).findByText('Fuera de rango')).toBeInTheDocument()
+    })
+
+    it('una medida que no es un número no llega al servicio: viajaría vacía y borraría la guardada', async () => {
+        const withChecklist = task(TASK1, 1, 'PENDING', {checkItems: [checkItem({measuredValue: 5400})]})
+        const items = recordWrites('patch', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/check-items/${ITEM1}`, () => HttpResponse.json(withChecklist))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS'}), {tasks: {[ORDER1]: [withChecklist]}})
+
+        await user.click(await screen.findByRole('button', {name: 'Checklist de la tarea 1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Checklist de la tarea 1'})
+        const point = within(dialog).getByRole('group', {name: 'Punto P-01'})
+        await typeInto(user, point, 'Medida', '5,4')
+        await typeInto(user, point, 'Tras el ajuste', '5300.0001')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        expect(await within(point).findAllByText('Un número con punto decimal y hasta tres decimales, como 5250.5')).toHaveLength(2)
+        expect(items).toHaveLength(0)
+
+        await typeInto(user, point, 'Medida', '5450')
+        await typeInto(user, point, 'Tras el ajuste', '')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        await waitFor(() => expect(items).toHaveLength(1))
+        expect(items[0].body).toEqual({measuredValue: 5450, version: 1})
     })
 
     it('la pestaña Estados se pide al abrirla y nombra los estados', async () => {

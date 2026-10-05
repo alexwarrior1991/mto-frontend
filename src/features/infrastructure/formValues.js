@@ -8,10 +8,12 @@ import {describeEntry, parentOptions} from '../catalogues/catalogueRows.js'
  */
 
 export const KP_PATTERN = /^\d+(\.\d+)?$/
-const DECIMAL = /^\d+(\.\d+)?$/
-const SIGNED_DECIMAL = /^-?\d+(\.\d+)?$/
-const INTEGER = /^\d+$/
-const SIGNED_INTEGER = /^-?\d+$/
+// Además de 47.970, lo que también admite el campo numérico del backoffice, que es el mismo número:
+// +47.970, 47. y .970.
+const DECIMAL = /^\+?(\d+\.?\d*|\.\d+)$/
+const SIGNED_DECIMAL = /^[-+]?(\d+\.?\d*|\.\d+)$/
+const INTEGER = /^\+?\d+$/
+const SIGNED_INTEGER = /^[-+]?\d+$/
 
 export const KP_MESSAGE = 'Número con punto decimal, como 10.500'
 

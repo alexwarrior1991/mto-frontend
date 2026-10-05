@@ -15,6 +15,8 @@ import {withCurrent} from './references.js'
 import {useCatalogues} from './useCatalogues.js'
 
 const PROFILE_ID_MAX_LENGTH = 50
+/** El tope del campo en el backoffice. */
+const PROFILE_KP_MAX_LENGTH = 13
 /** El tope del servicio (PROFILE_MAX_CANTILEVERS): «Añadir» se apaga al llegar. */
 const MAX_CANTILEVERS = 3
 
@@ -84,6 +86,9 @@ export default function ProfileEditor({row, references, onClose}) {
                 const text = String(value ?? '').trim()
                 if (!text) {
                     return 'El KP es obligatorio'
+                }
+                if (text.length > PROFILE_KP_MAX_LENGTH) {
+                    return `Como mucho ${PROFILE_KP_MAX_LENGTH} caracteres`
                 }
                 return KP_PATTERN.test(text) ? null : KP_MESSAGE
             },

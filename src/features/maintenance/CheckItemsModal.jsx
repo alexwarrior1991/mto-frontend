@@ -4,7 +4,7 @@ import {CHECK_ITEM_RESULT} from '../../api/maintenance/enums.js'
 import {checkItemPatch, itemsInOrder, shownResult} from '../../api/maintenance/tasks.js'
 import {formatQuantity} from '../../ui/format.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
-import {toText} from './maintenanceForms.js'
+import {optionalMeasure, toText} from './maintenanceForms.js'
 import {useSaveTaskCheckItem} from './useMaintenance.js'
 
 /**
@@ -54,13 +54,22 @@ function CheckItemRow({item, save}) {
         itemResult: shownResult(item),
         notes: item.notes ?? '',
     })
+    const [errors, setErrors] = useState({})
     const [saving, setSaving] = useState(false)
-    const change = (field) => (value) => setValues((previous) => ({...previous, [field]: value}))
+    const change = (field) => (value) => {
+        setValues((previous) => ({...previous, [field]: value}))
+        setErrors((previous) => ({...previous, [field]: null}))
+    }
     const range = present(item.minValue) || present(item.maxValue)
         ? ` (${formatQuantity(item.minValue)} - ${formatQuantity(item.maxValue)}${item.unit ? ` ${item.unit}` : ''})`
         : ''
 
     const submit = () => {
+        const found = {measuredValue: optionalMeasure(values.measuredValue), valueAfterAdjustment: optionalMeasure(values.valueAfterAdjustment)}
+        setErrors(found)
+        if (found.measuredValue || found.valueAfterAdjustment) {
+            return
+        }
         const patch = checkItemPatch(item, values)
         if (patch === null) {
             return
@@ -81,10 +90,11 @@ function CheckItemRow({item, save}) {
                 {item.outOfRange === true && <Badge color="red" variant="light">Fuera de rango</Badge>}
             </Group>
             <Group align="flex-end" gap="sm" wrap="wrap">
-                <TextInput label="Medida" w={120} inputMode="decimal" value={values.measuredValue}
+                <TextInput label="Medida" w={120} inputMode="decimal" value={values.measuredValue} error={errors.measuredValue}
                            onChange={(event) => change('measuredValue')(event.currentTarget.value)}/>
                 <Checkbox label="Ajustado" checked={values.adjusted} onChange={(event) => change('adjusted')(event.currentTarget.checked)}/>
                 <TextInput label="Tras el ajuste" w={130} inputMode="decimal" value={values.valueAfterAdjustment}
+                           error={errors.valueAfterAdjustment}
                            onChange={(event) => change('valueAfterAdjustment')(event.currentTarget.value)}/>
                 <Select label="Resultado" w={160} clearable data={CHECK_ITEM_RESULT.selectable()} value={values.itemResult}
                         onChange={change('itemResult')}/>
