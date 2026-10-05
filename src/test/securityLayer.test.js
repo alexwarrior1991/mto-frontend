@@ -3,7 +3,9 @@ import {render, screen} from '@testing-library/react'
 import {User} from 'oidc-client-ts'
 import {createElement} from 'react'
 import {describe, expect, it, vi} from 'vitest'
+import {configureHttp} from '../api/http.js'
 import {SERVICES} from '../api/services.js'
+import AppProviders from '../app/AppProviders.jsx'
 import {decodeJwtPayload} from '../auth/claims.js'
 import {P, permissionsFrom, ROLE_CATALOG} from '../auth/permissions.js'
 import RequirePermission from '../auth/RequirePermission.jsx'
@@ -14,6 +16,7 @@ import {sessionExpired} from '../auth/sessionExpired.js'
 import {createTokenSource} from '../auth/tokenSource.js'
 import {createUserManager} from '../auth/userManager.js'
 import realm from './fixtures/realm-client-roles.json'
+import {TEST_CONFIG} from './render.jsx'
 import {fakeAccessToken, sessionWith} from './session.js'
 
 /**
@@ -116,6 +119,37 @@ describe('a donde se vuelve despues de entrar', () => {
 
         restoreReturnTo({state: {returnTo: '//evil.example'}})
         expect(window.location.pathname).toBe('/')
+    })
+
+    it('al volver de Keycloak se pinta la pantalla pedida, no la de /auth/callback', async () => {
+        // El enlace de una notificacion a los accesos, abierto por quien no tiene su permiso: la pantalla
+        // pedida lo dice, y para decirlo no llama a nada mas que a la campana.
+        const returnTo = '/actividad/accesos?username=config.lector'
+        const accessToken = fakeAccessToken({
+            username: 'config.responsable',
+            clientRoles: {'mto-configuration-api': [P.CONFIG_READ], 'mto-notification-api': [P.NOTIFICATION_INBOX]},
+        })
+        const now = Math.floor(Date.now() / 1000)
+        const userManager = createUserManager(TEST_CONFIG)
+        vi.spyOn(userManager, 'signinCallback').mockResolvedValue(new User({
+            access_token: accessToken,
+            token_type: 'Bearer',
+            profile: {sub: 's', iss: TEST_CONFIG.oidc.authority, aud: 'mto-frontend', exp: now + 300, iat: now},
+            expires_at: now + 300,
+            userState: {returnTo},
+        }))
+        configureHttp({getAccessToken: async () => accessToken, renewAccessToken: async () => null, onSessionExpired: () => {
+        }})
+        window.history.replaceState(null, '', `${CALLBACK_PATH}?code=abc&state=xyz`)
+
+        render(createElement(AppProviders, {config: TEST_CONFIG, userManager}))
+
+        // La barra y el router dicen lo mismo: un router creado antes de restaurar la URL se quedaba en
+        // /auth/callback y pintaba «no existe» con la URL pedida en la barra.
+        expect(await screen.findByText('No tienes permiso para abrir esta pantalla')).toBeInTheDocument()
+        expect(screen.getByText('notification-access-read')).toBeInTheDocument()
+        expect(screen.queryByText('Esta pantalla no existe')).not.toBeInTheDocument()
+        expect(window.location.pathname + window.location.search).toBe(returnTo)
     })
 })
 
