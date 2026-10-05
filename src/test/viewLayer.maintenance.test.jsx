@@ -1,7 +1,7 @@
 import {screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {endOfDayInstant, startOfDayInstant} from '../api/dates.js'
+import {endOfDayInstant, startOfDayInstant, toLocalDateParam} from '../api/dates.js'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {formatDateTime} from '../ui/format.js'
@@ -1415,6 +1415,22 @@ describe('los turnos', () => {
         for (const name of ['Modificar', 'Asignar tareas', 'Cerrar', 'Cancelar']) {
             expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
         }
+    })
+
+    it('un turno nuevo empieza hoy, como en el backoffice: sin tocar la fecha, viaja la de hoy', async () => {
+        const created = shift('PLANNED')
+        const posts = recordWrites('post', `${BASE}/shifts`, () => HttpResponse.json(created, {status: 201}))
+        serveMaintenance({teams: TEAMS, shifts: [created], assets: [DISCONNECTOR]})
+        const {user} = await open('/mantenimiento/turnos', loginAs('mantenimiento.tecnico'), 'Turnos', 1)
+        const today = toLocalDateParam(new Date())
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo turno'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo turno'})
+        expect(within(dialog).getByRole('textbox', {name: 'Fecha'})).toHaveValue(today.split('-').reverse().join('/'))
+        await choose(user, dialog, 'Vías', 'VIA 1 (PAQ NORTE)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(posts.map((write) => write.body.shiftDate)).toEqual([today]))
     })
 
     it('un turno nuevo pide una vía y manda sus seccionadores, y abre su ficha', async () => {

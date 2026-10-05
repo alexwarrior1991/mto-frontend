@@ -87,10 +87,10 @@ export function shiftRevisionsPath(id) {
     return maintenancePath('shifts', id, 'revisions')
 }
 
-/** Lo que el formulario guarda de un turno leído (o de uno nuevo, con null). */
-export function shiftFormValues(shift) {
+/** Lo que el formulario guarda de un turno leído (o de uno nuevo, con null y la fecha de hoy, como en el backoffice). */
+export function shiftFormValues(shift, {today = null} = {}) {
     return {
-        shiftDate: shift?.shiftDate ?? null,
+        shiftDate: shift?.shiftDate ?? today,
         possessionType: shift?.possessionType ?? 'PARTIAL',
         trackIds: (shift?.trackIds ?? []).map(String),
         teamId: shift?.team?.id ?? null,
