@@ -569,8 +569,9 @@ tras cada caso. `e2e/` (Playwright) recorre cada fase contra la plataforma real:
 e2e`, y en el CI en el job `e2e`, que levanta la plataforma entera con `mto-platform/scripts/e2e.sh` (la
 imagen de este commit construida desde el checkout, la publicada de cada hermano) y lo corre con
 `CI=true` (más margen, `forbidOnly`, sin reintentos). `e2e/api.js` pone por la API lo que una prueba
-necesita y su usuario no puede crear (un token del password grant local, y `/api` por el origen de la
+necesita y no recorre en pantalla (un token del password grant local, y `/api` por el origen de la
 SPA): así valen en una plataforma recién levantada. `coexistence.spec.js` salta al backoffice y vuelve,
-con la misma ruta, su filtro y el mismo SSO. El CI construye además la imagen y la prueba de humo
+con la misma ruta, su filtro y el mismo SSO, e `infrastructure.spec.js` dibuja el esquema de su vía con
+un perfil y su ménsula en las dos aplicaciones. El CI construye además la imagen y la prueba de humo
 (`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no
 arranca).

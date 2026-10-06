@@ -1,9 +1,10 @@
 import process from 'node:process'
 
 /**
- * Lo que una prueba necesita y su usuario no puede crear, puesto por la API antes de empezar y quitado
- * al acabar: así la prueba vale en una plataforma recién levantada, que no trae datos de
- * infraestructura (en el CI, la de cada pasada).
+ * Lo que una prueba necesita y no recorre en pantalla, puesto por la API y quitado al acabar: lo que su
+ * usuario no puede crear (la vía del recorrido de mantenimiento) o lo que ya prueban los tests de vista
+ * (el perfil del esquema de una vía). Así la prueba vale en una plataforma recién levantada, que no trae
+ * datos de infraestructura (en el CI, la de cada pasada).
  *
  * - El token se pide por password grant con un usuario de desarrollo: el cliente mto-frontend lo
  *   admite en el realm local (mto-realm-local.json), nunca en el de referencia. Se pide desde Node y a
