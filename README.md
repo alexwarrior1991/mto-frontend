@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 8
+## Estado: fase 9
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -138,6 +138,12 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     dos se comporten igual (en `mto-backoffice`).
   - Los correos de `mto-notification` siguen yendo al backoffice; como las rutas son las mismas,
     valdrían igual hacia aquí.
+- **Fase 9 · Las diferencias, cerradas, y el e2e en el CI**: las dos aplicaciones se comportan igual
+  también en lo que quedaba distinto.
+  - Una fila se abre con doble clic o con su botón, y un clic no abre nada; los números se comprueban
+    como en el backoffice, con la columna de cada servicio.
+  - El e2e recorre las dos aplicaciones contra la plataforma entera, en el CI de `mto-frontend`,
+    `mto-backoffice` y `mto-platform`, con `mto-platform/scripts/e2e.sh`.
 
 | Fase | Contenido | Equivale en el backoffice |
 |---|---|---|
@@ -149,6 +155,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F6 | Mantenimiento: activos, órdenes con sus tareas y materiales, turnos, inspecciones, defectos, informes y catálogos | F8 |
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
 | F8 | Convivencia: las dos aplicaciones en la plataforma, el salto entre ellas y el backoffice al día | — |
+| F9 | Las diferencias con el backoffice, cerradas, y el e2e de las dos aplicaciones en el CI | — |
 
 ## Probar en local
 
