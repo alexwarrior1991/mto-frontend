@@ -4,8 +4,10 @@
  * transición valga, que el activo siga activo o que un turno cubra la vía lo dice el servicio.
  */
 
-const KP = /^-?\d{1,9}(\.\d{1,3})?$/
-const DECIMAL = /^\d{1,13}(\.\d{1,6})?$/
+// Con las cifras de la columna del servicio, y también +5, 5. y .5, que el campo numérico del
+// backoffice admite y son el mismo número.
+const KP = /^[-+]?(\d{1,9}(\.\d{0,3})?|\.\d{1,3})$/
+const DECIMAL = /^\+?(\d{1,13}(\.\d{0,6})?|\.\d{1,6})$/
 
 /** Obligatorio y con su longitud de columna. */
 export function requiredText(message, length) {
@@ -40,6 +42,19 @@ export function kpValue(message) {
 /** Un kp opcional: vacío vale. */
 export function optionalKp(value) {
     return String(value ?? '').trim() === '' ? null : kpValue('')(value)
+}
+
+/**
+ * Un valor medido de un checklist (la medida y lo que quedó tras el ajuste): opcional, con signo y con
+ * las cifras de un kp, como lo guarda el servicio. Lo que no es un número no viaja: llegaría vacío y
+ * borraría la medida guardada.
+ */
+export function optionalMeasure(value) {
+    const text = String(value ?? '').trim()
+    if (!text) {
+        return null
+    }
+    return KP.test(text) ? null : 'Un número con punto decimal y hasta tres decimales, como 5250.5'
 }
 
 /** El kp final de un tramo: mayor que el inicial, si los dos son números. */

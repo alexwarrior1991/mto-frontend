@@ -19,7 +19,8 @@ import {DATES_SETTINGS, theme} from './theme.js'
  * entorno, OIDC, la puerta de entrada, la cache de React Query, la sesion y, por fin, el router.
  *
  * react-oidc-context solo procesa la vuelta de Keycloak en /auth/callback; al terminar,
- * restoreReturnTo cambia la URL por la que se pidio antes de entrar.
+ * restoreReturnTo cambia la URL por la que se pidio antes de entrar, y solo despues AuthGate deja
+ * pasar y se crea el router (AppRouter).
  */
 export default function AppProviders({config, userManager}) {
     const [queryClient] = useState(() => createQueryClient())
@@ -37,7 +38,7 @@ export default function AppProviders({config, userManager}) {
                             <QueryClientProvider client={queryClient}>
                                 <SessionProvider>
                                     <SessionExpiredModal/>
-                                    <RouterProvider router={getAppRouter()}/>
+                                    <AppRouter/>
                                 </SessionProvider>
                             </QueryClientProvider>
                         </AuthGate>
@@ -46,4 +47,14 @@ export default function AppProviders({config, userManager}) {
             </DatesProvider>
         </MantineProvider>
     )
+}
+
+/**
+ * El router, en su propio componente: asi getAppRouter() se llama cuando AuthGate deja pasar, con la
+ * URL ya restaurada. Escrito como prop de AppProviders se evaluaba al pintarse AppProviders por primera
+ * vez, todavia en /auth/callback?code=…&state=…; el router se quedaba con esa URL (restoreReturnTo cambia
+ * la barra con history.replaceState, que el router no ve) y, al entrar, pintaba «no existe».
+ */
+function AppRouter() {
+    return <RouterProvider router={getAppRouter()}/>
 }

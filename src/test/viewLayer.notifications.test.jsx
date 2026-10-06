@@ -546,3 +546,39 @@ describe('los accesos', () => {
         expect(screen.queryByText('Una IPv4 o IPv6 completa, como 10.0.0.7 o ::1')).not.toBeInTheDocument()
     })
 })
+
+describe('abrir una fila', () => {
+    it('una notificación, una línea del registro o un acceso se abren con doble clic; un clic no abre nada', async () => {
+        const stalled = notification(N1, 'Fuente parada', '/actividad?category=SYSTEM&type=system.source.stalled', false, 'CRITICAL', 'SYSTEM')
+        const created = activityEvent(EVENT1, 'MAINTENANCE', 'maintenance.order.created', 'CRITICAL')
+        const failed = accessEvent(EVENT2, 'access.login.failed', 'FAILURE', 'WARNING', 1)
+        const requests = serveNotifications({inbox: [stalled], unread: [{count: 1, capped: false}, {count: 0, capped: false}],
+            activity: [created], events: {[EVENT1]: created}, access: [failed]})
+
+        const inbox = renderRoute('/notificaciones', {session: loginAs('config.responsable')})
+        await waitFor(() => expect(dataRows('Notificaciones')).toHaveLength(1))
+        await inbox.user.click(rowOf('Notificaciones', 'Fuente parada'))
+        expect(inbox.router.state.location.pathname).toBe('/notificaciones')
+        expect(requestsTo(requests, `/inbox/${N1}/read`, 'POST')).toHaveLength(0)
+        await inbox.user.dblClick(rowOf('Notificaciones', 'Fuente parada'))
+        await waitFor(() => expect(inbox.router.state.location.pathname).toBe('/actividad'))
+        expect(requestsTo(requests, `/inbox/${N1}/read`, 'POST')).toHaveLength(1)
+        inbox.unmount()
+
+        const activity = renderRoute('/actividad', {session: loginAs('notificacion.lector')})
+        await waitFor(() => expect(dataRows('Registro de actividad')).toHaveLength(1))
+        await activity.user.click(rowOf('Registro de actividad', 'maintenance.order.created'))
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        await activity.user.dblClick(rowOf('Registro de actividad', 'maintenance.order.created'))
+        expect(await screen.findByRole('dialog', {name: 'maintenance.order.created'})).toBeInTheDocument()
+        expect(requestsTo(requests, `/activity/${EVENT1}`)).toHaveLength(1)
+        activity.unmount()
+
+        const access = renderRoute('/actividad/accesos', {session: loginAs('usuarios.responsable')})
+        await waitFor(() => expect(dataRows('Accesos')).toHaveLength(1))
+        await access.user.click(rowOf('Accesos', 'access.login.failed'))
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        await access.user.dblClick(rowOf('Accesos', 'access.login.failed'))
+        expect(await screen.findByRole('dialog', {name: 'access.login.failed'})).toBeInTheDocument()
+    })
+})

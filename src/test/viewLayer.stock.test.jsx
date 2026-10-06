@@ -595,6 +595,28 @@ describe('los movimientos', () => {
         expect(readsOf(requests, `${BASE}/materials/${MAT1}/stock`).every((url) => url.search === '')).toBe(true)
     })
 
+    it('una cantidad se escribe también como .5 o +5, como en el backoffice; con siete decimales no llama', async () => {
+        serveStock({figures: {[`${MAT1}|`]: figuresOf(10, false, null)}})
+        const entries = recordWrites('post', `${BASE}/movements/entries`, () => HttpResponse.json(movement('ENTRY', 0.5), {status: 201}))
+        const {user} = renderRoute('/almacen', {session: loginAs('almacen.operario')})
+        await screen.findByRole('heading', {name: 'Existencias', level: 2})
+        await choose(user, document.body, 'Material', 'MAT-001 - Hilo de contacto')
+        await screen.findByRole('region', {name: 'Existencias del material'})
+
+        await user.click(screen.getByRole('button', {name: 'Entrada'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Entrada'})
+        await choose(user, dialog, 'Almacén', 'WH-000 - Central')
+        await typeInto(user, dialog, 'Cantidad', '0.1234567')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await within(dialog).findByText('Un número con punto decimal y hasta seis decimales, como 12.5')).toBeInTheDocument()
+        expect(entries).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Cantidad', '.5')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(entries).toHaveLength(1))
+        expect(entries[0]).toMatchObject({quantity: 0.5})
+    })
+
     it('una salida sin stock dice lo que dice el servicio y el diálogo sigue abierto para corregirla', async () => {
         serveStock()
         const outputs = recordWrites('post', `${BASE}/movements/outputs`, () => stockError(409, 'STK-001',

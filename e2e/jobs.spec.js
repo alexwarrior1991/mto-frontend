@@ -13,8 +13,9 @@ import {signIn} from './keycloak.js'
 
 const SUFFIX = Date.now().toString(36).toUpperCase()
 const LOV_MASTER = path.resolve(process.cwd(), '../mto-configuration/data/lov-master.xlsx')
-// Lo que tarda un trabajo en cola y en curso en la plataforma local, con margen.
-const JOB_TIMEOUT_MS = 45_000
+// Lo que tarda un trabajo en cola y en curso en la plataforma local, con margen; en el CI, con la
+// plataforma entera en la misma máquina, más.
+const JOB_TIMEOUT_MS = process.env.CI ? 120_000 : 45_000
 
 function menu(page) {
     return page.getByRole('navigation', {name: 'Menú principal'})
@@ -61,6 +62,8 @@ test('exportar los perfiles de una vía hasta «Terminado» y descargar el CSV',
     await newPackage.getByRole('textbox', {name: 'Longitud'}).fill('1000')
     await newPackage.getByRole('textbox', {name: 'Inicio'}).fill('01/01/2026')
     await newPackage.getByRole('textbox', {name: 'Fin'}).fill('31/12/2026')
+    // El calendario de la fecha se queda abierto encima de los botones hasta salir del campo.
+    await newPackage.getByRole('textbox', {name: 'Fin'}).press('Tab')
     await newPackage.getByRole('button', {name: 'Guardar'}).click()
     await expect(newPackage).toBeHidden()
 

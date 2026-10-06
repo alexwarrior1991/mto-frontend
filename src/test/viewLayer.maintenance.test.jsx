@@ -1,7 +1,7 @@
 import {screen, waitFor, within} from '@testing-library/react'
 import {http, HttpResponse} from 'msw'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {endOfDayInstant, startOfDayInstant} from '../api/dates.js'
+import {endOfDayInstant, startOfDayInstant, toLocalDateParam} from '../api/dates.js'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {formatDateTime} from '../ui/format.js'
@@ -473,6 +473,33 @@ describe('los activos', () => {
             {code: 'TS-0002', name: 'Tramo 13', trackId: 12, startKp: 13.45, endKp: 14.2, trackKind: 'MAIN'},
             {code: 'TS-0002', name: 'Tramo 13', trackId: 12, startKp: 13.45, endKp: 14.2, trackKind: 'MAIN'}])
         expect(await screen.findByText('Guardado TS-0002 - Tramo TS-0002')).toBeInTheDocument()
+    })
+
+    it('un intervalo de cero días es un error, sin convertirse en uno; un kp se escribe también como +12.5 o 13.', async () => {
+        serveMaintenance()
+        const writes = recordWrites('post', `${BASE}/assets`, () => HttpResponse.json(ownSection(ASSET_OWN, 'TS-0002', true), {status: 201}))
+        const {user} = await open('/mantenimiento/activos', loginAs('mantenimiento.tecnico'), 'Activos', 0)
+
+        await user.click(await screen.findByRole('button', {name: 'Nuevo tramo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo tramo de vía'})
+        await typeInto(user, dialog, 'Código', 'TS-0002')
+        await typeInto(user, dialog, 'Nombre', 'Tramo 13')
+        await choose(user, dialog, 'Vía', 'VIA 1 (PAQ NORTE)')
+        await typeInto(user, dialog, 'Kp inicial', '+12.5')
+        await typeInto(user, dialog, 'Kp final', '13.')
+        const interval = within(dialog).getByRole('textbox', {name: 'Intervalo preventivo (días)'})
+        await user.type(interval, '0')
+        await user.tab()
+        expect(interval).toHaveValue('0')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Tiene que ser un entero mayor que cero')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await user.clear(interval)
+        await user.type(interval, '30')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toMatchObject({startKp: 12.5, endKp: 13, preventiveIntervalDays: 30})
     })
 
     it('uno sincronizado solo cambia descripción e intervalo, y desactivarlo avisa de que sobrevive a los datos maestros', async () => {
@@ -978,6 +1005,27 @@ describe('las órdenes', () => {
         expect(await within(dialog).findByText('Fuera de rango')).toBeInTheDocument()
     })
 
+    it('una medida que no es un número no llega al servicio: viajaría vacía y borraría la guardada', async () => {
+        const withChecklist = task(TASK1, 1, 'PENDING', {checkItems: [checkItem({measuredValue: 5400})]})
+        const items = recordWrites('patch', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/check-items/${ITEM1}`, () => HttpResponse.json(withChecklist))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS'}), {tasks: {[ORDER1]: [withChecklist]}})
+
+        await user.click(await screen.findByRole('button', {name: 'Checklist de la tarea 1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Checklist de la tarea 1'})
+        const point = within(dialog).getByRole('group', {name: 'Punto P-01'})
+        await typeInto(user, point, 'Medida', '5,4')
+        await typeInto(user, point, 'Tras el ajuste', '5300.0001')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        expect(await within(point).findAllByText('Un número con punto decimal y hasta tres decimales, como 5250.5')).toHaveLength(2)
+        expect(items).toHaveLength(0)
+
+        await typeInto(user, point, 'Medida', '5450')
+        await typeInto(user, point, 'Tras el ajuste', '')
+        await user.click(within(point).getByRole('button', {name: 'Guardar P-01'}))
+        await waitFor(() => expect(items).toHaveLength(1))
+        expect(items[0].body).toEqual({measuredValue: 5450, version: 1})
+    })
+
     it('la pestaña Estados se pide al abrirla y nombra los estados', async () => {
         const {user, requests} = await openOrder(loginAs('mantenimiento.lector'), order(), {history: {[ORDER1]: [
             {id: 'h1', previousStatus: null, newStatus: 'DRAFT', changedAt: '2026-09-20T08:00:00Z', changedBy: 'mantenimiento.tecnico',
@@ -1367,6 +1415,22 @@ describe('los turnos', () => {
         for (const name of ['Modificar', 'Asignar tareas', 'Cerrar', 'Cancelar']) {
             expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
         }
+    })
+
+    it('un turno nuevo empieza hoy, como en el backoffice: sin tocar la fecha, viaja la de hoy', async () => {
+        const created = shift('PLANNED')
+        const posts = recordWrites('post', `${BASE}/shifts`, () => HttpResponse.json(created, {status: 201}))
+        serveMaintenance({teams: TEAMS, shifts: [created], assets: [DISCONNECTOR]})
+        const {user} = await open('/mantenimiento/turnos', loginAs('mantenimiento.tecnico'), 'Turnos', 1)
+        const today = toLocalDateParam(new Date())
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo turno'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo turno'})
+        expect(within(dialog).getByRole('textbox', {name: 'Fecha'})).toHaveValue(today.split('-').reverse().join('/'))
+        await choose(user, dialog, 'Vías', 'VIA 1 (PAQ NORTE)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(posts.map((write) => write.body.shiftDate)).toEqual([today]))
     })
 
     it('un turno nuevo pide una vía y manda sus seccionadores, y abre su ficha', async () => {
@@ -2055,5 +2119,41 @@ describe('los informes', () => {
         await user.click(screen.getByRole('button', {name: 'PDF'}))
         await waitFor(() => expect(saved).toEqual([`monthly-report-${yearMonth(last)}.pdf`]))
         expect(['month', 'executionPackageId', 'format'].map((name) => param(reads().at(-1), name))).toEqual([yearMonth(last), '3', 'pdf'])
+    })
+})
+
+describe('abrir una fila', () => {
+    it('una orden, un turno, una inspección o un defecto se abren con doble clic; un clic no abre nada', async () => {
+        const created = {id: 'h1', previousStatus: null, newStatus: 'OPEN', changedAt: '2026-09-20T08:00:00Z', changedBy: 'ana', comment: null}
+        serveMaintenance({teams: TEAMS, orders: [order()], shifts: [shift('IN_PROGRESS')], inspections: [inspection('MAJOR_DEFECT')],
+            defects: [defect('OPEN')], defectHistory: {[DEFECT1]: [created]}})
+        const lists = [
+            ['/mantenimiento', 'Órdenes', 'MO-000001', 'MO-000001 · Revisión tramo 12', `/mantenimiento/ordenes/${ORDER1}`],
+            ['/mantenimiento/turnos', 'Turnos', 'SH-000001', 'SH-000001 · 05/10/2026', `/mantenimiento/turnos/${SHIFT1}`],
+            ['/mantenimiento/inspecciones', 'Inspecciones', 'INS-000001', 'INS-000001 · 20/09/2026', `/mantenimiento/inspecciones/${INSPECTION1}`],
+            ['/mantenimiento/defectos', 'Defectos', 'DEF-000001', 'DEF-000001', `/mantenimiento/defectos/${DEFECT1}`],
+        ]
+        for (const [path, name, code, heading, detail] of lists) {
+            const {user, router, unmount} = await open(path, loginAs('mantenimiento.lector'), name, 1)
+            await user.click(rowOf(name, code))
+            expect(router.state.location.pathname).toBe(path)
+            await user.dblClick(rowOf(name, code))
+            expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument()
+            expect(router.state.location.pathname).toBe(detail)
+            unmount()
+        }
+    })
+
+    it('las órdenes de un activo también se abren con doble clic', async () => {
+        serveMaintenance({assets: [ownSection(ASSET_OWN, 'TS-0001', true)], assetOrders: {[ASSET_OWN]: [order()]}, orders: [order()]})
+        const {user, router} = await open('/mantenimiento/activos', loginAs('mantenimiento.lector'), 'Activos', 1)
+
+        await user.click(within(rowOf('Activos', 'TS-0001')).getByRole('button', {name: 'Órdenes de TS-0001 - Tramo TS-0001'}))
+        await waitFor(() => expect(firstColumn('Órdenes de TS-0001 - Tramo TS-0001')).toEqual(['MO-000001']))
+        await user.click(rowOf('Órdenes de TS-0001 - Tramo TS-0001', 'MO-000001'))
+        expect(router.state.location.pathname).toBe('/mantenimiento/activos')
+        await user.dblClick(rowOf('Órdenes de TS-0001 - Tramo TS-0001', 'MO-000001'))
+        expect(await screen.findByRole('heading', {name: 'MO-000001 · Revisión tramo 12'})).toBeInTheDocument()
+        expect(router.state.location.pathname).toBe(`/mantenimiento/ordenes/${ORDER1}`)
     })
 })

@@ -423,6 +423,30 @@ describe('los perfiles', () => {
         expect(creates).toHaveLength(0)
     })
 
+    it('un KP de más de 13 caracteres no llega al servicio, y +5300 o .5 son números, como en el backoffice', async () => {
+        serveGateway()
+        const creates = recordWrites('post', `${BASE}/profiles`, (body) => HttpResponse.json({...body, id: 99}, {status: 201}))
+        const {user} = renderRoute('/infraestructura/perfiles', {session: sessionWith(WRITER)})
+        await screen.findByText('No hay perfiles.')
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Alta de perfil'})
+        await typeInto(user, dialog, 'Identificador', 'P-9')
+        await typeInto(user, dialog, 'KP', '12345678901.50')
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP4)')
+        await choose(user, dialog, 'Estado', 'OK · Correcto')
+        await typeInto(user, dialog, 'Vano hasta el siguiente (m)', '.5')
+        await typeInto(user, dialog, 'Altura del soporte de ménsula (mm)', '+5300')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Como mucho 13 caracteres')).toBeInTheDocument()
+        expect(creates).toHaveLength(0)
+
+        await typeInto(user, dialog, 'KP', '10.500')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(creates).toHaveLength(1))
+        expect(creates[0]).toMatchObject({kp: '10.500', span: 0.5, heightCantileverSupport: 5300})
+    })
+
     it('las ménsulas van a null sin tocar y enteras al tocarlas, con su brazo; quitar el brazo lo manda a null', async () => {
         serveGateway({profiles: [profileWithOneCantilever()]})
         const updates = recordWrites('put', `${BASE}/profiles/7`, (body) => HttpResponse.json(body))

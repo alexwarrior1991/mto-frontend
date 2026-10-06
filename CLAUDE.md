@@ -41,7 +41,7 @@ npx vitest run -t "un 401 renueva el token"         # un caso
 npm run lint
 npm run verify                        # lint + tests + build, lo que hace el CI
 npm run doctor                        # comprueba el entorno local y dice qué falta
-npm run e2e                           # Playwright contra la plataforma levantada (solo en local)
+npm run e2e                           # Playwright contra la plataforma levantada; en el CI, el job e2e
 ```
 
 Entorno local: `cd ../mto-platform && docker compose --profile all up -d && ./keycloak/apply-partials.sh`
@@ -320,6 +320,20 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `insertAdjacentHTML` y `document.write`. El esquema de vía es SVG de React y el `payload` de la
   actividad, texto. Un enlace que llega de un servicio: si es interno empieza por una sola `/`; si es
   `http(s)` se abre en otra pestaña con `noopener`; cualquier otro esquema se descarta.
+- **Una fila se abre con doble clic o con su botón; un clic no abre nada**, como en el backoffice:
+  el clic sirve para seleccionar o copiar, y el botón de la fila, con su nombre completo, es lo que
+  llega con el teclado. En los catálogos y los maestros, el doble clic abre el editor si se puede
+  modificar. Las pestañas Defectos e Inspecciones de una orden solo llevan el botón, y los miembros de
+  un perfil o de un rol, el usuario como enlace. Lo que es elegir y no abrir (los catálogos de perfiles
+  y de roles, las plantillas, los bajo mínimo) sigue con su clic.
+- **Los números se comprueban como en el backoffice, con la columna del servicio**: las cantidades de
+  almacén y de mantenimiento, 13 enteros y 6 decimales; un kp de mantenimiento y una medida de
+  checklist, con signo, 9 enteros y 3 decimales; las medidas de infraestructura, enteras o no negativas
+  según su columna, y el KP de un perfil, 13 caracteres como mucho. Valen también `+5`, `5.` y `.5`,
+  que el campo numérico del backoffice admite y son el mismo número. Lo que no es un número no viaja:
+  `Number('5,4')` es `NaN`, que JSON convierte en `null`, y borraría la medida guardada. Un
+  `NumberInput` con mínimo no lo impone al salir del campo (`clampBehavior="none"`): un 0 en el
+  intervalo del preventivo es un error, no un 1.
 - **Los enumerados que se leen de un servicio toleran lo desconocido** (`defineEnum`): `UNKNOWN`
   («Desconocido») no se ofrece en los desplegables y no abre nada. El dato leído no se reescribe:
   un valor que nadie tocó vuelve al servicio tal cual.
@@ -551,6 +565,12 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
 
 `setup.js` hace fallar el test que llame a algo sin manejador (`onUnhandledFrame` de MSW 3; la opción
 `onUnhandledRequest` ya no existe) y limpia avisos, sesión caducada, almacenamiento y `configureHttp`
-tras cada caso. `e2e/` (Playwright) recorre la fase contra la plataforma real; no corre en el CI. El
-CI construye además la imagen y la prueba de humo (`/config.json`, la CSP, el fallback de la SPA, el
-503 sin gateway y que sin su configuración no arranca).
+tras cada caso. `e2e/` (Playwright) recorre cada fase contra la plataforma real: en local con `npm run
+e2e`, y en el CI en el job `e2e`, que levanta la plataforma entera con `mto-platform/scripts/e2e.sh` (la
+imagen de este commit construida desde el checkout, la publicada de cada hermano) y lo corre con
+`CI=true` (más margen, `forbidOnly`, sin reintentos). `e2e/api.js` pone por la API lo que una prueba
+necesita y su usuario no puede crear (un token del password grant local, y `/api` por el origen de la
+SPA): así valen en una plataforma recién levantada. `coexistence.spec.js` salta al backoffice y vuelve,
+con la misma ruta, su filtro y el mismo SSO. El CI construye además la imagen y la prueba de humo
+(`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no
+arranca).

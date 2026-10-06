@@ -1,6 +1,7 @@
 import {Button, Group, Modal, Select, SimpleGrid, Stack, Textarea, TextInput} from '@mantine/core'
 import {DateInput} from '@mantine/dates'
 import {useForm} from '@mantine/form'
+import {toLocalDateParam} from '../../api/dates.js'
 import {POSSESSION} from '../../api/maintenance/enums.js'
 import {shiftFormValues, shiftPatch, shiftRequest} from '../../api/maintenance/shifts.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
@@ -35,7 +36,7 @@ export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
     const teams = useTeams()
     const form = useForm({
         mode: 'controlled',
-        initialValues: shiftFormValues(shift),
+        initialValues: shiftFormValues(shift, {today: toLocalDateParam(new Date())}),
         validate: {
             shiftDate: required('La fecha es obligatoria'),
             possessionType: required('La posesión es obligatoria'),

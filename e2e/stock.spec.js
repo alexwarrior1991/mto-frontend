@@ -37,6 +37,16 @@ async function pick(page, container, fieldLabel, entry) {
     await page.getByRole('option', {name: label(entry)}).click()
 }
 
+/**
+ * Guardar solo cierra el diálogo si el servicio lo acepta (si no, el error va a su campo y el diálogo sigue
+ * abierto): es la señal de que se guardó. El aviso «Guardado …» puede coincidir con el de un guardado
+ * anterior de la misma fila que aún no se ha ido, como el alta, la modificación y la retirada del conjunto.
+ */
+async function saved(page, dialog, code) {
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText(`Guardado ${code}`).last()).toBeVisible()
+}
+
 async function create(page, entry, extra = async () => {}) {
     await page.getByRole('button', {name: 'Nuevo'}).click()
     const dialog = page.getByRole('dialog', {name: /^Alta de /})
@@ -44,8 +54,7 @@ async function create(page, entry, extra = async () => {}) {
     await dialog.getByRole('textbox', {name: 'Nombre'}).fill(entry.name)
     await extra(dialog)
     await dialog.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${entry.code}`)).toBeVisible()
-    await expect(dialog).toBeHidden()
+    await saved(page, dialog, entry.code)
 }
 
 async function retire(page, entry) {
@@ -54,7 +63,7 @@ async function retire(page, entry) {
     const dialog = page.getByRole('dialog', {name: new RegExp(`^Modificar .* ${entry.code}$`)})
     await dialog.getByRole('checkbox', {name: 'Activo'}).uncheck()
     await dialog.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${entry.code}`)).toBeVisible()
+    await saved(page, dialog, entry.code)
 }
 
 test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y retirarlo todo', async ({page}) => {
@@ -130,7 +139,7 @@ test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y
     let availability = page.getByRole('dialog', {name: `Disponibilidad de ${label(ASSEMBLY)}`})
     await pick(page, availability, 'Almacén', WAREHOUSE)
     await expect(availability.getByText(`2 conjuntos montables en ${WAREHOUSE.code}`)).toBeVisible()
-    await availability.getByRole('button', {name: 'Cerrar'}).click()
+    await availability.getByRole('button', {name: 'Cerrar'}).last().click()
 
     // Modificar la lista: volver a añadir el material cambia su cantidad, y la lista viaja entera.
     await page.getByRole('button', {name: `Modificar ${label(ASSEMBLY)}`}).click()
@@ -140,18 +149,18 @@ test('dar de alta, mover material, reservarlo y consumirlo, montar un conjunto y
     await editor.getByRole('button', {name: 'Añadir'}).click()
     await expect(editor.getByRole('table', {name: 'Lista de materiales'}).getByText('4 m')).toBeVisible()
     await editor.getByRole('button', {name: 'Guardar'}).click()
-    await expect(page.getByText(`Guardado ${ASSEMBLY.code}`)).toBeVisible()
+    await saved(page, editor, ASSEMBLY.code)
     await page.getByRole('button', {name: `Disponibilidad de ${label(ASSEMBLY)}`}).click()
     availability = page.getByRole('dialog', {name: `Disponibilidad de ${label(ASSEMBLY)}`})
     await pick(page, availability, 'Almacén', WAREHOUSE)
     await expect(availability.getByText(`1 conjunto montable en ${WAREHOUSE.code}`)).toBeVisible()
-    await availability.getByRole('button', {name: 'Cerrar'}).click()
+    await availability.getByRole('button', {name: 'Cerrar'}).last().click()
 
     await page.getByRole('button', {name: `Historial de ${label(ASSEMBLY)}`}).click()
     const history = page.getByRole('dialog', {name: `Historial de ${label(ASSEMBLY)}`})
     await expect(history.getByText(/revisi(ón|ones), la más reciente primero/)).toBeVisible()
     await expect(history.getByRole('table').getByText('Alta', {exact: true})).toBeVisible()
-    await history.getByRole('button', {name: 'Cerrar'}).click()
+    await history.getByRole('button', {name: 'Cerrar'}).last().click()
 
     await retire(page, ASSEMBLY)
     await openFromMenu(page, 'Materiales')
