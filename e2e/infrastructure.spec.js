@@ -156,8 +156,15 @@ test('un paquete, una estación y una vía de usar y tirar: alta, esquema vacío
         ])
         await expect(backoffice.getByRole('heading', {name: 'Vias', level: 2})).toBeVisible(FIRST_VISIT)
         expect(backoffice.url().startsWith(BACKOFFICE_URL)).toBe(true)
-        // La búsqueda de la lista no tiene etiqueta, solo su texto de ayuda.
-        await backoffice.locator('input[placeholder="Buscar"]').fill(trackName)
+        // La búsqueda de la lista no tiene etiqueta, solo su texto de ayuda. El backoffice la aplica tras
+        // una pausa y rehace los botones de las filas: un clic que sale antes de que llegue va a un botón
+        // que el servidor ya ha quitado, y no abre nada. Por eso primero una búsqueda que no encuentra
+        // nada y luego la de la vía: cuando la vía vuelve a salir, su botón es el de esa búsqueda.
+        const search = backoffice.locator('input[placeholder="Buscar"]')
+        await search.fill(`${trackName}-NADA`)
+        await expect(backoffice.getByText('0 vias', {exact: true})).toBeVisible()
+        await search.fill(trackName)
+        await expect(backoffice.getByText('1 via', {exact: true})).toBeVisible()
         await backoffice.locator(`#schematic-${created.track.id}`).click()
         await expect(backoffice.locator('#schematic-summary')).toHaveText(
             `1 perfil · 1 mensula · 0 seccionadores · 0 aisladores · Estaciones: ${stationName}`)
