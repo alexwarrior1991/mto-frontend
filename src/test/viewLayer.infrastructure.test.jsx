@@ -522,7 +522,7 @@ describe('los perfiles', () => {
 describe('los seccionadores', () => {
     const known = {
         id: 5, name: 'SEC-1', onLoad: true, normallyOpen: null, driveType: null, stationId: 12, profileId: 7,
-        kp: null, trackId: null, profileCode: 'P-007', profileKp: '12.345',
+        kp: null, trackId: null, connectedTrackId: null, profileCode: 'P-007', profileKp: '12.345',
         disconnectorFunction: {id: 9, code: 'Disc', description: 'Seccionador'}, versionNumber: 4,
     }
     const bare = {id: 6, name: 'SEC-2', onLoad: false, stationId: 13, profileId: 8, versionNumber: 1}
@@ -628,6 +628,49 @@ describe('los seccionadores', () => {
 
         await waitFor(() => expect(updates).toEqual([{...poleLess, profileId: 20, kp: null, trackId: null}]))
     })
+
+    // V27 de mto-configuration: uno que pone dos vías en paralelo lleva la otra, con poste o sin él.
+    const paralleling = {...known, name: 'SEC-B01', onLoad: false, connectedTrackId: 4}
+
+    it('la lista enseña la vía conectada de uno que pone dos en paralelo', async () => {
+        serveGateway({disconnectors: [paralleling, bare]})
+        await open('/infraestructura/seccionadores', loginAs('config.lector'), 'Seccionadores', 2)
+
+        expect(within(rowOf('Seccionadores', 'SEC-B01')).getByText('VIA 2 (EP4)')).toBeInTheDocument()
+        expect(within(rowOf('Seccionadores', 'SEC-2')).queryByText(/VIA/)).not.toBeInTheDocument()
+    })
+
+    it('la vía conectada se cambia y se quita también con poste, y que sea la suya lo dice el servicio en su campo', async () => {
+        serveGateway({disconnectors: [paralleling]})
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => (body.connectedTrackId === 3
+            ? problem(400, {
+                title: 'Petición inválida', status: 400, code: 'VAL-000', traceId: 't-3',
+                errors: [{field: 'connectedTrackId', code: 'BUS-001', message: 'Es la vía de su poste'}],
+            })
+            : HttpResponse.json(body)))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar SEC-B01'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        const connected = within(dialog).getByRole('combobox', {name: 'Vía conectada'})
+        expect(connected).toHaveValue('VIA 2 (EP4)')
+        expect(connected).toBeEnabled()
+
+        await choose(user, dialog, 'Vía conectada', 'VIA 1 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Es la vía de su poste')).toBeInTheDocument()
+        expect(connected).toHaveAttribute('aria-invalid', 'true')
+
+        // Elegir otra vez la que tiene la quita: deja de poner dos vías en paralelo.
+        await choose(user, dialog, 'Vía conectada', 'VIA 1 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([
+            {...paralleling, connectedTrackId: 3},
+            {...paralleling, connectedTrackId: null},
+        ]))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
 })
 
 describe('los aisladores de sección', () => {
@@ -706,7 +749,7 @@ describe('el esquema de una vía', () => {
                 },
                 {
                     id: 2, code: 'P-002', kp: '20.000', orderInTrack: 2, railPoleDistance: '2500', sectionings: [], cantilevers: [],
-                    disconnector: {id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA'},
+                    disconnector: {id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA', connectedTrack: 'VIA 2'},
                 },
             ],
             sectionInsulators: [{
@@ -743,7 +786,7 @@ describe('el esquema de una vía', () => {
         expect(drawing.querySelector('[data-kind="arm"] title')).toHaveTextContent(
             'Ménsula PT1 · descentramiento -200 · altura hilo 5.300 · altura catenaria 1.400 · brazo SA1 1200 mm')
         expect(drawing.querySelector('[data-kind="disconnector"] title')).toHaveTextContent(
-            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA')
+            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA · en paralelo con VIA 2')
         expect(within(dialog).getByText(/Un poste por perfil/)).toBeInTheDocument()
 
         // La X de la ventana también se llama «Cerrar»; el del pie es el segundo.

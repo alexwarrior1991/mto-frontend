@@ -23,7 +23,8 @@ const FUNCTIONS = 'disconnector-functions'
  * opcional, porque los de los pórticos de subestación y los de puesta a tierra no están en un poste,
  * y vaciarlo lo desvincula. Un perfil que ya tiene seccionador no admite otro (409 BUS-002). Uno sin
  * poste lleva su propio KP y su vía (V26 de mto-configuration); con poste son los del perfil, así
- * que elegirlo los vacía y no se ofrecen.
+ * que elegirlo los vacía y no se ofrecen. Uno que pone dos vías en paralelo lleva además la otra
+ * (V27), con poste o sin él; que no sea la suya lo dice el servicio, en su campo.
  */
 export default function DisconnectorEditor({row, references, onClose}) {
     const catalogues = useCatalogues([FUNCTIONS])
@@ -39,6 +40,7 @@ export default function DisconnectorEditor({row, references, onClose}) {
             driveType: row?.driveType ?? null,
             kp: toText(row?.kp),
             trackId: toOption(row?.trackId),
+            connectedTrackId: toOption(row?.connectedTrackId),
         },
         validate: {
             name: requiredText('El nombre es obligatorio', NAME_MAX_LENGTH),
@@ -68,6 +70,7 @@ export default function DisconnectorEditor({row, references, onClose}) {
         // Recortado, como el del perfil; vacío, o con poste, viaja como null.
         kp: !values.profileId && values.kp.trim() ? values.kp.trim() : null,
         trackId: values.profileId ? null : toId(values.trackId),
+        connectedTrackId: toId(values.connectedTrackId),
     })
 
     const currentProfile = row?.profileId === null || row?.profileId === undefined
@@ -88,6 +91,10 @@ export default function DisconnectorEditor({row, references, onClose}) {
                 <Select label="Vía propia" clearable searchable nothingFoundMessage="No hay ninguna"
                         description="Solo sin poste: con poste, la del perfil" disabled={onAPole}
                         data={withCurrent(references.trackOptions, row?.trackId)} {...form.getInputProps('trackId')}/>
+                <Select label="Vía conectada" clearable searchable nothingFoundMessage="No hay ninguna"
+                        description="La otra vía, si pone dos en paralelo"
+                        data={withCurrent(references.trackOptions, row?.connectedTrackId)}
+                        {...form.getInputProps('connectedTrackId')}/>
                 <Select label="Función" withAsterisk searchable nothingFoundMessage="No hay ninguna"
                         data={lovOptions(catalogues[FUNCTIONS], row?.disconnectorFunction)}
                         {...form.getInputProps('disconnectorFunction')}/>

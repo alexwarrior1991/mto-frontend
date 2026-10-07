@@ -303,7 +303,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - En **Seccionadores**, el perfil se busca escribiendo su identificador, y se puede quitar: los de
     los pórticos de subestación y los de puesta a tierra no están en un poste. El editor lleva
     además el estado normal y el accionamiento, y, sin poste, el KP y la vía del seccionador: elegir
-    un poste los vacía, porque son los del perfil.
+    un poste los vacía, porque son los del perfil. Uno que pone dos vías en paralelo (los de puente)
+    lleva su «Vía conectada», con poste o sin él, que la lista enseña en su columna y el esquema en
+    el detalle del seccionador.
 - **Trabajos** (con `config.responsable`):
   - «Exportar» con una vía sale como «Trabajo encolado» y como fila del historial. La fila avanza
     sola hasta «Terminado» y entonces ofrece «Descargar».
