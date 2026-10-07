@@ -305,7 +305,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     además el estado normal y el accionamiento, y, sin poste, el KP y la vía del seccionador: elegir
     un poste los vacía, porque son los del perfil. Uno que pone dos vías en paralelo (los de puente)
     lleva su «Vía conectada», con poste o sin él, que la lista enseña en su columna y el esquema en
-    el detalle del seccionador.
+    el detalle del seccionador. La estación también se puede quitar: uno en plena vía, en una zona
+    neutra o en una subestación no es de ninguna. Sin estación, sin poste y sin vía propia, el
+    servicio responde con un 400 que sale en el campo Estación.
 - **Trabajos** (con `config.responsable`):
   - «Exportar» con una vía sale como «Trabajo encolado» y como fila del historial. La fila avanza
     sola hasta «Terminado» y entonces ofrece «Descargar».

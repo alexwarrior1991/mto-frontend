@@ -1166,6 +1166,9 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
             sectionInsulators: null})
         expect(masterBody('disconnectors', {id: 5, name: 'SEC-1', profileId: 7}, {onLoad: true}))
             .toEqual({id: 5, name: 'SEC-1', profileId: 7, onLoad: true})
+        // La estación de un seccionador es opcional: quitársela viaja como null, porque el PUT es la fila entera.
+        expect(masterBody('disconnectors', {id: 6, name: 'KAF-NS1', stationId: 12, trackId: 3}, {stationId: null}))
+            .toEqual({id: 6, name: 'KAF-NS1', stationId: null, trackId: 3})
         expect(Object.keys(MASTER_CHILDREN)).toEqual(['execution-packages', 'stations', 'tracks', 'profiles', 'disconnectors',
             'section-insulators'])
         expect(MASTER_CHILDREN['section-insulators']).toEqual(['switches'])

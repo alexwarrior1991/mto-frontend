@@ -629,6 +629,42 @@ describe('los seccionadores', () => {
         await waitFor(() => expect(updates).toEqual([{...poleLess, profileId: 20, kp: null, trackId: null}]))
     })
 
+    it('la estación es opcional, y que no quede en ningún sitio lo dice el servicio en su campo', async () => {
+        // Uno en plena vía, en una zona neutra o en una subestación no es de ninguna estación. Tiene que
+        // estar en algún sitio (con su estación, en un poste o con su vía propia): lo decide el servicio.
+        serveGateway({disconnectors: [poleLess]})
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => (
+            body.stationId === null && body.profileId === null && body.trackId === null
+                ? problem(400, {
+                    title: 'Petición inválida', status: 400, code: 'VAL-000', traceId: 't-5',
+                    errors: [{field: 'stationId', code: 'BUS-001', message: 'Regla de negocio violada: stationId'}],
+                })
+                : HttpResponse.json(body)))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar HSA-FP1.1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        const station = within(dialog).getByRole('combobox', {name: 'Estación'})
+        expect(station).toHaveValue('ATOCHA (EP4)')
+        expect(within(dialog).getByText(/Vacía si no es de ninguna estación/)).toBeInTheDocument()
+
+        // Elegir otra vez la que tiene la quita; sin la vía propia tampoco, no queda en ningún sitio.
+        await choose(user, dialog, 'Estación', 'ATOCHA (EP4)')
+        await choose(user, dialog, 'Vía propia', 'VIA 1 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Regla de negocio violada: stationId')).toBeInTheDocument()
+        expect(station).toHaveAttribute('aria-invalid', 'true')
+
+        await choose(user, dialog, 'Vía propia', 'VIA 1 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([
+            {...poleLess, stationId: null, trackId: null},
+            {...poleLess, stationId: null},
+        ]))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
     // V27 de mto-configuration: uno que pone dos vías en paralelo lleva la otra, con poste o sin él.
     const paralleling = {...known, name: 'SEC-B01', onLoad: false, connectedTrackId: 4}
 
