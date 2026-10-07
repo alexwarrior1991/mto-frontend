@@ -372,7 +372,9 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     propio `kp` (texto, comprobado y recortado como el del perfil) y su `trackId`; con poste son los
     del perfil, así que elegirlo los vacía y viajan a `null`, como en el backoffice. Uno que pone dos
     vías en paralelo lleva además su `connectedTrackId`, la otra, con poste o sin él; que no sea la
-    suya lo dice el servicio, en ese campo.
+    suya lo dice el servicio, en ese campo. Su `stationId` es opcional (uno en plena vía, en una zona
+    neutra o en una subestación no es de ninguna); que sin estación esté en un poste o con su vía
+    propia lo dice el servicio, con un 400 sobre la estación.
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.

@@ -18,7 +18,10 @@ const FUNCTIONS = 'disconnector-functions'
 
 /**
  * Alta o modificación de un seccionador (el port de DisconnectorEditor): nombre, estación, el perfil
- * del que cuelga, su función, si está en carga, su estado normal y su accionamiento. Es aquí, y no en
+ * del que cuelga, su función, si está en carga, su estado normal y su accionamiento. La estación es
+ * opcional: uno en plena vía, en una zona neutra o en una subestación no es de ninguna. Tiene que estar
+ * en algún sitio (con su estación, en un poste o con su vía propia), pero eso lo dice el servicio, con
+ * un 400 sobre la estación que se enseña en su campo con el diálogo abierto. Es aquí, y no en
  * el perfil, donde se cambia de qué perfil cuelga: el vínculo es del seccionador. El perfil es
  * opcional, porque los de los pórticos de subestación y los de puesta a tierra no están en un poste,
  * y vaciarlo lo desvincula. Un perfil que ya tiene seccionador no admite otro (409 BUS-002). Uno sin
@@ -44,7 +47,6 @@ export default function DisconnectorEditor({row, references, onClose}) {
         },
         validate: {
             name: requiredText('El nombre es obligatorio', NAME_MAX_LENGTH),
-            stationId: required('La estación es obligatoria'),
             disconnectorFunction: required('La función es obligatoria'),
             kp: (value, values) => ownKpError(value, values.profileId),
         },
@@ -82,7 +84,8 @@ export default function DisconnectorEditor({row, references, onClose}) {
                            onClose={onClose} size="lg">
             <TextInput label="Nombre" withAsterisk maxLength={NAME_MAX_LENGTH} data-autofocus {...form.getInputProps('name')}/>
             <SimpleGrid cols={{base: 1, sm: 2}}>
-                <Select label="Estación" withAsterisk searchable nothingFoundMessage="No hay ninguna"
+                <Select label="Estación" clearable searchable nothingFoundMessage="No hay ninguna"
+                        description="Vacía si no es de ninguna estación: entonces en un poste o con su vía propia"
                         data={withCurrent(references.stationOptions, row?.stationId)} {...form.getInputProps('stationId')}/>
                 <ProfilePicker label="Perfil" clearable description="Vacío si el seccionador no está en un poste"
                                current={currentProfile} {...profileInput} onChange={chooseProfile}/>
