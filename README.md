@@ -300,7 +300,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     detalle de cada elemento sale al pasar por encima.
   - En **Perfiles**, las ménsulas (hasta tres) se añaden, modifican y quitan dentro del editor y se
     guardan con el perfil; en **Aisladores de sección**, igual con las agujas.
-  - En **Seccionadores**, el perfil se busca escribiendo su identificador.
+  - En **Seccionadores**, el perfil se busca escribiendo su identificador, y se puede quitar: los de
+    los pórticos de subestación y los de puesta a tierra no están en un poste. El editor lleva
+    además el estado normal y el accionamiento.
 - **Trabajos** (con `config.responsable`):
   - «Exportar» con una vía sale como «Trabajo encolado» y como fila del historial. La fila avanza
     sola hasta «Terminado» y entonces ofrece «Descargar».

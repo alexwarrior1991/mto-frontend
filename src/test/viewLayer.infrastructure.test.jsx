@@ -521,8 +521,9 @@ describe('los perfiles', () => {
 
 describe('los seccionadores', () => {
     const known = {
-        id: 5, name: 'SEC-1', onLoad: true, stationId: 12, profileId: 7, profileCode: 'P-007', profileKp: '12.345',
-        disconnectorFunction: {id: 9, code: 'Disc', description: 'Seccionador'}, versionNumber: 4,
+        id: 5, name: 'SEC-1', onLoad: true, normallyOpen: null, driveType: null, stationId: 12, profileId: 7,
+        profileCode: 'P-007', profileKp: '12.345', disconnectorFunction: {id: 9, code: 'Disc', description: 'Seccionador'},
+        versionNumber: 4,
     }
     const bare = {id: 6, name: 'SEC-2', onLoad: false, stationId: 13, profileId: 8, versionNumber: 1}
 
@@ -556,6 +557,23 @@ describe('los seccionadores', () => {
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
 
         await waitFor(() => expect(updates).toEqual([{...known, profileId: 20}]))
+    })
+
+    it('el poste es opcional, y el estado normal y el accionamiento viajan con el seccionador', async () => {
+        // Los de los pórticos de subestación y los de puesta a tierra no están en un poste.
+        serveGateway({disconnectors: [known]})
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => HttpResponse.json(body))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar SEC-1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        // Elegir otra vez el perfil que tiene lo quita, también con el teclado.
+        await choose(user, dialog, 'Perfil', 'P-007 (kp 12.345)')
+        await choose(user, dialog, 'Estado normal', 'Normalmente abierto')
+        await choose(user, dialog, 'Accionamiento', 'Motor')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([{...known, profileId: null, normallyOpen: true, driveType: 'MOTOR'}]))
     })
 })
 

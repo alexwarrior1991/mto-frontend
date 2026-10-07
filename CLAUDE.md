@@ -367,7 +367,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     no se toca, vuelve la leída; si se vacía una opcional del perfil, viaja `{}` (`null` es «no la
     toques»).
   - El seccionador de un perfil se enseña pero no se cambia desde el perfil, y viaja como se leyó: el
-    vínculo es del seccionador y se cambia en su editor (su `profileId`, obligatorio).
+    vínculo es del seccionador y se cambia en su editor (su `profileId`, opcional: los de los
+    pórticos de subestación y los de puesta a tierra no están en un poste).
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.
