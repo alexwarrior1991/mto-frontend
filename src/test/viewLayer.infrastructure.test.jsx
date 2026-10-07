@@ -522,8 +522,8 @@ describe('los perfiles', () => {
 describe('los seccionadores', () => {
     const known = {
         id: 5, name: 'SEC-1', onLoad: true, normallyOpen: null, driveType: null, stationId: 12, profileId: 7,
-        profileCode: 'P-007', profileKp: '12.345', disconnectorFunction: {id: 9, code: 'Disc', description: 'Seccionador'},
-        versionNumber: 4,
+        kp: null, trackId: null, profileCode: 'P-007', profileKp: '12.345',
+        disconnectorFunction: {id: 9, code: 'Disc', description: 'Seccionador'}, versionNumber: 4,
     }
     const bare = {id: 6, name: 'SEC-2', onLoad: false, stationId: 13, profileId: 8, versionNumber: 1}
 
@@ -574,6 +574,59 @@ describe('los seccionadores', () => {
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
 
         await waitFor(() => expect(updates).toEqual([{...known, profileId: null, normallyOpen: true, driveType: 'MOTOR'}]))
+    })
+
+    // V26 de mto-configuration: uno sin poste lleva su propio KP y su vía; con poste son los del perfil.
+    const poleLess = {
+        ...known, name: 'HSA-FP1.1', profileId: null, profileCode: null, profileKp: null, kp: '98375.5', trackId: 3,
+    }
+
+    it('sin poste, el seccionador lleva su KP y su vía, y el KP se comprueba antes de llamar', async () => {
+        serveGateway({disconnectors: [poleLess]})
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => HttpResponse.json(body))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar HSA-FP1.1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        const kp = within(dialog).getByRole('textbox', {name: 'KP propio (m)'})
+        expect(kp).toHaveValue('98375.5')
+        expect(kp).toBeEnabled()
+        expect(within(dialog).getByRole('combobox', {name: 'Vía propia'})).toHaveValue('VIA 1 (EP4)')
+
+        await user.clear(kp)
+        await user.type(kp, '98+375')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Número con punto decimal, como 10.500')).toBeInTheDocument()
+        expect(updates).toEqual([])
+
+        await user.clear(kp)
+        await user.type(kp, ' 98400 ')
+        await choose(user, dialog, 'Vía propia', 'VIA 2 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([{...poleLess, kp: '98400', trackId: 4}]))
+    })
+
+    it('elegir un poste vacía el KP y la vía propios, que ya no se ofrecen', async () => {
+        serveGateway({
+            disconnectors: [poleLess],
+            profiles: [{id: 20, profileId: 'P-020', kp: '30.000', trackId: 3, cantilevers: []}],
+        })
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => HttpResponse.json(body))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar HSA-FP1.1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        const profile = within(dialog).getByRole('combobox', {name: 'Perfil'})
+        await user.type(profile, 'P-02')
+        await user.click(await screen.findByRole('option', {name: 'P-020 (kp 30.000)'}))
+        const kp = within(dialog).getByRole('textbox', {name: 'KP propio (m)'})
+        expect(kp).toHaveValue('')
+        expect(kp).toBeDisabled()
+        expect(within(dialog).getByRole('combobox', {name: 'Vía propia'})).toHaveValue('')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([{...poleLess, profileId: 20, kp: null, trackId: null}]))
     })
 })
 

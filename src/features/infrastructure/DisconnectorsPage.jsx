@@ -10,10 +10,10 @@ import {useReferenceCatalog} from './useMasters.js'
 /**
  * infraestructura/seccionadores: cada seccionador con su estación, su función y el perfil del que
  * cuelga. El perfil sale de la propia fila (profileCode y profileKp), porque la lista no va perfil por
- * perfil.
+ * perfil. Las vías se cargan para el editor: uno sin poste elige la suya.
  */
 export default function DisconnectorsPage() {
-    const references = useReferenceCatalog({stations: true})
+    const references = useReferenceCatalog({stations: true, tracks: true})
     const columns = [
         {key: 'name', label: 'Nombre', sortField: 'name', render: (row) => row.name},
         {key: 'station', label: 'Estación', sortField: 'station.name', render: (row) => references.stationName(row.stationId)},
