@@ -145,6 +145,7 @@ export function disconnectorTitle(disconnector) {
     }
     addIf(parts, 'función ', disconnector.function)
     addIf(parts, 'estación ', disconnector.station)
+    addIf(parts, 'en paralelo con ', disconnector.connectedTrack)
     return parts.join(' · ')
 }
 

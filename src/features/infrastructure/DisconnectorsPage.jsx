@@ -10,7 +10,8 @@ import {useReferenceCatalog} from './useMasters.js'
 /**
  * infraestructura/seccionadores: cada seccionador con su estación, su función y el perfil del que
  * cuelga. El perfil sale de la propia fila (profileCode y profileKp), porque la lista no va perfil por
- * perfil. Las vías se cargan para el editor: uno sin poste elige la suya.
+ * perfil. Las vías se cargan para nombrar la conectada de uno que pone dos en paralelo y para el
+ * editor, donde uno sin poste elige la suya.
  */
 export default function DisconnectorsPage() {
     const references = useReferenceCatalog({stations: true, tracks: true})
@@ -23,6 +24,7 @@ export default function DisconnectorsPage() {
         },
         {key: 'profile', label: 'Perfil', sortField: 'profile.profileId', render: (row) => disconnectorProfileLabel(row)},
         {key: 'onLoad', label: 'En carga', sortField: 'onLoad', render: (row) => yesNo(row.onLoad)},
+        {key: 'connectedTrack', label: 'Vía conectada', render: (row) => references.trackName(row.connectedTrackId)},
     ]
     const filters = [{
         key: 'onLoad',
