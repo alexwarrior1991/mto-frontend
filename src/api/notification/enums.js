@@ -16,6 +16,7 @@ export const ACTIVITY_CATEGORY = defineEnum({
     CONFIGURATION: 'Configuración',
     MAINTENANCE: 'Mantenimiento',
     STOCK: 'Almacén',
+    FIELD: 'Campo',
     SYSTEM: 'Sistema',
 })
 

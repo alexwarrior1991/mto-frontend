@@ -416,7 +416,7 @@ describe('la bandeja', () => {
 
 describe('el registro de actividad', () => {
     const created = activityEvent(EVENT1, 'MAINTENANCE', 'maintenance.order.created', 'CRITICAL')
-    const burst = activityEvent(EVENT2, 'FIELD', 'configuration.profile.updated', 'INFO', {
+    const burst = activityEvent(EVENT2, 'TELEMETRY', 'configuration.profile.updated', 'INFO', {
         seq: 119, sourceService: 'mto-configuration', sourceEventId: 'burst:7', actor: {kind: 'SYSTEM', username: null, id: null},
         subject: {type: 'profile', id: null, label: null}, correlationId: 'job-1', eventCount: 12645, supersededBy: EVENT1,
     })
@@ -436,7 +436,7 @@ describe('el registro de actividad', () => {
 
         await user.click(screen.getByRole('combobox', {name: 'Categoría'}))
         const offered = (await screen.findAllByRole('option')).map((option) => option.textContent)
-        expect(offered).toEqual(['Usuarios', 'Configuración', 'Mantenimiento', 'Almacén', 'Sistema'])
+        expect(offered).toEqual(['Usuarios', 'Configuración', 'Mantenimiento', 'Almacén', 'Campo', 'Sistema'])
         await user.keyboard('{Escape}')
 
         await choose(user, 'Gravedad', 'Crítica')

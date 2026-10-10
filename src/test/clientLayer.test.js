@@ -2583,7 +2583,7 @@ describe('notification/*.js: la bandeja, el registro y los accesos de mto-notifi
     it('el registro se busca con todos sus filtros, includeSuperseded solo viaja verdadero, y el detalle trae el payload', async () => {
         useToken()
         const searches = record('get', `${BASE}/activity`, (_request, call) => HttpResponse.json(call === 1
-            ? page([event('USERS', 'PERSON'), {...event('FIELD', 'ROBOT', EVENT), id: N2}], {size: 50})
+            ? page([event('USERS', 'PERSON'), {...event('TELEMETRY', 'ROBOT', EVENT), id: N2}], {size: 50})
             : page([], {size: 50})))
         const details = record('get', `${BASE}/activity/:id`, () => HttpResponse.json(event('USERS', 'SERVICE')))
 
@@ -2610,7 +2610,7 @@ describe('notification/*.js: la bandeja, el registro y los accesos de mto-notifi
         expect(detail.payload).toEqual({targetUsername: 'nueva.persona', temporaryCredential: true, actions: ['VERIFY_EMAIL']})
         expect(access.message).toMatch(/accesos/)
         expect(searches).toHaveLength(2)
-        expect(activityCategories().map((option) => option.value)).toEqual(['USERS', 'CONFIGURATION', 'MAINTENANCE', 'STOCK', 'SYSTEM'])
+        expect(activityCategories().map((option) => option.value)).toEqual(['USERS', 'CONFIGURATION', 'MAINTENANCE', 'STOCK', 'FIELD', 'SYSTEM'])
     })
 
     it('quién y sobre qué se nombran como en el backoffice: sin nombre de usuario, su clase; sin etiqueta, el id', () => {
