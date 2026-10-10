@@ -16,6 +16,8 @@
     "/mantenimiento/inspecciones/#{event.subjectId}",
     "/mantenimiento/ordenes/#{payload.orderId}",
     "/mantenimiento/turnos/#{event.subjectId}",
+    "/mantenimiento/turnos",
+    "/mantenimiento/turnos/#{payload.shiftId}",
     "/mantenimiento/activos",
     "/almacen/materiales",
     "/almacen/reservas",
