@@ -369,10 +369,13 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - El seccionador de un perfil se enseña pero no se cambia desde el perfil, y viaja como se leyó: el
     vínculo es del seccionador y se cambia en su editor (su `profileId`, opcional: los de los
     pórticos de subestación y los de puesta a tierra no están en un poste). Uno sin poste lleva su
-    propio `kp` (texto, comprobado y recortado como el del perfil) y su `trackId`; con poste son los
-    del perfil, así que elegirlo los vacía y viajan a `null`, como en el backoffice. Uno que pone dos
-    vías en paralelo lleva además su `connectedTrackId`, la otra, con poste o sin él; que no sea la
-    suya lo dice el servicio, en ese campo. Su `stationId` es opcional (uno en plena vía, en una zona
+    propio `kp` (texto, comprobado y recortado como el del perfil) y su `trackId`; con poste el KP es
+    el del perfil, así que elegirlo lo vacía y viaja a `null`, como en el backoffice. La vía no: con
+    poste, `trackId` es la que maniobra cuando no es la del poste (en un haz de vías, en talleres y
+    cocheras, cuelga a veces del poste de una y aísla otra, o une dos que no son la del poste), y
+    vacía es la del poste; elegir un poste no la vacía, y la lista la enseña en «Vía propia». Uno
+    que pone dos vías en paralelo lleva además su `connectedTrackId`, la otra, con poste o sin él;
+    que no sea la suya lo dice el servicio, en ese campo. Su `stationId` es opcional (uno en plena vía, en una zona
     neutra o en una subestación no es de ninguna); que sin estación esté en un poste o con su vía
     propia lo dice el servicio, con un 400 sobre la estación.
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el

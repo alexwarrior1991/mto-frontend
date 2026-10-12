@@ -24,6 +24,8 @@ export default function DisconnectorsPage() {
         },
         {key: 'profile', label: 'Perfil', sortField: 'profile.profileId', render: (row) => disconnectorProfileLabel(row)},
         {key: 'onLoad', label: 'En carga', sortField: 'onLoad', render: (row) => yesNo(row.onLoad)},
+        // La suya sin poste; con poste, la que maniobra si no es la del poste, y vacía si es esa.
+        {key: 'track', label: 'Vía propia', render: (row) => references.trackName(row.trackId)},
         {key: 'connectedTrack', label: 'Vía conectada', render: (row) => references.trackName(row.connectedTrackId)},
     ]
     const filters = [{

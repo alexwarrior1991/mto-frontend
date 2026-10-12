@@ -1,6 +1,6 @@
 import {
-    ARM_LENGTH, armDirection, armTitle, disconnectorTitle, HEIGHT, insulatorDetail, insulatorTitle, insulatorX, join,
-    LINE_Y, MARGIN, POLE_TOP, poleTitle, switchLabel, width, xOf,
+    ARM_LENGTH, armDirection, armTitle, disconnectorDetail, disconnectorTitle, HEIGHT, insulatorDetail, insulatorTitle,
+    insulatorX, join, LINE_Y, MARGIN, POLE_TOP, poleTitle, switchLabel, width, xOf,
 } from './schematicLayout.js'
 
 const SANS = 'sans-serif'
@@ -90,14 +90,13 @@ function Pole({profile, x}) {
 function Disconnector({disconnector, x, direction}) {
     const y = LINE_Y - 60
     const anchor = direction < 0 ? 'start' : 'end'
+    const detail = disconnectorDetail(disconnector)
     return (
         <g data-kind="disconnector" data-id={disconnector.id}>
             <title>{disconnectorTitle(disconnector)}</title>
             <path {...STYLE.disconnector} d={`M${x} ${y - 8} L${x + 8} ${y} L${x} ${y + 8} L${x - 8} ${y} Z`}/>
             <text {...STYLE.disconnectorLabel} x={x - direction * 12} y={y + 4} textAnchor={anchor}>{disconnector.name}</text>
-            {disconnector.station && (
-                <text {...STYLE.small} x={x - direction * 12} y={y + 16} textAnchor={anchor}>{disconnector.station}</text>
-            )}
+            {detail && <text {...STYLE.small} x={x - direction * 12} y={y + 16} textAnchor={anchor}>{detail}</text>}
         </g>
     )
 }

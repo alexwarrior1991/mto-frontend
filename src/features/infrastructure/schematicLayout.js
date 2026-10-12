@@ -145,8 +145,15 @@ export function disconnectorTitle(disconnector) {
     }
     addIf(parts, 'función ', disconnector.function)
     addIf(parts, 'estación ', disconnector.station)
+    // La vía que maniobra, solo cuando no es la del poste: un haz de vías.
+    addIf(parts, 'maniobra la vía ', disconnector.track)
     addIf(parts, 'en paralelo con ', disconnector.connectedTrack)
     return parts.join(' · ')
+}
+
+/** Lo que va bajo el nombre del seccionador: su estación y la vía que maniobra si no es la del poste. */
+export function disconnectorDetail(disconnector) {
+    return join(' · ', disconnector.station, disconnector.track ? `maniobra ${disconnector.track}` : null)
 }
 
 export function insulatorTitle(mark) {

@@ -303,7 +303,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - En **Seccionadores**, el perfil se busca escribiendo su identificador, y se puede quitar: los de
     los pórticos de subestación y los de puesta a tierra no están en un poste. El editor lleva
     además el estado normal y el accionamiento, y, sin poste, el KP y la vía del seccionador: elegir
-    un poste los vacía, porque son los del perfil. Uno que pone dos vías en paralelo (los de puente)
+    un poste vacía el KP, porque es el del perfil. La vía se queda: con poste es la que maniobra
+    cuando no es la del poste (un haz de vías, en talleres y cocheras), vacía es la del poste, y la
+    lista la enseña en «Vía propia». Uno que pone dos vías en paralelo (los de puente)
     lleva su «Vía conectada», con poste o sin él, que la lista enseña en su columna y el esquema en
     el detalle del seccionador. La estación también se puede quitar: uno en plena vía, en una zona
     neutra o en una subestación no es de ninguna. Sin estación, sin poste y sin vía propia, el

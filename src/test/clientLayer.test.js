@@ -1124,7 +1124,7 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         const schematics = record('get', '/api/configuration/tracks/3/schematic', () => HttpResponse.json({
             trackId: 3, trackName: 'VIA 1', enabled: true, executionPackageName: 'EP4', stations: ['ATOCHA'],
             profiles: [{id: 7, code: 'P-007', kp: '12.345', cantilevers: [{id: 21, type: 'PT1', cwHeight: '5.300'}],
-                disconnector: {id: 40, name: 'SEC-40'}}],
+                disconnector: {id: 40, name: 'SEC-40', track: 'VIA 3'}}],
             sectionInsulators: [],
         }))
         const companies = record('get', '/api/configuration/business-entities', () => HttpResponse.json([
@@ -1145,6 +1145,7 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(schematics).toHaveLength(1)
         expect(schematic.profiles[0].cantilevers[0].cwHeight).toBe('5.300')
         expect(schematic.profiles[0].disconnector.name).toBe('SEC-40')
+        expect(schematic.profiles[0].disconnector.track).toBe('VIA 3')
         expect(entities[0].identificationNumber).toBe('A12345678')
         expect(companies[0].headers.get('authorization')).toBe('Bearer token-1')
     })
