@@ -607,7 +607,8 @@ describe('los seccionadores', () => {
         await waitFor(() => expect(updates).toEqual([{...poleLess, kp: '98400', trackId: 4}]))
     })
 
-    it('elegir un poste vacía el KP y la vía propios, que ya no se ofrecen', async () => {
+    it('elegir un poste vacía el KP propio, que ya no se ofrece, pero la vía se queda', async () => {
+        // Con poste, la vía propia es la que maniobra si no es la del poste: quien la tenía la ve y decide.
         serveGateway({
             disconnectors: [poleLess],
             profiles: [{id: 20, profileId: 'P-020', kp: '30.000', trackId: 3, cantilevers: []}],
@@ -623,10 +624,38 @@ describe('los seccionadores', () => {
         const kp = within(dialog).getByRole('textbox', {name: 'KP propio (m)'})
         expect(kp).toHaveValue('')
         expect(kp).toBeDisabled()
-        expect(within(dialog).getByRole('combobox', {name: 'Vía propia'})).toHaveValue('')
+        const track = within(dialog).getByRole('combobox', {name: 'Vía propia'})
+        expect(track).toHaveValue('VIA 1 (EP4)')
+        expect(track).toBeEnabled()
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
 
-        await waitFor(() => expect(updates).toEqual([{...poleLess, profileId: 20, kp: null, trackId: null}]))
+        await waitFor(() => expect(updates).toEqual([{...poleLess, profileId: 20, kp: null}]))
+    })
+
+    // En un haz de vías (talleres, cocheras) uno cuelga a veces del poste de una vía y maniobra otra, o
+    // une dos que no son la del poste: con poste, su vía propia es la que maniobra.
+    const switching = {...known, name: 'DEP-12', trackId: 4, connectedTrackId: 3}
+
+    it('con poste, la vía propia es la que maniobra: la lista la enseña y vaciarla vuelve a la del poste', async () => {
+        serveGateway({disconnectors: [switching]})
+        const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => HttpResponse.json(body))
+        const {user} = await open('/infraestructura/seccionadores', sessionWith(WRITER), 'Seccionadores', 1)
+
+        expect(within(rowOf('Seccionadores', 'DEP-12')).getByText('VIA 2 (EP4)')).toBeInTheDocument()
+        expect(within(rowOf('Seccionadores', 'DEP-12')).getByText('VIA 1 (EP4)')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Modificar DEP-12'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar seccionador'})
+        expect(within(dialog).getByRole('textbox', {name: 'KP propio (m)'})).toBeDisabled()
+        const track = within(dialog).getByRole('combobox', {name: 'Vía propia'})
+        expect(track).toHaveValue('VIA 2 (EP4)')
+        expect(track).toBeEnabled()
+        expect(within(dialog).getByRole('combobox', {name: 'Vía conectada'})).toHaveValue('VIA 1 (EP4)')
+
+        // Elegir otra vez la que tiene la quita: vuelve a maniobrar la de su poste.
+        await choose(user, dialog, 'Vía propia', 'VIA 2 (EP4)')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([{...switching, trackId: null}]))
     })
 
     it('la estación es opcional, y que no quede en ningún sitio lo dice el servicio en su campo', async () => {
@@ -785,7 +814,11 @@ describe('el esquema de una vía', () => {
                 },
                 {
                     id: 2, code: 'P-002', kp: '20.000', orderInTrack: 2, railPoleDistance: '2500', sectionings: [], cantilevers: [],
-                    disconnector: {id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA', connectedTrack: 'VIA 2'},
+                    // Cuelga de un poste de VIA 1 y une otras dos: un haz de vías.
+                    disconnector: {
+                        id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA', track: 'VIA 3',
+                        connectedTrack: 'VIA 2',
+                    },
                 },
             ],
             sectionInsulators: [{
@@ -815,14 +848,14 @@ describe('el esquema de una vía', () => {
         expect(dialog).toHaveTextContent('2 perfiles · 1 ménsula · 1 seccionador · 1 aislador · Estaciones: ATOCHA, CHAMARTIN')
         const drawing = within(dialog).getByRole('img', {name: 'Esquema de la vía VIA 1'})
         expect([...drawing.querySelectorAll('[data-kind="pole"]')].map((pole) => pole.dataset.id)).toEqual(['1', '2'])
-        for (const text of ['P-001', 'KP 10.000', 'HEB · OK', 'PT1', 'S1', 'P-002', 'KP 20.000', 'SEC-40', 'AIS-50',
+        for (const text of ['P-001', 'KP 10.000', 'HEB · OK', 'PT1', 'S1', 'P-002', 'KP 20.000', 'SEC-40', 'ATOCHA · maniobra VIA 3', 'AIS-50',
             'conexión de vías · ↔ VIA 2 · ATOCHA', 'W31 1:9']) {
             expect(within(drawing).getByText(text)).toBeInTheDocument()
         }
         expect(drawing.querySelector('[data-kind="arm"] title')).toHaveTextContent(
             'Ménsula PT1 · descentramiento -200 · altura hilo 5.300 · altura catenaria 1.400 · brazo SA1 1200 mm')
         expect(drawing.querySelector('[data-kind="disconnector"] title')).toHaveTextContent(
-            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA · en paralelo con VIA 2')
+            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA · maniobra la vía VIA 3 · en paralelo con VIA 2')
         expect(within(dialog).getByText(/Un poste por perfil/)).toBeInTheDocument()
 
         // La X de la ventana también se llama «Cerrar»; el del pie es el segundo.
@@ -835,7 +868,7 @@ describe('el esquema de una vía', () => {
         serveSchematic(3, () => HttpResponse.json({
             trackId: 3, trackName: 'VIA "1" & <b>', enabled: true, stations: [],
             profiles: [{id: 9, code: '<script>P</script>', kp: '1.000', sectionings: ['<b>'], cantilevers: [],
-                disconnector: {id: 1, name: '"SEC" & co'}}],
+                disconnector: {id: 1, name: '"SEC" & co', track: '<i>'}}],
             sectionInsulators: [],
         }))
         const {user} = await open('/infraestructura/vias', loginAs('config.lector'), 'Vías', 3)
@@ -845,8 +878,10 @@ describe('el esquema de una vía', () => {
         const drawing = within(dialog).getByRole('img', {name: 'Esquema de la vía VIA "1" & <b>'})
         expect(within(drawing).getByText('<script>P</script>')).toBeInTheDocument()
         expect(within(drawing).getByText('"SEC" & co')).toBeInTheDocument()
+        expect(within(drawing).getByText('maniobra <i>')).toBeInTheDocument()
         expect(drawing.querySelector('script')).toBeNull()
         expect(drawing.querySelector('b')).toBeNull()
+        expect(drawing.querySelector('i')).toBeNull()
     })
 
     it('si el esquema falla se avisa con su referencia y no se abre ninguna ventana', async () => {

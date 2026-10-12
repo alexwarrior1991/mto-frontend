@@ -25,9 +25,12 @@ const FUNCTIONS = 'disconnector-functions'
  * el perfil, donde se cambia de qué perfil cuelga: el vínculo es del seccionador. El perfil es
  * opcional, porque los de los pórticos de subestación y los de puesta a tierra no están en un poste,
  * y vaciarlo lo desvincula. Un perfil que ya tiene seccionador no admite otro (409 BUS-002). Uno sin
- * poste lleva su propio KP y su vía (V26 de mto-configuration); con poste son los del perfil, así
- * que elegirlo los vacía y no se ofrecen. Uno que pone dos vías en paralelo lleva además la otra
- * (V27), con poste o sin él; que no sea la suya lo dice el servicio, en su campo.
+ * poste lleva su propio KP y su vía (V26 de mto-configuration). Con poste, el KP es el del perfil, así
+ * que elegirlo lo vacía y no se ofrece. La vía no: en un haz de vías (talleres, cocheras) un
+ * seccionador cuelga a veces del poste de una vía y maniobra otra, o une dos que no son la del poste,
+ * y entonces su vía es la que maniobra; vacía es la del poste, y si se elige esa el servicio la guarda
+ * vacía. Elegir un poste no la vacía: quien la tenía la ve y decide. Uno que pone dos vías en paralelo
+ * lleva además la otra (V27), con poste o sin él; que no sea la suya lo dice el servicio, en su campo.
  */
 export default function DisconnectorEditor({row, references, onClose}) {
     const catalogues = useCatalogues([FUNCTIONS])
@@ -55,9 +58,9 @@ export default function DisconnectorEditor({row, references, onClose}) {
     const profileInput = form.getInputProps('profileId')
     const chooseProfile = (value) => {
         profileInput.onChange(value)
+        // El KP es el del poste; la vía se queda: con poste es la que maniobra si no es la del poste.
         if (value) {
             form.setFieldValue('kp', '')
-            form.setFieldValue('trackId', null)
         }
     }
 
@@ -71,7 +74,8 @@ export default function DisconnectorEditor({row, references, onClose}) {
         driveType: values.driveType,
         // Recortado, como el del perfil; vacío, o con poste, viaja como null.
         kp: !values.profileId && values.kp.trim() ? values.kp.trim() : null,
-        trackId: values.profileId ? null : toId(values.trackId),
+        // Sin poste, la suya; con poste, la que maniobra si no es la del poste (vacía, la del poste).
+        trackId: toId(values.trackId),
         connectedTrackId: toId(values.connectedTrackId),
     })
 
@@ -92,7 +96,7 @@ export default function DisconnectorEditor({row, references, onClose}) {
                 <TextInput label="KP propio (m)" description="Solo sin poste: con poste, el del perfil"
                            disabled={onAPole} {...form.getInputProps('kp')}/>
                 <Select label="Vía propia" clearable searchable nothingFoundMessage="No hay ninguna"
-                        description="Solo sin poste: con poste, la del perfil" disabled={onAPole}
+                        description="Sin poste, la suya. Con poste, solo si maniobra otra vía que la del poste"
                         data={withCurrent(references.trackOptions, row?.trackId)} {...form.getInputProps('trackId')}/>
                 <Select label="Vía conectada" clearable searchable nothingFoundMessage="No hay ninguna"
                         description="La otra vía, si pone dos en paralelo"
