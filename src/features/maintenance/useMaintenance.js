@@ -26,6 +26,7 @@ import {
     patchShift,
     searchShifts,
     transitionShift,
+    unassignTaskFromShift,
 } from '../../api/maintenance/shifts.js'
 import {cancelTask, completeTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask, startTask} from '../../api/maintenance/tasks.js'
 
@@ -475,6 +476,15 @@ export function useAssignTask(shiftId) {
         queryClient.invalidateQueries({queryKey: maintenanceKey('order-tasks', orderId)}),
     ])
     return {...mutation, settled}
+}
+
+/** Sacar una tarea abierta del turno: vuelve a su orden, y se relee lo que la enseñaba. */
+export function useUnassignTask(shiftId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({taskId}) => unassignTaskFromShift(shiftId, taskId),
+        onSuccess: (_task, {orderId}) => invalidateTasksOf(queryClient, orderId),
+    })
 }
 
 /** Iniciar una tarea en un turno en curso. */

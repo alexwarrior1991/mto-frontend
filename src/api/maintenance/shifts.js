@@ -92,6 +92,14 @@ export function assignTaskToShift(shiftId, taskId) {
     return apiFetch(maintenancePath('shifts', shiftId, 'tasks', taskId), {method: 'POST'})
 }
 
+/**
+ * Saca del turno una tarea abierta: vuelve a su orden, pendiente y sin turno, como lo no terminado al
+ * cerrar. Una terminada o cancelada se queda (409 TRN-001), y un turno cerrado ya no cambia.
+ */
+export function unassignTaskFromShift(shiftId, taskId) {
+    return apiFetch(maintenancePath('shifts', shiftId, 'tasks', taskId, 'unassign'), {method: 'POST'})
+}
+
 export function shiftRevisionsPath(id) {
     return maintenancePath('shifts', id, 'revisions')
 }
