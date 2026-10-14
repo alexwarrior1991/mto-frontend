@@ -1,7 +1,7 @@
-import {IconCheck, IconCircleX, IconExternalLink, IconListCheck, IconPlayerPlay} from '@tabler/icons-react'
+import {IconArrowBackUp, IconCheck, IconCircleX, IconExternalLink, IconListCheck, IconPlayerPlay} from '@tabler/icons-react'
 import {useState} from 'react'
 import {useNavigate} from 'react-router'
-import {canCloseShift, isOpenTask, TASK_STATUS} from '../../api/maintenance/enums.js'
+import {canCloseShift, isOpenShift, isOpenTask, TASK_STATUS} from '../../api/maintenance/enums.js'
 import {assetLabel} from '../../api/maintenance/values.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {formatDateTime} from '../../ui/format.js'
@@ -12,13 +12,14 @@ import CompleteTaskModal from './CompleteTaskModal.jsx'
 import {orderPath} from './maintenanceRoutes.js'
 import {kpRange} from './maintenanceTexts.js'
 import ReasonModal from './ReasonModal.jsx'
-import {useCancelTask, useOrderCodes, useShiftTasks, useStartTask} from './useMaintenance.js'
+import {useCancelTask, useOrderCodes, useShiftTasks, useStartTask, useUnassignTask} from './useMaintenance.js'
 
 /**
  * Las tareas asignadas a un turno, de todas sus órdenes (el port de ShiftTasksPanel). Con
  * maintenance-write y el turno en curso se inician y se completan aquí; el checklist y cancelar valen
- * mientras la tarea esté abierta. Si la orden no está en curso o el turno no admite el trabajo, lo dice
- * el servicio. Cada fila abre su orden.
+ * mientras la tarea esté abierta, y quitarla del turno mientras el turno no esté cerrado ni cancelado:
+ * vuelve a su orden sin cancelarse. Si la orden no está en curso o el turno no admite el trabajo, lo
+ * dice el servicio. Cada fila abre su orden.
  */
 export default function ShiftTasksPanel({shift, canWrite}) {
     const navigate = useNavigate()
@@ -27,6 +28,7 @@ export default function ShiftTasksPanel({shift, canWrite}) {
     const codes = useOrderCodes(rows.map((task) => task.orderId))
     const starting = useStartTask()
     const cancelling = useCancelTask()
+    const unassigning = useUnassignTask(shift.id)
     // El diálogo abierto: {kind: 'checklist'|'complete'|'cancel', task}.
     const [dialog, setDialog] = useState(null)
     const close = () => setDialog(null)
@@ -50,6 +52,10 @@ export default function ShiftTasksPanel({shift, canWrite}) {
         onSuccess: () => notifySuccess(`Tarea ${task.sequence} iniciada`),
     })
 
+    const unassign = (task) => unassigning.mutate({orderId: task.orderId, taskId: task.id}, {
+        onSuccess: () => notifySuccess(`Tarea ${task.sequence} quitada del turno: vuelve a su orden`),
+    })
+
     const actions = (task) => {
         const name = nameOf(task)
         const open = canWrite && isOpenTask(task.status)
@@ -66,6 +72,10 @@ export default function ShiftTasksPanel({shift, canWrite}) {
                 )}
                 {open && working && (
                     <RowActionButton label={`Completar ${name}`} tooltip="Completar" icon={IconCheck} onClick={() => setDialog({kind: 'complete', task})}/>
+                )}
+                {open && isOpenShift(shift.status) && (
+                    <RowActionButton label={`Quitar ${name} del turno`} tooltip="Quitar del turno" icon={IconArrowBackUp}
+                                     onClick={() => unassign(task)}/>
                 )}
                 {open && (
                     <RowActionButton label={`Cancelar ${name}`} tooltip="Cancelar" icon={IconCircleX} color="red"

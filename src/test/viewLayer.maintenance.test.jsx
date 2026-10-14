@@ -1632,7 +1632,7 @@ describe('los turnos', () => {
             expect(screen.getByRole('button', {name})).toBeInTheDocument()
         }
         await waitFor(() => expect(actionsOf(rowElements('Tareas de SH-000001')[0]))
-            .toEqual(['Abrir la orden de la tarea 1 de MO-000001', 'Cancelar la tarea 1 de MO-000001']))
+            .toEqual(['Abrir la orden de la tarea 1 de MO-000001', 'Quitar la tarea 1 de MO-000001 del turno', 'Cancelar la tarea 1 de MO-000001']))
         expect(screen.queryByRole('button', {name: 'Cerrar'})).not.toBeInTheDocument()
         await user.click(screen.getByRole('button', {name: 'Iniciar'}))
         const start = await screen.findByRole('dialog', {name: 'Iniciar SH-000001'})
@@ -1702,6 +1702,27 @@ describe('los turnos', () => {
         expect(await screen.findByText('Asignadas: 1. Rechazadas: tarea 2 (El turno no admite ese trabajo. Shift SH-000001 has partial '
             + 'possession; the task includes work that needs full track possession)')).toBeInTheDocument()
         expect(screen.getByRole('dialog', {name: 'Asignar tareas a SH-000001'})).toBeInTheDocument()
+    })
+
+    it('una tarea abierta se quita del turno y vuelve a su orden; lo terminado y un turno cerrado no lo ofrecen', async () => {
+        const unassigns = recordWrites('post', `${BASE}/shifts/${SHIFT1}/tasks/${TASK1}/unassign`, () => HttpResponse.json(task(TASK1, 1, 'PENDING')))
+        const {user, unmount} = await openShift(loginAs('mantenimiento.tecnico'), shift('IN_PROGRESS'), {
+            orders: [order({status: 'IN_PROGRESS'})],
+            shiftTasks: {[SHIFT1]: [task(TASK1, 1, 'IN_PROGRESS', {shiftId: SHIFT1}), task(TASK2, 2, 'COMPLETED', {shiftId: SHIFT1})]},
+        })
+
+        await waitFor(() => expect(rowElements('Tareas de SH-000001')).toHaveLength(2))
+        await waitFor(() => expect(actionsOf(rowElements('Tareas de SH-000001')[1])).toEqual(['Abrir la orden de la tarea 2 de MO-000001']))
+        await user.click(screen.getByRole('button', {name: 'Quitar la tarea 1 de MO-000001 del turno'}))
+        expect(await screen.findByText('Tarea 1 quitada del turno: vuelve a su orden')).toBeInTheDocument()
+        expect(unassigns).toHaveLength(1)
+        unmount()
+
+        await openShift(loginAs('mantenimiento.tecnico'), shift('CLOSED'), {
+            orders: [order({status: 'IN_PROGRESS'})], shiftTasks: {[SHIFT1]: [task(TASK1, 1, 'PENDING', {shiftId: SHIFT1})]},
+        })
+        await waitFor(() => expect(rowElements('Tareas de SH-000001')).toHaveLength(1))
+        expect(screen.queryByRole('button', {name: 'Quitar la tarea 1 de MO-000001 del turno'})).not.toBeInTheDocument()
     })
 
     it('una tarea se inicia, se rellena su checklist y se completa en el turno con sus defectos y materiales', async () => {
@@ -1825,6 +1846,11 @@ describe('los turnos', () => {
         await choose(user, document.body, 'Tareas', 'Pendiente')
         expect(await screen.findByText('Ningún perfil.')).toBeInTheDocument()
         expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`).at(-1), 'status')).toBe('PENDING')
+        // El filtro no se vacía: sin estado el servicio daría los completados, no «todas».
+        expect(within(screen.getByRole('tabpanel', {name: 'Perfiles'})).queryByRole('button', {name: /borrar|limpiar|clear/i})).not.toBeInTheDocument()
+        await choose(user, document.body, 'Tareas', 'Pendiente')
+        expect(screen.getByRole('combobox', {name: 'Tareas'})).toHaveValue('Pendiente')
+        expect(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`).every((read) => param(read, 'status') !== null)).toBe(true)
     })
 
     it('el parte se pide al abrir su pestaña, enseña lo que compone el servicio y descarga sus ficheros', async () => {

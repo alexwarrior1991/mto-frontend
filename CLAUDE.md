@@ -118,8 +118,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `maintenance/materials.js` (las líneas de material y lo que admite cada una: `isEditableLine`,
     `isRemovableLine`, `syncActionOf`, `fixedPlanned`, `fixedConsumed`);
   - `maintenance/shifts.js` (los turnos, también de varias vías a la vez, iniciarlos, cerrarlos y
-    cancelarlos, sus tareas y perfiles, asignar una tarea, y `tracksOf`, las vías de un activo: la suya
-    y la conectada de uno que une dos), `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
+    cancelarlos, sus tareas y perfiles, asignar una tarea y sacarla (`unassignTaskFromShift`), y
+    `tracksOf`, las vías de un activo: la suya y la conectada de uno que une dos),
+    `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
     el defecto y la orden correctiva que generan), `maintenance/defects.js` (los defectos y sus
     transiciones: vincular a una orden, resolver, cerrar y descartar) y `maintenance/reports.js` (el
     parte de un turno, el avance y el mes, en JSON y como fichero).
@@ -463,6 +464,11 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   llega como fracción y solo se pinta como porcentaje; aquí no se suma nada. El parte de un turno
   trae debajo de las tareas las inspecciones registradas en él, con su recuento del servicio, y
   guardar una inspección lo relee.
+- **Una tarea abierta se quita del turno y vuelve a su orden** (`ShiftTasksPanel`, «Quitar del
+  turno»: `POST /shifts/{id}/tasks/{taskId}/unassign`, con `maintenance-write` como asignar). Se ofrece
+  con el turno planificado o en curso (`isOpenShift`), sin confirmación porque se deshace asignándola
+  otra vez; una terminada o cancelada se queda, porque es lo que se hizo en el turno. Es lo que pide el
+  409 `SHF-001` de quitarle una vía o pasarlo a parcial con una tarea que dejaría de caber.
 - **Un activo que une dos vías se trabaja desde un turno de cualquiera** (`connectedTrackId`, en el
   resumen que trae una tarea): completar desde la orden ofrece los turnos en curso de las dos, en una
   sola búsqueda con `trackId` repetido (`tracksOf`), y el alta de una inspección, los trabajados (en

@@ -360,7 +360,8 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - Planificar una orden reserva sus materiales en el almacén. En la pestaña **Materiales**, el
     estado de cada línea dice cómo va con el almacén, y su motivo sale al pasar por encima.
   - En **Turnos**, un turno en curso asigna tareas de las órdenes abiertas de su vía y las completa
-    con su checklist, los defectos encontrados y el material gastado. Su **Parte** es el del servicio,
+    con su checklist, los defectos encontrados y el material gastado. Una tarea abierta se quita del
+    turno («Quitar del turno», en su pestaña Tareas) y vuelve a su orden. Su **Parte** es el del servicio,
     con las inspecciones registradas en el turno debajo de las tareas.
   - «Generar tareas» de un preventivo crea una por perfil de su tramo y, añadiendo filas, también
     aisladores (RG-03) y seccionadores (RP-06 los de motor) de otro tramo, de una vía, de una estación,

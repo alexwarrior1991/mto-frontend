@@ -7,7 +7,8 @@ import {useShiftProfiles} from './useMaintenance.js'
 
 /**
  * Los perfiles de las tareas del turno, en el orden físico de la vía que da el servicio (el port de
- * ShiftProfilesPanel); de entrada, los ya revisados (tarea completada).
+ * ShiftProfilesPanel); de entrada, los ya revisados (tarea completada). El filtro siempre lleva un
+ * estado: sin él el servicio da los completados, y un «Todas» vacío habría enseñado solo esos.
  */
 export default function ShiftProfilesPanel({shift}) {
     const [status, setStatus] = useState('COMPLETED')
@@ -20,7 +21,7 @@ export default function ShiftProfilesPanel({shift}) {
     ]
     return (
         <Stack>
-            <Select label="Tareas" placeholder="Todas" clearable w={200} data={TASK_STATUS.selectable()} value={status} onChange={setStatus}/>
+            <Select label="Tareas" w={200} data={TASK_STATUS.selectable()} value={status} onChange={setStatus} allowDeselect={false}/>
             <DataTable ariaLabel={`Perfiles de ${shift.code}`} columns={columns} rows={profiles.data ?? []} loading={profiles.isPending}
                        emptyText={profiles.isError ? 'No se han podido leer los perfiles.' : 'Ningún perfil.'}/>
         </Stack>

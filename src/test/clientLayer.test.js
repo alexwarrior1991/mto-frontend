@@ -155,6 +155,7 @@ import {
 } from '../api/maintenance/reports.js'
 import {
     assignTaskToShift,
+    unassignTaskFromShift,
     cancelShift,
     createShift,
     listShiftProfiles,
@@ -2323,7 +2324,7 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
             .toMatchObject({executionPackageId: 3, stationId: 4, driveType: 'MOTOR'})
     })
 
-    it('los turnos: la búsqueda, el alta sin lo vacío, la modificación con los conjuntos enteros, las transiciones, sus tareas y asignar', async () => {
+    it('los turnos: la búsqueda, el alta sin lo vacío, la modificación con los conjuntos enteros, las transiciones, sus tareas, asignar y sacar', async () => {
         useToken()
         const searches = record('get', `${BASE}/shifts`, () => HttpResponse.json(page([shift('IN_PROGRESS')])))
         const posts = record('post', `${BASE}/shifts`, () => HttpResponse.json(shift('PLANNED'), {status: 201}))
@@ -2332,6 +2333,7 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         const tasks = record('get', `${BASE}/shifts/:id/tasks`, () => HttpResponse.json([task('PENDING')]))
         const profiles = record('get', `${BASE}/shifts/:id/profiles`, () => HttpResponse.json([task('PENDING').asset]))
         const assigns = record('post', `${BASE}/shifts/:id/tasks/:taskId`, () => HttpResponse.json(task('PENDING', {shiftId: SHIFT})))
+        const unassigns = record('post', `${BASE}/shifts/:id/tasks/:taskId/unassign`, () => HttpResponse.json(task('PENDING', {shiftId: null})))
 
         await searchShifts({dateFrom: '2026-10-01', dateTo: '2026-10-31', trackId: 12, status: 'IN_PROGRESS', possessionType: 'FULL'})
         await createShift(shiftRequest({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: ['12'], teamId: null, baseName: ' ',
@@ -2346,6 +2348,7 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         await listShiftTasks(SHIFT, {status: 'PENDING'})
         await listShiftProfiles(SHIFT)
         const assigned = await assignTaskToShift(SHIFT, TASK)
+        const unassigned = await unassignTaskFromShift(SHIFT, TASK)
 
         expect(searches[0].url.search).toBe('?dateFrom=2026-10-01&dateTo=2026-10-31&trackId=12&status=IN_PROGRESS&possessionType=FULL'
             + '&page=0&size=50&sort=shiftDate%2Cdesc&sort=id%2Casc')
@@ -2363,6 +2366,10 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(profiles[0].url.search).toBe('')
         expect(assigns[0].body).toBe('')
         expect(assigned.shiftId).toBe(SHIFT)
+        // Sacarla es un POST sin cuerpo, como asignarla: con maintenance-write (un DELETE pediría maintenance-delete).
+        expect(unassigns[0].url.pathname).toBe(`${BASE}/shifts/${SHIFT}/tasks/${TASK}/unassign`)
+        expect(unassigns[0].body).toBe('')
+        expect(unassigned.shiftId).toBeNull()
         expect(() => transitionShift(SHIFT, 'reopen', {})).toThrow(/desconocida/)
     })
 
