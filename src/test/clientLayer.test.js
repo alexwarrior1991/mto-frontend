@@ -96,6 +96,8 @@ import {
 } from '../api/maintenance/defects.js'
 import {
     ASSET_TYPE,
+    DRIVE_TYPE,
+    GENERATION_OUTCOME,
     isOpenTask,
     isSyncFailed,
     ORDER_STATUS,
@@ -173,8 +175,11 @@ import {
     completeRequest,
     completeTask,
     createTask,
+    GENERATION_SCOPE,
     generateRequest,
     generateTasks,
+    generationRow,
+    isOrderSectionOnly,
     listOrderTasks,
     patchCheckItem,
     patchTask,
@@ -2248,18 +2253,56 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(json(cancels[0])).toEqual({reason: 'Perfil desmontado'})
     })
 
-    it('generar con los aisladores manda assetTypes y los tipos para todo, y lo saltado se cuenta en activos si el servicio lo dice', async () => {
+    it('generar el tramo de la orden es la petición de siempre: vacía, o assetTypes con los tipos para todo', async () => {
         useToken()
         const generates = record('post', `${BASE}/orders/:id/tasks/generate`, () => HttpResponse.json({createdTasks: 3, skippedProfiles: 1,
             totalTasks: 20, estimatedMinutes: 900, estimatedShifts: 4, skippedAssets: 2}))
+        const rows = [generationRow('PROFILE'), generationRow('SECTION_INSULATOR'), generationRow('DISCONNECTOR')]
 
-        const generated = await generateTasks(ORDER, generateRequest({taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true, withInsulators: true}))
+        const generated = await generateTasks(ORDER, generateRequest({rows, taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true}))
 
-        expect(json(generates[0])).toEqual({taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true, assetTypes: ['PROFILE', 'SECTION_INSULATOR']})
-        expect(generateRequest({withInsulators: false})).toEqual({})
+        expect(json(generates[0])).toEqual({taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true,
+            assetTypes: ['PROFILE', 'SECTION_INSULATOR', 'DISCONNECTOR']})
+        expect(generateRequest()).toEqual({})
+        expect(generateRequest({rows: [generationRow('PROFILE')], dryRun: true})).toEqual({dryRun: true})
+        expect(isOrderSectionOnly(rows)).toBe(true)
         expect(skippedOf(generated)).toBe(2)
         // Un servicio que todavía no cuenta los activos: los perfiles, que es lo que contaba.
         expect(skippedOf({skippedProfiles: 1})).toBe(1)
+    })
+
+    it('generar con otros sitios del EP manda una selección por fila, con sus tipos, y la previsualización trae cada activo', async () => {
+        useToken()
+        const generates = record('post', `${BASE}/orders/:id/tasks/generate`, () => HttpResponse.json({createdTasks: 1, skippedProfiles: 0,
+            totalTasks: 1, estimatedMinutes: 45, estimatedShifts: 1, skippedAssets: 0, createdByAssetType: {DISCONNECTOR: 1},
+            skippedInOtherOrders: 0, otherOrderCodes: [], skippedOtherPackage: 0, skippedWithoutTaskTypes: 0, dryRun: true,
+            assets: [{assetId: ASSET, code: 'DSC-1', name: 'HSA-NS5', type: 'DISCONNECTOR', trackId: 13, connectedTrackId: null, kp: 12.9,
+                taskTypeCodes: ['RP-06'], withChecklist: false, outcome: 'CREATE', otherOrderCode: null}]}))
+        const rows = [
+            generationRow('PROFILE'),
+            {...generationRow('PROFILE', GENERATION_SCOPE.SECTION), section: {id: 'sec-2'}},
+            {...generationRow('SECTION_INSULATOR', GENERATION_SCOPE.TRACK), trackId: '13', fromKp: ' 12000.5 ', toKp: ''},
+            {...generationRow('DISCONNECTOR', GENERATION_SCOPE.STATION), stationId: '4', taskTypeCodes: ['RP-06']},
+            generationRow('DISCONNECTOR', GENERATION_SCOPE.PACKAGE),
+            {...generationRow('PROFILE', GENERATION_SCOPE.ASSETS), assetIds: [ASSET]},
+        ]
+
+        const preview = await generateTasks(ORDER, generateRequest({rows, dryRun: true, orderSectionId: 'sec-1'}))
+
+        expect(json(generates[0])).toEqual({dryRun: true, selections: [
+            {assetType: 'PROFILE', sectionId: 'sec-1'},
+            {assetType: 'PROFILE', sectionId: 'sec-2'},
+            {assetType: 'SECTION_INSULATOR', trackId: 13, fromKp: 12000.5},
+            {assetType: 'DISCONNECTOR', stationId: 4, taskTypeCodes: ['RP-06']},
+            {assetType: 'DISCONNECTOR'},
+            {assetType: 'PROFILE', assetIds: [ASSET]},
+        ]})
+        expect(isOrderSectionOnly(rows)).toBe(false)
+        // Sus propios tipos, aunque sea el tramo de la orden, son una selección.
+        expect(isOrderSectionOnly([{...generationRow('PROFILE'), taskTypeCodes: ['RG-01']}])).toBe(false)
+        expect(GENERATION_OUTCOME.label(preview.assets[0].outcome)).toBe('Se crea')
+        expect(GENERATION_OUTCOME.parse('SOMETHING_NEW')).toBe('UNKNOWN')
+        expect(DRIVE_TYPE.label('MOTOR')).toBe('Con motor')
     })
 
     it('los turnos de un activo que une dos vías se piden de una vez, con trackId repetido', async () => {
@@ -2274,7 +2317,10 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(tracksOf({trackId: 12, connectedTrackId: 12})).toEqual([12])
         expect(tracksOf(null)).toEqual([])
         expect(assetSummaryOf({...insulator, sourceService: 'mto-configuration', switches: []})).toEqual({id: ASSET, code: 'SIN-41', name: 'SI-W41',
-            type: 'SECTION_INSULATOR', trackId: 13, startKp: undefined, endKp: undefined, sectioning: undefined, enabled: true, connectedTrackId: 12})
+            type: 'SECTION_INSULATOR', trackId: 13, startKp: undefined, endKp: undefined, sectioning: undefined, enabled: true, connectedTrackId: 12,
+            executionPackageId: null, stationId: null, driveType: null})
+        expect(assetSummaryOf({...insulator, type: 'DISCONNECTOR', executionPackageId: 3, stationId: 4, driveType: 'MOTOR'}))
+            .toMatchObject({executionPackageId: 3, stationId: 4, driveType: 'MOTOR'})
     })
 
     it('los turnos: la búsqueda, el alta sin lo vacío, la modificación con los conjuntos enteros, las transiciones, sus tareas y asignar', async () => {

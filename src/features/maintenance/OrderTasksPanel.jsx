@@ -18,7 +18,8 @@ import {useCancelTask, useOrderTasks} from './useMaintenance.js'
 
 /**
  * Las tareas de una orden, en su orden (el port de OrderTasksPanel). Con maintenance-write: añadir una
- * tarea (orden sin terminar), generar las de un preventivo sobre un tramo (en borrador o planificado),
+ * tarea (orden sin terminar), generar las de un preventivo sobre un tramo o con EP (en borrador o
+ * planificado),
  * y modificar, rellenar el checklist o cancelar las abiertas; con la orden en curso, además,
  * completarlas, eligiendo entre los turnos en curso de su vía (desde la orden no hay turno). Cada
  * cambio relee la cabecera, que repinta el avance.
@@ -31,8 +32,9 @@ export default function OrderTasksPanel({order, canWrite}) {
     const cancelling = useCancelTask(order.id)
 
     const canAdd = canWrite && isOpenOrder(order.status)
+    // Sobre un tramo, como siempre; sobre otro activo, con EP: lo que genera es de su EP.
     const canGenerate = canWrite && order.type === 'PREVENTIVE' && (order.status === 'DRAFT' || order.status === 'PLANNED')
-        && order.asset?.type === 'TRACK_SECTION'
+        && (order.asset?.type === 'TRACK_SECTION' || (order.executionPackageId !== null && order.executionPackageId !== undefined))
 
     const columns = [
         {key: 'sequence', label: '#', render: (task) => task.sequence ?? ''},

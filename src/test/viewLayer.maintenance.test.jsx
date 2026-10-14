@@ -114,7 +114,8 @@ const param = (url, name) => url.searchParams.get(name)
 function serveConfiguration(requests) {
     const lists = {
         'execution-packages': [{id: 3, name: 'PAQ NORTE'}, {id: 5, name: 'PAQ SUR'}],
-        tracks: [{id: 12, name: 'VIA 1', executionPackageId: 3}, {id: 14, name: 'VIA 2', executionPackageId: 3}],
+        tracks: [{id: 12, name: 'VIA 1', executionPackageId: 3}, {id: 14, name: 'VIA 2', executionPackageId: 3},
+            {id: 20, name: 'VIA 9', executionPackageId: 5}],
         stations: [{id: 4, name: 'Sants', executionPackageId: 3}],
     }
     for (const [path, rows] of Object.entries(lists)) {
@@ -177,6 +178,7 @@ function serveMaintenance({
             const name = (param(url, 'name') ?? '').toLowerCase()
             const rows = assets.filter((row) => (!has(url, 'type') || row.type === param(url, 'type'))
                 && (!has(url, 'trackId') || String(row.trackId) === param(url, 'trackId'))
+                && (!has(url, 'executionPackageId') || String(row.executionPackageId) === param(url, 'executionPackageId'))
                 && (!has(url, 'enabled') || String(row.enabled) === param(url, 'enabled'))
                 && (!name || row.name.toLowerCase().includes(name)))
             return HttpResponse.json(pageOf(sorted(rows, url), url))
@@ -960,7 +962,7 @@ describe('las órdenes', () => {
         const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
         expect(generate).toHaveTextContent('Una tarea por cada perfil habilitado entre los KP 12.1 - 13.45 del tramo')
         await user.click(within(generate).getByRole('button', {name: 'Generar'}))
-        expect(await screen.findByText('Tareas nuevas: 14; perfiles que ya tenían tarea: 2. Total: 16, unos 720 min en 3 turnos.'))
+        expect(await screen.findByText('Tareas nuevas: 14; ya en la orden: 2. Total: 16, unos 720 min en 3 turnos.'))
             .toBeInTheDocument()
         expect(generates.map((write) => write.body)).toEqual([{}])
 
@@ -986,19 +988,128 @@ describe('las órdenes', () => {
         await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}`).length).toBeGreaterThanOrEqual(5))
     })
 
-    it('generar con los aisladores del tramo manda los dos tipos de activo y cuenta lo saltado en activos', async () => {
+    it('generar con los aisladores del tramo añade una fila y manda los dos tipos de activo con la petición de siempre', async () => {
         const generates = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/generate`, () => HttpResponse.json({createdTasks: 3,
             skippedProfiles: 14, totalTasks: 19, estimatedMinutes: 810.0, estimatedShifts: 3, skippedAssets: 16}))
         const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'PLANNED'}), {tasks: {[ORDER1]: []}})
 
         await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
         const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
-        await user.click(within(generate).getByRole('checkbox', {name: /También los aisladores de sección/}))
-        expect(generate).toHaveTextContent('RG-03 en cada aislador')
+        expect(generate).toHaveTextContent('RG-03 en cada aislador y RP-06 en cada seccionador con motor')
+        await user.click(within(generate).getByRole('button', {name: 'Añadir qué generar'}))
+        const second = within(generate).getByRole('group', {name: 'Qué generar 2'})
+        expect(within(second).getByRole('combobox', {name: 'Activos'})).toHaveValue('Aisladores de sección')
+        expect(within(second).getByRole('combobox', {name: 'Dónde'})).toHaveValue('El tramo de la orden')
         await user.click(within(generate).getByRole('button', {name: 'Generar'}))
 
-        expect(await screen.findByText('Tareas nuevas: 3; activos que ya tenían tarea: 16. Total: 19, unos 810 min en 3 turnos.')).toBeInTheDocument()
+        expect(await screen.findByText('Tareas nuevas: 3; ya en la orden: 16. Total: 19, unos 810 min en 3 turnos.')).toBeInTheDocument()
         expect(generates.map((write) => write.body)).toEqual([{assetTypes: ['PROFILE', 'SECTION_INSULATOR']}])
+    })
+
+    it('una orden mezcla los perfiles de su tramo con los aisladores de otra vía y los seccionadores del EP, y antes lo previsualiza', async () => {
+        const preview = {createdTasks: 2, skippedProfiles: 0, totalTasks: 2, estimatedMinutes: 120, estimatedShifts: 1, skippedAssets: 0,
+            createdByAssetType: {PROFILE: 1, SECTION_INSULATOR: 1, DISCONNECTOR: 0}, skippedInOtherOrders: 1, otherOrderCodes: ['MO-000042'],
+            skippedOtherPackage: 0, skippedWithoutTaskTypes: 1, dryRun: true, assets: [
+                {assetId: 'a1', code: 'PRF-0001', name: '12-2.27', type: 'PROFILE', trackId: 12, connectedTrackId: null, kp: 12.27,
+                    taskTypeCodes: ['RG-01'], withChecklist: false, outcome: 'CREATE', otherOrderCode: null},
+                {assetId: 'a2', code: 'SIN-0002', name: 'SI-W41', type: 'SECTION_INSULATOR', trackId: 14, connectedTrackId: 12, kp: 150,
+                    taskTypeCodes: ['RG-03'], withChecklist: false, outcome: 'CREATE', otherOrderCode: null},
+                {assetId: 'a3', code: 'SIN-0003', name: 'SI-W42', type: 'SECTION_INSULATOR', trackId: 14, connectedTrackId: null, kp: 180,
+                    taskTypeCodes: ['RG-03'], withChecklist: false, outcome: 'IN_OTHER_ORDER', otherOrderCode: 'MO-000042'},
+                {assetId: 'a4', code: 'DSC-0004', name: 'HSA-NS6', type: 'DISCONNECTOR', trackId: 12, connectedTrackId: null, kp: 12.9,
+                    taskTypeCodes: [], withChecklist: false, outcome: 'NO_TASK_TYPES', otherOrderCode: null},
+            ]}
+        const generates = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/generate`, (body) => HttpResponse.json(body.dryRun
+            ? preview
+            : {...preview, dryRun: false, assets: []}))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), {tasks: {[ORDER1]: []}})
+
+        await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+        const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+        await user.click(within(generate).getByRole('button', {name: 'Añadir qué generar'}))
+        const insulators = within(generate).getByRole('group', {name: 'Qué generar 2'})
+        await choose(user, insulators, 'Dónde', 'Una vía del EP')
+        await user.click(within(insulators).getByRole('combobox', {name: 'Vía'}))
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['VIA 1 (PAQ NORTE)', 'VIA 2 (PAQ NORTE)'])
+        await user.click(screen.getByRole('option', {name: 'VIA 2 (PAQ NORTE)'}))
+        await typeInto(user, insulators, 'Desde KP', '100')
+        await typeInto(user, insulators, 'Hasta KP', '200.5')
+        await user.click(within(generate).getByRole('button', {name: 'Añadir qué generar'}))
+        const disconnectors = within(generate).getByRole('group', {name: 'Qué generar 3'})
+        await choose(user, disconnectors, 'Activos', 'Seccionadores')
+        await choose(user, disconnectors, 'Dónde', 'Todo el EP')
+        await choose(user, disconnectors, 'Sus tipos de tarea', 'RG-04 - Revisión del hilo de contacto')
+
+        await user.click(within(generate).getByRole('button', {name: 'Previsualizar'}))
+        await within(generate).findByRole('table', {name: 'Lo que se generaría'})
+        const lines = dataRows('Lo que se generaría')
+        expect(lines.map((cells) => cells[5].textContent)).toEqual(['Se crea', 'Se crea', 'En MO-000042', 'Sin tipo de tarea: elige tipos'])
+        expect(textsOf(lines[1]).slice(0, 5)).toEqual(['SIN-0002 - SI-W41', 'Aislador de sección', 'VIA 2 (PAQ NORTE)', '150', 'RG-03'])
+        expect(generate).toHaveTextContent('Se crearían: 2 (perfil: 1, aislador de sección: 1, seccionador: 0); ya en la orden: 0; '
+            + 'en otras órdenes: 1 (MO-000042); sin tipo de tarea: 1.')
+        const selections = [
+            {assetType: 'PROFILE', sectionId: ASSET_OWN},
+            {assetType: 'SECTION_INSULATOR', trackId: 14, fromKp: 100, toKp: 200.5},
+            {assetType: 'DISCONNECTOR', taskTypeCodes: ['RG-04']},
+        ]
+        expect(generates.map((write) => write.body)).toEqual([{selections, dryRun: true}])
+
+        // Cambiar algo borra la previsualización: ya no dice lo que se pediría.
+        await user.click(within(generate).getByRole('checkbox', {name: 'Con la checklist de la plantilla de cada activo'}))
+        expect(within(generate).queryByRole('table', {name: 'Lo que se generaría'})).not.toBeInTheDocument()
+
+        await user.click(within(generate).getByRole('button', {name: 'Generar'}))
+        expect(await screen.findByText(/^Tareas nuevas: 2 \(perfil: 1, aislador de sección: 1, seccionador: 0\)/)).toBeInTheDocument()
+        expect(generates.map((write) => write.body)[1]).toEqual({withChecklist: true, selections})
+    })
+
+    it('una orden sobre un aislador también genera, desde todo su EP, y lo que falta en una fila se dice antes de llamar', async () => {
+        const generates = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/generate`, () => maintenanceError(400, 'REQ-VALIDATION',
+            'selections[0].sectionId: TS-0009 is not in the execution package of order MO-000001; it goes in another order'))
+        const onInsulator = order({status: 'DRAFT', asset: {id: ASSET_SYNCED, code: 'SIN-0001', name: 'SI-W31', type: 'SECTION_INSULATOR',
+            trackId: 12, connectedTrackId: 14, startKp: 12.5, endKp: 12.6, sectioning: null, enabled: true}})
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), onInsulator, {tasks: {[ORDER1]: []},
+            assets: [ownSection(ASSET_OWN, 'TS-0001', true)]})
+
+        await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+        const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+        expect(generate).not.toHaveTextContent('Una tarea por cada perfil habilitado')
+        const first = within(generate).getByRole('group', {name: 'Qué generar 1'})
+        expect(within(first).getByRole('combobox', {name: 'Dónde'})).toHaveValue('Todo el EP')
+        await user.click(within(first).getByRole('combobox', {name: 'Dónde'}))
+        expect(screen.getAllByRole('option').map((option) => option.textContent))
+            .toEqual(['Otro tramo del EP', 'Una vía del EP', 'Una estación del EP', 'Todo el EP', 'Activos elegidos'])
+        await user.click(screen.getByRole('option', {name: 'Otro tramo del EP'}))
+
+        await user.click(within(generate).getByRole('button', {name: 'Previsualizar'}))
+        expect(within(first).getByText('Elige un tramo')).toBeInTheDocument()
+        expect(generates).toEqual([])
+
+        await user.click(within(first).getByRole('combobox', {name: 'Tramo'}))
+        await user.click(await screen.findByRole('option', {name: 'TS-0001 - Tramo TS-0001'}))
+        await user.click(within(generate).getByRole('button', {name: 'Generar'}))
+        await waitFor(() => expect(generates.map((write) => write.body)).toEqual([{selections: [{assetType: 'PROFILE', sectionId: ASSET_OWN}]}]))
+        expect(await screen.findByText(/is not in the execution package of order MO-000001/)).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Generar tareas de MO-000001'})).toBeInTheDocument()
+    })
+
+    it('una orden sin EP solo genera su tramo, con la petición de siempre y sin tipos por fila', async () => {
+        const generates = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/generate`, () => HttpResponse.json({createdTasks: 2,
+            skippedProfiles: 0, totalTasks: 2, estimatedMinutes: 60, estimatedShifts: 1, skippedAssets: 0}))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT', executionPackageId: null}), {tasks: {[ORDER1]: []}})
+
+        await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+        const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+        expect(generate).toHaveTextContent('La orden no tiene EP: solo genera su tramo')
+        await user.click(within(generate).getByRole('button', {name: 'Añadir qué generar'}))
+        const second = within(generate).getByRole('group', {name: 'Qué generar 2'})
+        await choose(user, second, 'Activos', 'Seccionadores')
+        await user.click(within(second).getByRole('combobox', {name: 'Dónde'}))
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['El tramo de la orden'])
+        await user.keyboard('{Escape}')
+        expect(within(generate).queryByRole('combobox', {name: 'Sus tipos de tarea'})).not.toBeInTheDocument()
+        await user.click(within(generate).getByRole('button', {name: 'Generar'}))
+        await waitFor(() => expect(generates.map((write) => write.body)).toEqual([{assetTypes: ['PROFILE', 'DISCONNECTOR']}]))
     })
 
     it('el checklist de una tarea abierta guarda cada punto con su versión y se repinta con lo que devuelve el servicio', async () => {

@@ -19,18 +19,21 @@ import {maintenanceKey} from './useMaintenance.js'
 
 const RESULTS = 50
 
+const NO_FILTERS = Object.freeze({})
+
 /**
  * Un activo buscado en el servidor. El valor es su resumen ({id, code, name, type, trackId…}).
  *
  * @param {string|null} [type] solo los de ese tipo; null, cualquiera
+ * @param {object} [filters] además, {executionPackageId, trackId, stationId}: lo de una orden, que es de un solo EP
  */
-export function AssetPicker({type = null, value, onChange, placeholder = 'Escribe su nombre: 12-2.27, HSA-NS5…', ...props}) {
+export function AssetPicker({type = null, filters = NO_FILTERS, value, onChange, placeholder = 'Escribe su nombre: 12-2.27, HSA-NS5…', ...props}) {
     const search = async (text, {signal}) => {
-        const page = await searchAssets({type, enabled: true, name: text, size: RESULTS, sort: null}, {signal})
+        const page = await searchAssets({...filters, type, enabled: true, name: text, size: RESULTS, sort: null}, {signal})
         return page.content.map(toAssetOption)
     }
     return (
-        <ServerSearchSelect {...props} queryKey={maintenanceKey('picker', 'assets', type)} search={search}
+        <ServerSearchSelect {...props} queryKey={maintenanceKey('picker', 'assets', type, filters)} search={search}
                             current={value ? toAssetOption(value) : null} value={value?.id ?? null}
                             onChange={(_id, option) => onChange(option?.entry ?? null)} searchWhenEmpty clearable
                             placeholder={placeholder}/>
@@ -39,15 +42,16 @@ export function AssetPicker({type = null, value, onChange, placeholder = 'Escrib
 
 /**
  * Varios activos de un tipo, buscados en el servidor entre los activos (los seccionadores que se abren
- * en un turno). El valor son sus ids; current, los resúmenes que ya tenía el campo, para nombrarlos.
+ * en un turno, los que se eligen al generar). El valor son sus ids; current, los resúmenes que ya tenía
+ * el campo, para nombrarlos; filters, como en AssetPicker.
  */
-export function AssetsMultiPicker({type, current = [], value, onChange, placeholder = 'Escribe su nombre: HSA-NS5…', ...props}) {
+export function AssetsMultiPicker({type, filters = NO_FILTERS, current = [], value, onChange, placeholder = 'Escribe su nombre: HSA-NS5…', ...props}) {
     const search = async (text, {signal}) => {
-        const page = await searchAssets({type, enabled: true, name: text, size: RESULTS, sort: null}, {signal})
+        const page = await searchAssets({...filters, type, enabled: true, name: text, size: RESULTS, sort: null}, {signal})
         return page.content.map(toAssetOption)
     }
     return (
-        <ServerSearchMultiSelect {...props} queryKey={maintenanceKey('picker', 'assets', type, 'multi')} search={search}
+        <ServerSearchMultiSelect {...props} queryKey={maintenanceKey('picker', 'assets', type, 'multi', filters)} search={search}
                                  current={(current ?? []).map(toAssetOption)} value={value ?? []} onChange={(ids) => onChange(ids)}
                                  searchWhenEmpty clearable placeholder={placeholder}/>
     )
