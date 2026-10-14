@@ -26,6 +26,9 @@ export function buildReferenceCatalog({packages = [], stations = [], tracks = []
         stationOptions: options(stationLabels),
         trackOptions: options(trackLabels),
         companyOptions: options(companyLabels),
+        // Las de un paquete: una orden de mantenimiento es de un solo EP, y solo se le ofrece lo suyo.
+        stationOptionsIn: (packageId) => optionsIn(stations, stationLabels, packageId),
+        trackOptionsIn: (packageId) => optionsIn(tracks, trackLabels, packageId),
     }
 }
 
@@ -74,6 +77,10 @@ function labelOf(labels, id) {
         return ''
     }
     return labels.get(id) ?? `#${id}`
+}
+
+function optionsIn(rows, labels, packageId) {
+    return rows.filter((row) => row.executionPackageId === packageId).map((row) => ({value: String(row.id), label: labels.get(row.id)}))
 }
 
 function options(labels) {

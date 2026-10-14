@@ -49,6 +49,21 @@ export const TRACK_KIND = defineEnum({
     DIVERTED: 'Desviada',
 })
 
+/** Cómo se acciona un seccionador: decide si RP-06 le va por defecto al generar un preventivo. */
+export const DRIVE_TYPE = defineEnum({
+    MOTOR: 'Con motor',
+    MANUAL: 'Manual',
+})
+
+/** Lo que pasa con cada activo al generar las tareas de un preventivo (la previsualización). */
+export const GENERATION_OUTCOME = defineEnum({
+    CREATE: 'Se crea',
+    ALREADY_IN_ORDER: 'Ya en la orden',
+    OTHER_PACKAGE: 'De otro EP: va en otra orden',
+    IN_OTHER_ORDER: 'En otra orden abierta',
+    NO_TASK_TYPES: 'Sin tipo de tarea: elige tipos',
+})
+
 export const INSTALLATION_TYPE = defineEnum({
     TRACK_CONNECTION: 'Conexión entre vías',
     IN_TRACK: 'En la vía',

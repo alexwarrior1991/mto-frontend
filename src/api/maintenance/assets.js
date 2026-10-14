@@ -88,14 +88,19 @@ export function assetRevisionsPath(id) {
 
 /**
  * Lo que de un activo viaja dentro de otra cosa: el resumen que traen una orden, una inspección o un
- * defecto. Con su vía conectada, porque un activo que une dos vías se trabaja desde un turno de las dos.
+ * defecto. Con su vía conectada, porque un activo que une dos vías se trabaja desde un turno de las dos;
+ * con su EP y su estación, porque una orden es de un solo EP; y con el accionamiento de un seccionador,
+ * que decide su tipo de tarea por defecto.
  */
 export function assetSummaryOf(asset) {
     if (!asset) {
         return null
     }
-    const {id, code, name, type, trackId, startKp, endKp, sectioning, enabled, connectedTrackId} = asset
-    return {id, code, name, type, trackId, startKp, endKp, sectioning, enabled, connectedTrackId: connectedTrackId ?? null}
+    const {id, code, name, type, trackId, startKp, endKp, sectioning, enabled, connectedTrackId, executionPackageId, stationId, driveType} = asset
+    return {
+        id, code, name, type, trackId, startKp, endKp, sectioning, enabled, connectedTrackId: connectedTrackId ?? null,
+        executionPackageId: executionPackageId ?? null, stationId: stationId ?? null, driveType: driveType ?? null,
+    }
 }
 
 /** Llega de los datos maestros de mto-configuration: su identidad y su localización no se tocan aquí. */

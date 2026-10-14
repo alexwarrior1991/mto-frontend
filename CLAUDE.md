@@ -467,8 +467,19 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   resumen que trae una tarea): completar desde la orden ofrece los turnos en curso de las dos, en una
   sola búsqueda con `trackId` repetido (`tracksOf`), y el alta de una inspección, los trabajados (en
   curso o cerrados, `recordsInspections`) de las dos. Que el turno le vale lo dice el servicio (409
-  `SHF-001`). Generar tareas en un tramo admite sus aisladores (`assetTypes`), con RG-03 si no se
-  eligen tipos; los elegidos van a todo lo generado.
+  `SHF-001`).
+- **Una orden preventiva es de un solo EP y genera en varias de sus vías** (`GenerateTasksModal`, el
+  port de `GenerateTasksDialog`). Cada fila es un tipo de activo (perfiles, aisladores, seccionadores)
+  en un sitio: el tramo de la orden, otro tramo, una vía con KP opcionales, una estación, todo el EP o
+  activos elegidos, con sus propios tipos si se quiere. Los desplegables solo ofrecen lo del EP de la
+  orden (`trackOptionsIn`/`stationOptionsIn`, y los activos filtrados por `executionPackageId`), porque
+  lo de otro EP va en otra orden; sin EP solo cabe el tramo de la orden. Si todo es el tramo de la orden
+  sin tipos propios viaja la petición de siempre (`{}` o `assetTypes`); si no, `selections`
+  (`generateRequest`). «Previsualizar» manda `dryRun` y pinta lo que diría el servicio de cada activo
+  (`GENERATION_OUTCOME`, tolerante); cualquier cambio la borra. Qué se salta (ya en la orden, en otra
+  orden abierta, de otro EP, sin tipo de tarea) y los tipos por defecto (RG-03 en un aislador, RP-06 en
+  un seccionador con motor, `driveType`) los decide el servicio. Se ofrece en una orden en borrador o
+  planificada sobre un tramo o con EP: una sobre un aislador o un seccionador también genera.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el

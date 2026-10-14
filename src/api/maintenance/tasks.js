@@ -1,4 +1,4 @@
-import {numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
+import {idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {CHECK_ITEM_RESULT} from './enums.js'
@@ -8,11 +8,14 @@ import {maintenancePath} from './values.js'
  * Las tareas de una orden y su checklist: el port de la parte de tareas de OrderClient y de TaskForm,
  * GenerateTasksDialog y CheckItemsDialog del backoffice. Una tarea solo existe dentro de su orden.
  *
- * - Se añade a una orden sin terminar (409 TRN-001 si no). Generar crea una por perfil habilitado del
- *   tramo de un preventivo en borrador o planificado y, si se piden, una por aislador de sección que lo
- *   toca (también los de otra vía que conectan con la suya); lo que ya tiene tarea se salta, así que
- *   repetirlo no duplica. Sin tipos, los del servicio para cada activo (grupos 1, 2 y 4 en un perfil,
- *   RG-03 en un aislador); los elegidos van a todo lo generado.
+ * - Se añade a una orden sin terminar (409 TRN-001 si no). Generar, en un preventivo en borrador o
+ *   planificado, crea una por activo de lo que se pide: los perfiles del tramo de la orden, como
+ *   siempre, o perfiles, aisladores y seccionadores de otro tramo, de una vía, de una estación, de todo
+ *   el EP o elegidos, en cualquier vía del EP de la orden (una orden es de un solo EP). Lo que ya tiene
+ *   tarea en la orden, lo que es de otro EP y lo que tiene una tarea abierta en otra orden se salta, así
+ *   que repetirlo no duplica. Sin tipos, los del servicio para cada activo (grupos 1, 2 y 4 en un
+ *   perfil, RG-03 en un aislador, RP-06 en un seccionador con motor); los elegidos van a todo lo
+ *   generado, y los de una fila solo a lo suyo. dryRun dice qué pasaría sin crear nada.
  * - Solo una tarea abierta (pendiente o en curso) se modifica o se cancela. Sus tipos, si cambian,
  *   van enteros: sustituyen a los que tenía.
  * - Iniciar y completar piden la orden en curso y un turno en curso que cubra su vía, con una posesión
@@ -40,7 +43,7 @@ export function createTask(orderId, body) {
     return apiFetch(taskPath(orderId), {method: 'POST', json: body})
 }
 
-/** 200 con lo que generó el servicio: creadas, perfiles saltados, total y estimación. */
+/** 200 con lo que generó el servicio, o con dryRun lo que generaría: recuentos, estimación y, previsualizando, cada activo. */
 export function generateTasks(orderId, body) {
     return apiFetch(taskPath(orderId, 'generate'), {method: 'POST', json: body})
 }
@@ -91,19 +94,75 @@ export function taskPatch(original, values) {
     }, {fields: ['description', 'assignedUser', 'taskTypeCodes', 'notes', 'defectsFound'], setFields: ['taskTypeCodes'], version: original.version})
 }
 
-/** Los activos que se generan uno a uno en un tramo. Sin decir nada, solo los perfiles. */
-export const GENERATED_ASSET_TYPES = ['PROFILE', 'SECTION_INSULATOR']
+/** Lo que se genera uno a uno; un tramo no. */
+export const GENERATED_ASSET_TYPES = ['PROFILE', 'SECTION_INSULATOR', 'DISCONNECTOR']
 
 /**
- * Generar: sin tipos ni checklist el cuerpo va vacío y el servicio pone los suyos. Con los aisladores,
- * `assetTypes` dice los dos; solo perfiles no viaja, que es lo que el servicio hace sin él.
+ * Dónde busca una fila de generar: el tramo de la orden (la petición de siempre), otro tramo del EP,
+ * una vía (lo suyo y lo que conecta con ella) con KP opcionales, una estación del EP, todo el EP o unos
+ * activos elegidos. Todo menos el tramo de la orden pide una orden con EP: una orden es de un solo EP.
  */
-export function generateRequest({taskTypeCodes = [], withChecklist = false, withInsulators = false} = {}) {
-    return withoutNulls({
+export const GENERATION_SCOPE = Object.freeze({
+    ORDER_SECTION: 'ORDER_SECTION',
+    SECTION: 'SECTION',
+    TRACK: 'TRACK',
+    STATION: 'STATION',
+    PACKAGE: 'PACKAGE',
+    ASSETS: 'ASSETS',
+})
+
+/** Una fila de generar: qué tipo de activo, dónde y, si se quiere, con sus propios tipos de tarea. */
+export function generationRow(assetType = 'PROFILE', scope = GENERATION_SCOPE.ORDER_SECTION) {
+    return {assetType, scope, section: null, trackId: null, fromKp: '', toKp: '', stationId: null, assetIds: [], taskTypeCodes: []}
+}
+
+/** Todo es el tramo de la orden sin tipos propios: viaja la petición de siempre. */
+export function isOrderSectionOnly(rows) {
+    return rows.every((row) => row.scope === GENERATION_SCOPE.ORDER_SECTION && (row.taskTypeCodes ?? []).length === 0)
+}
+
+/**
+ * El cuerpo de generar; lo vacío no viaja. Si todo es el tramo de la orden sin tipos propios, la
+ * petición de siempre: sin nada, los perfiles del tramo ({}), y con otros tipos de activo, assetTypes.
+ * Si no, una selección por fila, con el tramo de la orden como uno más. Los tipos de arriba van a todo
+ * lo generado; los de una fila, solo a lo suyo.
+ *
+ * @param {string|null} orderSectionId el tramo de la orden, para una fila «el tramo de la orden» entre otras
+ */
+export function generateRequest({rows = [generationRow()], taskTypeCodes = [], withChecklist = false, dryRun = false, orderSectionId = null} = {}) {
+    const common = {
         taskTypeCodes: taskTypeCodes.length > 0 ? taskTypeCodes : null,
         withChecklist: withChecklist ? true : null,
-        assetTypes: withInsulators ? GENERATED_ASSET_TYPES : null,
-    })
+    }
+    if (isOrderSectionOnly(rows)) {
+        const types = new Set(rows.map((row) => row.assetType))
+        const onlyProfiles = types.size === 1 && types.has('PROFILE')
+        return withoutNulls({
+            ...common,
+            assetTypes: onlyProfiles ? null : GENERATED_ASSET_TYPES.filter((type) => types.has(type)),
+            dryRun: dryRun ? true : null,
+        })
+    }
+    return withoutNulls({...common, selections: rows.map((row) => selectionOf(row, orderSectionId)), dryRun: dryRun ? true : null})
+}
+
+function selectionOf(row, orderSectionId) {
+    const own = (row.taskTypeCodes ?? []).length > 0 ? row.taskTypeCodes : null
+    const selection = {assetType: row.assetType, taskTypeCodes: own}
+    switch (row.scope) {
+        case GENERATION_SCOPE.ORDER_SECTION:
+            return withoutNulls({...selection, sectionId: orderSectionId})
+        case GENERATION_SCOPE.SECTION:
+            return withoutNulls({...selection, sectionId: row.section?.id ?? null})
+        case GENERATION_SCOPE.TRACK:
+            return withoutNulls({...selection, trackId: idOrNull(row.trackId), fromKp: numberOrNull(row.fromKp), toKp: numberOrNull(row.toKp)})
+        case GENERATION_SCOPE.STATION:
+            return withoutNulls({...selection, stationId: idOrNull(row.stationId)})
+        case GENERATION_SCOPE.ASSETS:
+            return withoutNulls({...selection, assetIds: row.assetIds ?? []})
+        default:
+            return withoutNulls(selection)
+    }
 }
 
 /** Lo que ya tenía tarea: todos los activos si el servicio lo cuenta, si no los perfiles. */

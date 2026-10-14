@@ -313,6 +313,11 @@ export function useGenerateTasks(orderId) {
     })
 }
 
+/** Lo que daría generar (dryRun): no escribe nada, así que no relee nada. */
+export function usePreviewGeneration(orderId) {
+    return useMutation({mutationFn: (body) => generateTasks(orderId, {...body, dryRun: true})})
+}
+
 /**
  * Cancelar una tarea con su motivo; si el servicio dice que no, el diálogo sigue abierto. La orden es
  * la de la ficha o, desde un turno, la de cada tarea ({orderId} en la llamada).
