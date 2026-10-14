@@ -9,8 +9,10 @@ import {maintenancePath} from './values.js'
  * GenerateTasksDialog y CheckItemsDialog del backoffice. Una tarea solo existe dentro de su orden.
  *
  * - Se añade a una orden sin terminar (409 TRN-001 si no). Generar crea una por perfil habilitado del
- *   tramo de un preventivo en borrador o planificado; los perfiles que ya tienen tarea se saltan, así
- *   que repetirlo no duplica. Sin tipos, los del servicio (grupos 1, 2 y 4).
+ *   tramo de un preventivo en borrador o planificado y, si se piden, una por aislador de sección que lo
+ *   toca (también los de otra vía que conectan con la suya); lo que ya tiene tarea se salta, así que
+ *   repetirlo no duplica. Sin tipos, los del servicio para cada activo (grupos 1, 2 y 4 en un perfil,
+ *   RG-03 en un aislador); los elegidos van a todo lo generado.
  * - Solo una tarea abierta (pendiente o en curso) se modifica o se cancela. Sus tipos, si cambian,
  *   van enteros: sustituyen a los que tenía.
  * - Iniciar y completar piden la orden en curso y un turno en curso que cubra su vía, con una posesión
@@ -89,9 +91,24 @@ export function taskPatch(original, values) {
     }, {fields: ['description', 'assignedUser', 'taskTypeCodes', 'notes', 'defectsFound'], setFields: ['taskTypeCodes'], version: original.version})
 }
 
-/** Generar: sin tipos ni checklist el cuerpo va vacío y el servicio pone los suyos. */
-export function generateRequest({taskTypeCodes = [], withChecklist = false} = {}) {
-    return withoutNulls({taskTypeCodes: taskTypeCodes.length > 0 ? taskTypeCodes : null, withChecklist: withChecklist ? true : null})
+/** Los activos que se generan uno a uno en un tramo. Sin decir nada, solo los perfiles. */
+export const GENERATED_ASSET_TYPES = ['PROFILE', 'SECTION_INSULATOR']
+
+/**
+ * Generar: sin tipos ni checklist el cuerpo va vacío y el servicio pone los suyos. Con los aisladores,
+ * `assetTypes` dice los dos; solo perfiles no viaja, que es lo que el servicio hace sin él.
+ */
+export function generateRequest({taskTypeCodes = [], withChecklist = false, withInsulators = false} = {}) {
+    return withoutNulls({
+        taskTypeCodes: taskTypeCodes.length > 0 ? taskTypeCodes : null,
+        withChecklist: withChecklist ? true : null,
+        assetTypes: withInsulators ? GENERATED_ASSET_TYPES : null,
+    })
+}
+
+/** Lo que ya tenía tarea: todos los activos si el servicio lo cuenta, si no los perfiles. */
+export function skippedOf(result) {
+    return result.skippedAssets ?? result.skippedProfiles
 }
 
 /** En el orden de la plantilla. */

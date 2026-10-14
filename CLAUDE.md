@@ -117,8 +117,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     orden, generarlas, iniciarlas y completarlas, `completeRequest`, y su checklist) y
     `maintenance/materials.js` (las líneas de material y lo que admite cada una: `isEditableLine`,
     `isRemovableLine`, `syncActionOf`, `fixedPlanned`, `fixedConsumed`);
-  - `maintenance/shifts.js` (los turnos, iniciarlos, cerrarlos y cancelarlos, sus tareas y perfiles,
-    y asignar una tarea), `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
+  - `maintenance/shifts.js` (los turnos, también de varias vías a la vez, iniciarlos, cerrarlos y
+    cancelarlos, sus tareas y perfiles, asignar una tarea, y `tracksOf`, las vías de un activo: la suya
+    y la conectada de uno que une dos), `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
     el defecto y la orden correctiva que generan), `maintenance/defects.js` (los defectos y sus
     transiciones: vincular a una orden, resolver, cerrar y descartar) y `maintenance/reports.js` (el
     parte de un turno, el avance y el mes, en JSON y como fichero).
@@ -459,7 +460,15 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     línea está en duda.
 - **Un informe se ve en pantalla y su fichero se descarga con el token** (`download.js`): los
   botones salen tras consultar y descargan esa consulta, aunque luego cambien los filtros. El avance
-  llega como fracción y solo se pinta como porcentaje; aquí no se suma nada.
+  llega como fracción y solo se pinta como porcentaje; aquí no se suma nada. El parte de un turno
+  trae debajo de las tareas las inspecciones registradas en él, con su recuento del servicio, y
+  guardar una inspección lo relee.
+- **Un activo que une dos vías se trabaja desde un turno de cualquiera** (`connectedTrackId`, en el
+  resumen que trae una tarea): completar desde la orden ofrece los turnos en curso de las dos, en una
+  sola búsqueda con `trackId` repetido (`tracksOf`), y el alta de una inspección, los trabajados (en
+  curso o cerrados, `recordsInspections`) de las dos. Que el turno le vale lo dice el servicio (409
+  `SHF-001`). Generar tareas en un tramo admite sus aisladores (`assetTypes`), con RG-03 si no se
+  eligen tipos; los elegidos van a todo lo generado.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el

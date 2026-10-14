@@ -74,6 +74,7 @@ export function inspectionRevisionsPath(id) {
 export function inspectionFormValues(inspection, {today = null} = {}) {
     return {
         assetId: null,
+        shiftId: null,
         inspectionDate: inspection?.inspectionDate ?? today,
         inspector: inspection?.inspector ?? '',
         inspectionKind: inspection?.inspectionKind ?? 'VISUAL',
@@ -100,12 +101,14 @@ function requestValues(values) {
 
 /**
  * El alta: lo vacío no viaja. assetId guarda el activo elegido; desde una orden de inspección, el de
- * la orden, que queda como su origen.
+ * la orden, que queda como su origen. shiftId, el turno en que se hizo, si se elige: sale en su parte,
+ * y el servicio exige que esté en curso o cerrado y recorra la vía del activo o la conectada (409
+ * SHF-001). Solo viaja en el alta: una inspección no cambia de turno.
  *
  * @param {{asset: object|null, originOrderId: string|null}} origin
  */
 export function inspectionRequest(values, {asset = null, originOrderId = null} = {}) {
-    return withoutNulls({assetId: (asset ?? values.assetId)?.id ?? null, ...requestValues(values), originOrderId})
+    return withoutNulls({assetId: (asset ?? values.assetId)?.id ?? null, ...requestValues(values), originOrderId, shiftId: values.shiftId ?? null})
 }
 
 /** Lo que cambió de una inspección, lo vaciado y su versión, o null si nada. */

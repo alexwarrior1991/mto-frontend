@@ -88,7 +88,7 @@ export default function ShiftTasksPanel({shift, canWrite}) {
                        emptyText={tasks.isError ? 'No se han podido leer las tareas.' : 'El turno no tiene tareas asignadas.'} rowActions={actions}/>
             {dialog?.kind === 'checklist' && <TaskChecklistModal task={dialog.task} name={nameOf(dialog.task)} onClose={close}/>}
             {dialog?.kind === 'complete' && (
-                <CompleteTaskModal orderId={dialog.task.orderId} trackId={null} task={dialog.task} shift={shift} name={nameOf(dialog.task)}
+                <CompleteTaskModal orderId={dialog.task.orderId} task={dialog.task} shift={shift} name={nameOf(dialog.task)}
                                    onClose={close}/>
             )}
             {dialog?.kind === 'cancel' && (

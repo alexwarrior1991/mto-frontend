@@ -406,12 +406,17 @@ export function useShiftReport(shiftId) {
     return useQuery({queryKey: maintenanceKey('shift-report', shiftId), queryFn: ({signal}) => getShiftReport(shiftId, {signal}), staleTime: NOT_FRESH})
 }
 
-/** Los turnos en curso de una vía, para completar desde la orden una tarea de esa vía. */
-export function useInProgressShifts(trackId, {enabled = true} = {}) {
+/**
+ * Los turnos en curso de las vías de una tarea, para completarla desde la orden: la suya y, si su
+ * activo une dos, la conectada (`tracksOf`), en una sola búsqueda. Sin vías no se pide nada.
+ *
+ * @param {Array<string|number>} trackIds
+ */
+export function useInProgressShifts(trackIds, {enabled = true} = {}) {
     return useQuery({
-        queryKey: maintenanceKey('shifts', {trackId, status: 'IN_PROGRESS'}),
-        queryFn: ({signal}) => searchShifts({trackId, status: 'IN_PROGRESS', size: MAINTENANCE_PAGE_SIZE}, {signal}),
-        enabled: enabled && trackId !== null && trackId !== undefined,
+        queryKey: maintenanceKey('shifts', {trackIds, status: 'IN_PROGRESS'}),
+        queryFn: ({signal}) => searchShifts({trackId: trackIds, status: 'IN_PROGRESS', size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        enabled: enabled && trackIds.length > 0,
         staleTime: NOT_FRESH,
     })
 }
@@ -492,12 +497,18 @@ export function useCompleteTask(orderId) {
     })
 }
 
-/** Los turnos recientes de una vía, el más reciente primero: en cuál se corrigió un defecto. */
+/**
+ * Los turnos recientes de una vía o de varias, el más reciente primero: en cuál se corrigió un
+ * defecto, o en cuál se hizo una inspección (las vías de su activo). Sin vía no se pide nada.
+ *
+ * @param {string|number|Array<string|number>|null} trackId
+ */
 export function useRecentShiftsOn(trackId) {
+    const trackIds = [trackId].flat().filter((track) => track !== null && track !== undefined)
     return useQuery({
-        queryKey: maintenanceKey('shifts', {trackId, recent: true}),
-        queryFn: ({signal}) => searchShifts({trackId, size: MAINTENANCE_PAGE_SIZE}, {signal}),
-        enabled: trackId !== null && trackId !== undefined,
+        queryKey: maintenanceKey('shifts', {trackIds, recent: true}),
+        queryFn: ({signal}) => searchShifts({trackId: trackIds, size: MAINTENANCE_PAGE_SIZE}, {signal}),
+        enabled: trackIds.length > 0,
         staleTime: NOT_FRESH,
     })
 }
@@ -530,9 +541,12 @@ export function useOrderInspections(orderId) {
     })
 }
 
-/** Lo que enseña una inspección fuera de su ficha: las listas y las pestañas de las órdenes. */
+/**
+ * Lo que enseña una inspección fuera de su ficha: las listas, las pestañas de las órdenes y el parte
+ * del turno en que se registró, que la lista con lo que generó.
+ */
 function invalidateInspectionLists(queryClient) {
-    return Promise.all(['inspections', 'order-inspections'].map((part) => queryClient.invalidateQueries({queryKey: maintenanceKey(part)})))
+    return Promise.all(['inspections', 'order-inspections', 'shift-report'].map((part) => queryClient.invalidateQueries({queryKey: maintenanceKey(part)})))
 }
 
 /** El alta o la modificación de una inspección, desde su editor, que trata él mismo sus errores. */

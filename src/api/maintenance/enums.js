@@ -204,6 +204,11 @@ export function canCloseShift(status) {
     return status === 'IN_PROGRESS'
 }
 
+/** Un turno que se ha trabajado: en él se registra una inspección, que sale en su parte. */
+export function recordsInspections(status) {
+    return status === 'IN_PROGRESS' || status === 'CLOSED'
+}
+
 /** Abierto o en curso: se vincula a una orden y se resuelve. */
 export function isPendingDefect(status) {
     return status === 'OPEN' || status === 'IN_PROGRESS'
