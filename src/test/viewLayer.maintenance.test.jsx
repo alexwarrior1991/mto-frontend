@@ -1846,6 +1846,11 @@ describe('los turnos', () => {
         await choose(user, document.body, 'Tareas', 'Pendiente')
         expect(await screen.findByText('Ningún perfil.')).toBeInTheDocument()
         expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`).at(-1), 'status')).toBe('PENDING')
+        // El filtro no se vacía: sin estado el servicio daría los completados, no «todas».
+        expect(within(screen.getByRole('tabpanel', {name: 'Perfiles'})).queryByRole('button', {name: /borrar|limpiar|clear/i})).not.toBeInTheDocument()
+        await choose(user, document.body, 'Tareas', 'Pendiente')
+        expect(screen.getByRole('combobox', {name: 'Tareas'})).toHaveValue('Pendiente')
+        expect(readsOf(requests, `${BASE}/shifts/${SHIFT1}/profiles`).every((read) => param(read, 'status') !== null)).toBe(true)
     })
 
     it('el parte se pide al abrir su pestaña, enseña lo que compone el servicio y descarga sus ficheros', async () => {
