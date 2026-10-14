@@ -3,7 +3,7 @@ import {IconPlus, IconTrash} from '@tabler/icons-react'
 import {useState} from 'react'
 import {activeTaskTypes} from '../../api/maintenance/catalogs.js'
 import {ASSET_TYPE, GENERATION_OUTCOME} from '../../api/maintenance/enums.js'
-import {GENERATION_SCOPE, generateRequest, generationRow, skippedOf} from '../../api/maintenance/tasks.js'
+import {GENERATED_ASSET_TYPES, GENERATION_SCOPE, generateRequest, generationRow, skippedOf} from '../../api/maintenance/tasks.js'
 import {assetLabel} from '../../api/maintenance/values.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {formatQuantity} from '../../ui/format.js'
@@ -261,8 +261,10 @@ function introText(order, onSection, packageId) {
  * Un servicio anterior no manda createdByAssetType ni los saltados nuevos: entonces cuenta lo de antes.
  */
 function generatedText(result, preview = false) {
+    // En el orden de siempre (perfiles, aisladores, seccionadores), no en el de las claves que llegan.
     const created = result.createdByAssetType
-        ? Object.entries(result.createdByAssetType).map(([type, count]) => `${ASSET_TYPE.label(type).toLowerCase()}: ${count}`).join(', ')
+        ? GENERATED_ASSET_TYPES.filter((type) => type in result.createdByAssetType)
+            .map((type) => `${ASSET_TYPE.label(type).toLowerCase()}: ${result.createdByAssetType[type]}`).join(', ')
         : null
     const parts = [`${preview ? 'Se crearían' : 'Tareas nuevas'}: ${result.createdTasks}${created ? ` (${created})` : ''}`]
     parts.push(`ya en la orden: ${skippedOf(result)}`)
