@@ -18,12 +18,17 @@ import {maintenancePath} from './values.js'
  *   orden sin cancelarse.
  * - Una tarea solo se trabaja en un turno en curso que recorra su vía, con una posesión compatible
  *   (409 SHF-001 si no): asignar es una llamada por tarea, para que el servicio compruebe cada una.
+ *   Un aislador o un seccionador que une dos vías está en las dos (`connectedTrackId`): vale un turno
+ *   de cualquiera, y la búsqueda admite varias vías (`trackId` repetido) para pedirlos de una vez.
  */
 
 /** Sin columna elegida, el más reciente primero. */
 export const BY_SHIFT_DATE_DESC = 'shiftDate,desc'
 
-/** Una página de turnos con sus filtros; lo vacío no viaja. La página empieza en 1. */
+/**
+ * Una página de turnos con sus filtros; lo vacío no viaja. La página empieza en 1. `trackId` es una
+ * vía o una lista: con varias, los turnos que recorren alguna, cada uno una vez.
+ */
 export async function searchShifts({
     dateFrom = null, dateTo = null, teamId = null, trackId = null, executionPackageId = null, status = null, possessionType = null,
     page = 1, size = 50, sort = null,
@@ -38,9 +43,13 @@ export async function searchShifts({
     return toPage(body)
 }
 
-/** Los turnos en curso de una vía: donde se puede trabajar una tarea de esa vía. */
-export function inProgressShiftsOn(trackId, {signal} = {}) {
-    return searchShifts({trackId, status: 'IN_PROGRESS', size: 50}, {signal})
+/**
+ * Las vías en las que se trabaja un activo: la suya y, si une dos, la conectada; sin vía propia, la de
+ * respaldo (la de su orden). Sin repetir y sin vacíos: es lo que se busca en los turnos.
+ */
+export function tracksOf(asset, fallbackTrackId = null) {
+    const own = asset?.trackId ?? fallbackTrackId
+    return [own, asset?.connectedTrackId].filter((track, index, all) => track !== null && track !== undefined && all.indexOf(track) === index)
 }
 
 export function getShift(id, {signal} = {}) {

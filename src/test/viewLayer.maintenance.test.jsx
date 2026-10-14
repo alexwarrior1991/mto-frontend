@@ -233,7 +233,8 @@ function serveMaintenance({
             const rows = shifts.filter((row) => ['status', 'possessionType', 'executionPackageId']
                 .every((name) => !has(url, name) || String(row[name]) === param(url, name))
                 && (!has(url, 'teamId') || row.team?.id === param(url, 'teamId'))
-                && (!has(url, 'trackId') || row.trackIds.map(String).includes(param(url, 'trackId')))
+                // trackId repetido, como el servicio: los turnos que recorren alguna de esas vías.
+                && (!has(url, 'trackId') || url.searchParams.getAll('trackId').some((track) => row.trackIds.map(String).includes(track)))
                 && (!has(url, 'dateFrom') || row.shiftDate >= param(url, 'dateFrom'))
                 && (!has(url, 'dateTo') || row.shiftDate <= param(url, 'dateTo')))
             return HttpResponse.json(pageOf(sorted(rows, url), url))
@@ -985,6 +986,21 @@ describe('las órdenes', () => {
         await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}`).length).toBeGreaterThanOrEqual(5))
     })
 
+    it('generar con los aisladores del tramo manda los dos tipos de activo y cuenta lo saltado en activos', async () => {
+        const generates = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/generate`, () => HttpResponse.json({createdTasks: 3,
+            skippedProfiles: 14, totalTasks: 19, estimatedMinutes: 810.0, estimatedShifts: 3, skippedAssets: 16}))
+        const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'PLANNED'}), {tasks: {[ORDER1]: []}})
+
+        await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+        const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+        await user.click(within(generate).getByRole('checkbox', {name: /También los aisladores de sección/}))
+        expect(generate).toHaveTextContent('RG-03 en cada aislador')
+        await user.click(within(generate).getByRole('button', {name: 'Generar'}))
+
+        expect(await screen.findByText('Tareas nuevas: 3; activos que ya tenían tarea: 16. Total: 19, unos 810 min en 3 turnos.')).toBeInTheDocument()
+        expect(generates.map((write) => write.body)).toEqual([{assetTypes: ['PROFILE', 'SECTION_INSULATOR']}])
+    })
+
     it('el checklist de una tarea abierta guarda cada punto con su versión y se repinta con lo que devuelve el servicio', async () => {
         const withChecklist = task(TASK1, 1, 'PENDING', {checkItems: [checkItem()]})
         const items = recordWrites('patch', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/check-items/${ITEM1}`, () => HttpResponse.json({
@@ -1341,6 +1357,8 @@ describe('las líneas de material', () => {
 })
 
 const SHIFT1 = '3c3c3c3c-0000-4000-8000-000000000031'
+const SHIFT2 = '3c3c3c3c-0000-4000-8000-000000000034'
+const SHIFT3 = '3c3c3c3c-0000-4000-8000-000000000035'
 const DISC1 = '3c3c3c3c-0000-4000-8000-000000000032'
 const ORDER2 = '3c3c3c3c-0000-4000-8000-000000000013'
 const TASK3 = '3c3c3c3c-0000-4000-8000-000000000023'
@@ -1661,6 +1679,27 @@ describe('los turnos', () => {
         expect(requests.some((request) => request.pathname.startsWith(STOCK))).toBe(false)
     })
 
+    it('completar desde la orden la tarea de un aislador que une dos vías ofrece los turnos en curso de las dos', async () => {
+        const completes = recordWrites('post', `${BASE}/orders/${ORDER1}/tasks/${TASK1}/complete`, () => HttpResponse.json(task(TASK1, 1,
+            'COMPLETED')))
+        const insulator = {id: ASSET_SYNCED, code: 'SIN-0041', name: 'SI-W41', type: 'SECTION_INSULATOR', trackId: 13, startKp: 12.92, endKp: 12.96,
+            sectioning: null, enabled: true, connectedTrackId: 12}
+        const onConnected = shift('IN_PROGRESS', {id: SHIFT2, code: 'SH-000002', trackIds: [12]})
+        const elsewhere = shift('IN_PROGRESS', {id: SHIFT3, code: 'SH-000003', trackIds: [14]})
+        const {user, requests} = await openOrder(sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE, P.CONFIG_READ]), order({status: 'IN_PROGRESS'}),
+            {tasks: {[ORDER1]: [task(TASK1, 1, 'PENDING', {asset: insulator, taskTypeCodes: ['RG-03']})]}, shifts: [onConnected, elsewhere]})
+
+        await user.click(await screen.findByRole('button', {name: 'Completar la tarea 1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Completar la tarea 1 · SIN-0041 - SI-W41'})
+        expect(dialog).toHaveTextContent('Los turnos en curso de sus dos vías')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Turno'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['SH-000002 · 05/10/2026 · EQ-01 - Brigada norte'])
+        expect(readsOf(requests, `${BASE}/shifts`).at(-1).searchParams.getAll('trackId')).toEqual(['13', '12'])
+        await user.click(screen.getByRole('option', {name: 'SH-000002 · 05/10/2026 · EQ-01 - Brigada norte'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Completar'}))
+        await waitFor(() => expect(completes.map((write) => write.body)).toEqual([{shiftId: SHIFT2}]))
+    })
+
     it('los perfiles empiezan en los ya revisados y se filtran por el estado de su tarea', async () => {
         const profile = {id: ASSET_SYNCED, code: 'PRF-0001', name: '12-2.27', type: 'PROFILE', trackId: 12, startKp: 12.27, endKp: 12.27,
             sectioning: 'S-3', enabled: true}
@@ -1697,6 +1736,27 @@ describe('los turnos', () => {
         await waitFor(() => expect(saved).toEqual(['shift-report-2026-10-05-SH-000001.xlsx']))
         expect(param(readsOf(requests, `${BASE}/shifts/${SHIFT1}/report`).at(-1), 'format')).toBe('xlsx')
         expect(screen.getByRole('button', {name: 'PDF'})).toBeInTheDocument()
+        expect(screen.getByText('No se registró ninguna inspección en el turno.')).toBeInTheDocument()
+    })
+
+    it('el parte enseña las inspecciones registradas en el turno con su recuento, y cada una abre su ficha', async () => {
+        const closed = shift('CLOSED')
+        const recorded = {inspectionId: INSPECTION1, code: 'INS-000040', inspectionDate: '2026-10-06', assetCode: 'SIN-0041', assetName: 'SI-W41',
+            assetType: 'SECTION_INSULATOR', trackId: 13, kp: 12.921, inspectionKind: 'VISUAL', result: 'UNSAFE', inspector: 'dana',
+            detectedDefects: 'Patín quemado', generatedDefectCode: 'DEF-000007', generatedOrderCode: 'MO-000031'}
+        const {user} = await openShift(loginAs('mantenimiento.lector'), closed, {
+            shiftReports: {[SHIFT1]: {shift: closed, tasksCompleted: 0, tasksPending: 0, profilesReviewed: 0, defectsFound: 0, defectsResolved: 0,
+                rows: [], inspectionsRecorded: 1, inspections: [recorded]}},
+            inspections: [inspection('UNSAFE')],
+        })
+
+        await user.click(screen.getByRole('tab', {name: 'Parte'}))
+        expect(await screen.findByLabelText('Resumen del parte')).toHaveTextContent('· Inspecciones: 1')
+        await waitFor(() => expect(dataRows('Inspecciones de SH-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Inspecciones de SH-000001')[0])).toEqual(['INS-000040', '06/10/2026', 'SIN-0041 - SI-W41', '12.921', 'Visual',
+            'Insegura', 'dana', 'Patín quemado', 'DEF-000007, MO-000031', ''])
+        await user.click(screen.getByRole('button', {name: 'Abrir INS-000040'}))
+        expect(await screen.findByRole('heading', {name: 'INS-000001 · 20/09/2026'})).toBeInTheDocument()
     })
 
     it('el historial de un turno dice cómo quedó en cada revisión', async () => {
@@ -1859,6 +1919,54 @@ describe('las inspecciones', () => {
         await waitFor(() => expect(items).toEqual([{body: {itemResult: 'OK', version: 1}, contentType: MERGE_PATCH}]))
         expect(await screen.findByText('Guardado P-01')).toBeInTheDocument()
         await waitFor(() => expect(textsOf(dataRows('Puntos de INS-000001')[0])[4]).toBe('Correcto'))
+    })
+
+    it('el alta puede llevar el turno en que se hizo: los trabajados de la vía de su activo, y otro activo lo vacía', async () => {
+        const posts = recordWrites('post', `${BASE}/inspections`, () => HttpResponse.json(inspection('OK', {originOrderId: ORDER1, shiftId: SHIFT1}),
+            {status: 201}))
+        const {user, requests} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'IN_PROGRESS', type: 'INSPECTION'}), {shifts: [
+            shift('CLOSED'), shift('PLANNED', {id: SHIFT2, code: 'SH-000002'}), shift('IN_PROGRESS', {id: SHIFT3, code: 'SH-000003', trackIds: [14]}),
+        ]})
+
+        await user.click(screen.getByRole('tab', {name: 'Inspecciones'}))
+        await user.click(await screen.findByRole('button', {name: 'Nueva inspección'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva inspección'})
+        await user.click(within(dialog).getByRole('combobox', {name: 'Turno'}))
+        // El planificado no se ha trabajado y el de la vía 14 no recorre la del activo.
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['SH-000001 · 05/10/2026 · EQ-01 - Brigada norte · Cerrado'])
+        expect(readsOf(requests, `${BASE}/shifts`).at(-1).searchParams.getAll('trackId')).toEqual(['12'])
+        await user.click(screen.getByRole('option', {name: 'SH-000001 · 05/10/2026 · EQ-01 - Brigada norte · Cerrado'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts.map((write) => write.body)).toEqual([expect.objectContaining({assetId: ASSET_OWN, originOrderId: ORDER1,
+            shiftId: SHIFT1})]))
+    })
+
+    it('elegir otro activo en el alta vacía el turno elegido, que podría no recorrer sus vías', async () => {
+        const insulator = {id: ASSET_OWN, code: 'SIN-0041', name: 'SI-W41', type: 'SECTION_INSULATOR', trackId: 13, connectedTrackId: 12,
+            startKp: 12.92, endKp: 12.96, sectioning: null, enabled: true}
+        const requests = serveMaintenance({teams: TEAMS, inspections: [inspection('OK')], assets: [{...PROFILE_SUMMARY}, insulator],
+            shifts: [shift('IN_PROGRESS')]})
+        const posts = recordWrites('post', `${BASE}/inspections`, () => HttpResponse.json(inspection('OK'), {status: 201}))
+        const {user} = await open('/mantenimiento/inspecciones', loginAs('mantenimiento.tecnico'), 'Inspecciones', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Nueva inspección'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva inspección'})
+        expect(within(dialog).getByRole('combobox', {name: 'Turno'})).toBeDisabled()
+        await user.type(within(dialog).getByRole('combobox', {name: 'Activo'}), 'SI')
+        await user.click(await screen.findByRole('option', {name: 'SIN-0041 - SI-W41'}))
+        // El aislador une la 13 con la 12: el turno de la 12 le vale.
+        await choose(user, dialog, 'Turno', 'SH-000001 · 05/10/2026 · EQ-01 - Brigada norte · En curso')
+        expect(readsOf(requests, `${BASE}/shifts`).at(-1).searchParams.getAll('trackId')).toEqual(['13', '12'])
+        const asset = within(dialog).getByRole('combobox', {name: 'Activo'})
+        await user.clear(asset)
+        await user.type(asset, '12-2')
+        await user.click(await screen.findByRole('option', {name: 'PRF-0001 - 12-2.27'}))
+        expect(within(dialog).getByRole('combobox', {name: 'Turno'})).toHaveValue('')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts).toHaveLength(1))
+        expect(posts[0].body).not.toHaveProperty('shiftId')
+        expect(posts[0].body.assetId).toBe(ASSET_SYNCED)
     })
 
     it('una que no existe se dice una vez y vuelve a la lista, y su historial dice cómo quedó', async () => {

@@ -21,28 +21,31 @@ import {TaskTypesSelect} from './MaintenancePickers.jsx'
 import {useCompleteTask, useInProgressShifts, useTaskTypes} from './useMaintenance.js'
 
 const CORRECTION_LENGTH = 120
+/** Desde un turno no se busca ninguno: una lista fija, para que la clave de la consulta no cambie en cada render. */
+const NO_TRACKS = Object.freeze([])
 const DESCRIPTION_LENGTH = 4000
 
 /**
  * Completar una tarea: la fila del parte del turno (el port de CompleteTaskDialog).
  *
  * - Se trabaja en un turno en curso de la vía de la tarea: fijo si se abre desde el turno, y a elegir
- *   entre los en curso de su vía si se abre desde la orden.
+ *   entre los en curso de su vía si se abre desde la orden. Un aislador o un seccionador que une dos
+ *   vías se trabaja desde un turno de cualquiera: se ofrecen los de las dos.
  * - Lleva los defectos encontrados (resueltos en el turno o, si el trabajo no se terminó, abiertos con
  *   su fecha de reparación) y los materiales usados, que el servicio registra como líneas de la orden
  *   ya consumidas y reserva en mto-stock. Elegir materiales pide stock-read.
  * - Si el turno no admite el trabajo (409 SHF-001) o la orden no está en curso, el aviso lo dice y el
  *   diálogo sigue abierto con lo escrito.
  *
- * @param {string|number|null} trackId la vía en la que buscar turnos en curso si no viene shift
+ * @param {Array<string|number>} [trackIds] las vías en las que buscar turnos en curso si no viene shift (`tracksOf`)
  * @param {object|null} shift el turno, o null para elegirlo
  * @param {string} [name] cómo se nombra la tarea: «la tarea 1», «la tarea 1 de MO-000001»
  */
-export default function CompleteTaskModal({orderId, trackId, task, shift, name = `la tarea ${task.sequence}`, onClose}) {
+export default function CompleteTaskModal({orderId, trackIds = NO_TRACKS, task, shift, name = `la tarea ${task.sequence}`, onClose}) {
     const session = useSession()
     const pickMaterials = session.has(P.STOCK_READ)
     const types = useTaskTypes()
-    const shifts = useInProgressShifts(trackId, {enabled: shift === null})
+    const shifts = useInProgressShifts(trackIds, {enabled: shift === null})
     const [inlineDefects, setInlineDefects] = useState([])
     const [materials, setMaterials] = useState([])
     // El diálogo de añadir abierto: 'defect' o 'material'.
@@ -94,7 +97,7 @@ export default function CompleteTaskModal({orderId, trackId, task, shift, name =
                 <Stack>
                     <SimpleGrid cols={{base: 1, sm: 2}}>
                         <Select label="Turno" withAsterisk readOnly={shift !== null} allowDeselect={false}
-                                description={shift ? null : 'Los turnos en curso de la vía de la tarea'}
+                                description={shift ? null : trackIds.length > 1 ? 'Los turnos en curso de sus dos vías' : 'Los turnos en curso de la vía de la tarea'}
                                 nothingFoundMessage="Ningún turno en curso en su vía" placeholder={shift ? null : 'Elige un turno en curso'}
                                 data={candidates.map((candidate) => ({value: candidate.id, label: shiftLabel(candidate)}))}
                                 {...form.getInputProps('shiftId')}/>

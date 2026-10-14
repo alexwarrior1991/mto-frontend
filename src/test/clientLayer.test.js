@@ -69,6 +69,7 @@ import {
 import {apiFetch, buildUrl, configureHttp} from '../api/http.js'
 import {
     assetPatch,
+    assetSummaryOf,
     canReactivate,
     createAsset,
     disableAsset,
@@ -109,6 +110,7 @@ import {
     createDefectFromInspection,
     createInspection,
     defectFromInspectionRequest,
+    inspectionFormValues,
     inspectionPatch,
     inspectionRequest,
     patchInspection,
@@ -162,6 +164,7 @@ import {
     shiftRequest,
     shiftRevisionsPath,
     shiftTransitionRequest,
+    tracksOf,
     transitionShift,
 } from '../api/maintenance/shifts.js'
 import {
@@ -175,6 +178,7 @@ import {
     listOrderTasks,
     patchCheckItem,
     patchTask,
+    skippedOf,
     startTask,
     taskPatch,
     taskRequest,
@@ -2244,6 +2248,35 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(json(cancels[0])).toEqual({reason: 'Perfil desmontado'})
     })
 
+    it('generar con los aisladores manda assetTypes y los tipos para todo, y lo saltado se cuenta en activos si el servicio lo dice', async () => {
+        useToken()
+        const generates = record('post', `${BASE}/orders/:id/tasks/generate`, () => HttpResponse.json({createdTasks: 3, skippedProfiles: 1,
+            totalTasks: 20, estimatedMinutes: 900, estimatedShifts: 4, skippedAssets: 2}))
+
+        const generated = await generateTasks(ORDER, generateRequest({taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true, withInsulators: true}))
+
+        expect(json(generates[0])).toEqual({taskTypeCodes: ['RG-03', 'RP-02'], withChecklist: true, assetTypes: ['PROFILE', 'SECTION_INSULATOR']})
+        expect(generateRequest({withInsulators: false})).toEqual({})
+        expect(skippedOf(generated)).toBe(2)
+        // Un servicio que todavía no cuenta los activos: los perfiles, que es lo que contaba.
+        expect(skippedOf({skippedProfiles: 1})).toBe(1)
+    })
+
+    it('los turnos de un activo que une dos vías se piden de una vez, con trackId repetido', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/shifts`, () => HttpResponse.json(page([shift('IN_PROGRESS')])))
+        const insulator = {id: ASSET, code: 'SIN-41', name: 'SI-W41', type: 'SECTION_INSULATOR', trackId: 13, connectedTrackId: 12, enabled: true}
+
+        await searchShifts({trackId: tracksOf(insulator, 99), status: 'IN_PROGRESS'})
+
+        expect(searches[0].url.searchParams.getAll('trackId')).toEqual(['13', '12'])
+        expect(tracksOf({trackId: null, connectedTrackId: null}, 12)).toEqual([12])
+        expect(tracksOf({trackId: 12, connectedTrackId: 12})).toEqual([12])
+        expect(tracksOf(null)).toEqual([])
+        expect(assetSummaryOf({...insulator, sourceService: 'mto-configuration', switches: []})).toEqual({id: ASSET, code: 'SIN-41', name: 'SI-W41',
+            type: 'SECTION_INSULATOR', trackId: 13, startKp: undefined, endKp: undefined, sectioning: undefined, enabled: true, connectedTrackId: 12})
+    })
+
     it('los turnos: la búsqueda, el alta sin lo vacío, la modificación con los conjuntos enteros, las transiciones, sus tareas y asignar', async () => {
         useToken()
         const searches = record('get', `${BASE}/shifts`, () => HttpResponse.json(page([shift('IN_PROGRESS')])))
@@ -2348,6 +2381,20 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(defectFromInspectionRequest({force: false})).toEqual({})
         expect(json(orders[0])).toEqual({priority: 'HIGH'})
         expect([defect.code, corrective.code]).toEqual(['DEF-000001', 'MO-000002'])
+    })
+
+    it('una inspección registrada en un turno lleva su shiftId en el alta, y el 409 SHF-001 de uno que no le vale llega tipado', async () => {
+        useToken()
+        const posts = record('post', `${BASE}/inspections`, () => maintenanceError(409, 'SHF-001',
+            'Shift SH-000003 works on tracks [14] but asset SIN-41 is on track 13 and connects with track 12'))
+        const values = {...inspectionFormValues(null, {today: '2026-10-05'}), assetId: {id: ASSET}, shiftId: SHIFT}
+
+        const error = await createInspection(inspectionRequest(values)).catch((failure) => failure)
+
+        expect(json(posts[0])).toEqual({assetId: ASSET, inspectionDate: '2026-10-05', inspectionKind: 'VISUAL', result: 'OK', shiftId: SHIFT})
+        expect([error.status, error.code]).toEqual([409, 'SHF-001'])
+        // Sin turno no viaja: el servicio la guarda sin parte.
+        expect(inspectionRequest({...values, shiftId: null})).not.toHaveProperty('shiftId')
     })
 
     it('los defectos: la búsqueda por instantes, el alta desde una orden, la modificación y sus transiciones con sus cuerpos', async () => {

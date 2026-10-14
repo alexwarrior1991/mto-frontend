@@ -2,6 +2,7 @@ import {Button, Group, Stack} from '@mantine/core'
 import {IconCheck, IconCircleX, IconListCheck, IconPencil, IconPlus, IconWand} from '@tabler/icons-react'
 import {useState} from 'react'
 import {canCompleteOrder, isOpenOrder, isOpenTask, TASK_STATUS} from '../../api/maintenance/enums.js'
+import {tracksOf} from '../../api/maintenance/shifts.js'
 import {assetLabel} from '../../api/maintenance/values.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {formatDateTime} from '../../ui/format.js'
@@ -89,7 +90,7 @@ export default function OrderTasksPanel({order, canWrite}) {
             {dialog?.kind === 'generate' && <GenerateTasksModal order={order} onClose={close}/>}
             {dialog?.kind === 'checklist' && <TaskChecklistModal task={dialog.task} onClose={close}/>}
             {dialog?.kind === 'complete' && (
-                <CompleteTaskModal orderId={order.id} trackId={dialog.task.asset?.trackId ?? order.trackId} task={dialog.task} shift={null}
+                <CompleteTaskModal orderId={order.id} trackIds={tracksOf(dialog.task.asset, order.trackId)} task={dialog.task} shift={null}
                                    onClose={close}/>
             )}
             {dialog?.kind === 'cancel' && (
