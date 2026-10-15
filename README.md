@@ -364,8 +364,8 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     turno («Quitar del turno», en su pestaña Tareas) y vuelve a su orden. Su **Parte** es el del servicio,
     con las inspecciones registradas en el turno debajo de las tareas.
   - «Generar tareas» de un preventivo crea una por perfil de su tramo y, añadiendo filas, también
-    aisladores (RG-03) y seccionadores (RP-06 los de motor) de otro tramo, de una vía, de una estación,
-    de todo el EP o elegidos, siempre del EP de la orden. «Previsualizar» dice qué pasará con cada
+    aisladores (RG-03 y RP-02, y RP-03 los que tienen agujas) y seccionadores (RP-06 los de motor) de
+    otro tramo, de una vía, de una estación, de todo el EP o elegidos, siempre del EP de la orden. «Previsualizar» dice qué pasará con cada
     activo antes de crear nada: lo que ya está en la orden o en otra abierta, o es de otro EP, se salta.
   - Una **inspección** se puede dar de alta en el turno en que se hizo (uno en curso o cerrado de la vía
     de su activo), y sale en su parte. Si encontró algo ofrece crear el defecto y la orden correctiva,
