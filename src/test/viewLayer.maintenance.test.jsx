@@ -995,7 +995,7 @@ describe('las órdenes', () => {
 
         await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
         const generate = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
-        expect(generate).toHaveTextContent('RG-03 y RP-02 en cada aislador (y RP-03 si tiene agujas) y RP-06 en cada seccionador con motor')
+        expect(generate).toHaveTextContent('RG-03 y RP-02 en cada aislador (y RG-04 y RP-03 si tiene agujas); RP-07 en cada seccionador (y RP-06 si tiene motor, RG-06 si es una autoválvula)')
         await user.click(within(generate).getByRole('button', {name: 'Añadir qué generar'}))
         const second = within(generate).getByRole('group', {name: 'Qué generar 2'})
         expect(within(second).getByRole('combobox', {name: 'Activos'})).toHaveValue('Aisladores de sección')
