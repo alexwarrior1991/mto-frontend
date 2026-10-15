@@ -483,9 +483,11 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   sin tipos propios viaja la petición de siempre (`{}` o `assetTypes`); si no, `selections`
   (`generateRequest`). «Previsualizar» manda `dryRun` y pinta lo que diría el servicio de cada activo
   (`GENERATION_OUTCOME`, tolerante); cualquier cambio la borra. Qué se salta (ya en la orden, en otra
-  orden abierta, de otro EP, sin tipo de tarea) y los tipos por defecto (RG-03 en un aislador, RP-06 en
-  un seccionador con motor, `driveType`) los decide el servicio. Se ofrece en una orden en borrador o
-  planificada sobre un tramo o con EP: una sobre un aislador o un seccionador también genera.
+  orden abierta, de otro EP, sin tipo de tarea) y los tipos por defecto (RG-03 y RP-02 en un aislador,
+  y RG-04 y RP-03 si tiene agujas; RP-07 en un seccionador, y RP-06 con motor, `driveType`, y RG-06 en
+  una autoválvula, `disconnectorFunction`) los decide el servicio. Se
+  ofrece en una orden en borrador o planificada sobre un tramo o con EP: una sobre un aislador o un
+  seccionador también genera.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
   `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el

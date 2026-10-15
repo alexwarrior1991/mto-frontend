@@ -27,8 +27,9 @@ const ASSET_TYPES = [
  * que conecta con ella), de una estación, de todo el EP o elegidos, en cualquier vía del EP: una orden es
  * de un solo EP, y lo de otro va en otra orden, así que los desplegables solo ofrecen lo suyo.
  *
- * Sin tipos, cada activo lleva los del plan (grupos 1, 2 y 4 en un perfil, RG-03 en un aislador, RP-06
- * en un seccionador con motor; uno manual no tiene y hay que elegirlos). Lo que ya tiene tarea en la
+ * Sin tipos, cada activo lleva los del plan: grupos 1, 2 y 4 en un perfil; RG-03 y RP-02 en un aislador,
+ * y RG-04 y RP-03 si tiene agujas; RP-07 en un seccionador, y RP-06 si tiene motor y RG-06 si es una
+ * autoválvula. Lo que ya tiene tarea en la
  * orden, lo que tiene una abierta en otra orden y lo de otro EP se salta: repetirlo no duplica.
  * «Previsualizar» pregunta al servicio qué pasaría con cada activo sin crear nada; cualquier cambio en el
  * diálogo la borra. Lo que resulta lo cuenta el servicio y se enseña tal cual.
@@ -116,7 +117,7 @@ export default function GenerateTasksModal({order, onClose}) {
                     <Text size="sm" c="dimmed">La orden no tiene EP: solo genera su tramo. Otros tramos y vías van en una orden con EP.</Text>
                 )}
                 <TaskTypesSelect label="Tipos de tarea" types={activeTaskTypes(types.data)} value={codes}
-                                 description="Para todo lo generado. Vacío: grupos 1, 2 y 4 en cada perfil, RG-03 en cada aislador y RP-06 en cada seccionador con motor"
+                                 description="Para todo lo generado. Vacío: grupos 1, 2 y 4 en cada perfil; RG-03 y RP-02 en cada aislador (y RG-04 y RP-03 si tiene agujas); RP-07 en cada seccionador (y RP-06 si tiene motor, RG-06 si es una autoválvula)"
                                  onChange={(value) => {
                                      setCodes(value)
                                      setPreview(null)

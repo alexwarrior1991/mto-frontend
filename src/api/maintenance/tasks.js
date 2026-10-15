@@ -14,8 +14,9 @@ import {maintenancePath} from './values.js'
  *   el EP o elegidos, en cualquier vía del EP de la orden (una orden es de un solo EP). Lo que ya tiene
  *   tarea en la orden, lo que es de otro EP y lo que tiene una tarea abierta en otra orden se salta, así
  *   que repetirlo no duplica. Sin tipos, los del servicio para cada activo (grupos 1, 2 y 4 en un
- *   perfil, RG-03 en un aislador, RP-06 en un seccionador con motor); los elegidos van a todo lo
- *   generado, y los de una fila solo a lo suyo. dryRun dice qué pasaría sin crear nada.
+ *   perfil; RG-03 y RP-02 en un aislador, y RG-04 y RP-03 si tiene agujas; RP-07 en un seccionador, y
+ *   RP-06 si tiene motor y RG-06 si es una autoválvula); los elegidos van a todo lo generado, y los de
+ *   una fila solo a lo suyo. dryRun dice qué pasaría sin crear nada.
  * - Solo una tarea abierta (pendiente o en curso) se modifica o se cancela. Sus tipos, si cambian,
  *   van enteros: sustituyen a los que tenía.
  * - Iniciar y completar piden la orden en curso y un turno en curso que cubra su vía, con una posesión
