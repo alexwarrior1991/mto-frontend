@@ -52,6 +52,11 @@ export function errorMessage(error) {
     if (error instanceof TooManyRequestsError && error.code === 'OPS-429') {
         return 'Hay demasiadas operaciones en marcha.' + retryIn(error)
     }
+    // Una operacion de fondo de mto-maintenance cuya instancia dejo de latir (se paro a medias): no va a
+    // terminar, hay que volver a lanzarla. Llega como el error de la operacion, con estado 500.
+    if (error.code === 'OPS-410') {
+        return 'La operación se interrumpió en el servicio (se paró la instancia que la llevaba): vuelve a lanzarla.'
+    }
     // El unico 410 del dominio es el fichero de un trabajo de mto-configuration que ya no esta
     // (purgado, o generado en otra replica): un 404 sugeriria reintentar, y esto pide relanzarlo.
     if (error.status === 410) {

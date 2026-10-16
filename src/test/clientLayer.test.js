@@ -183,6 +183,7 @@ import {
     GENERATION_SCOPE,
     generateRequest,
     generateTasks,
+    startTaskGeneration,
     generationRow,
     isOrderSectionOnly,
     listOrderTasks,
@@ -193,6 +194,7 @@ import {
     taskPatch,
     taskRequest,
 } from '../api/maintenance/tasks.js'
+import {getOperation, GENERATION_PREFER, isFinishedOperation, OPERATION_STATUS, operationError} from '../api/maintenance/operations.js'
 import {assetLabel, materialLabel, teamLabel} from '../api/maintenance/values.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
 import {
@@ -2360,6 +2362,35 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(generated.estimatedShifts).toBe(3)
         expect(json(patches[0])).toEqual({assignedUser: null, taskTypeCodes: ['RG-01'], notes: 'Falta la llave', version: 2})
         expect(json(cancels[0])).toEqual({reason: 'Perfil desmontado'})
+    })
+
+    it('generar de verdad va con Prefer: un 202 trae la operación, que se pregunta por su id y no por su Location; un 200 el resultado', async () => {
+        useToken()
+        const operation = '3c3c3c3c-0000-4000-8000-0000000000c1'
+        const posts = record('post', `${BASE}/orders/${ORDER}/tasks/generate`, (request, call) => (call === 1
+            ? HttpResponse.json({id: operation, kind: 'GENERATE_TASKS', status: 'QUEUED'},
+                {status: 202, headers: {Location: `/api/v1/maintenance/operations/${operation}`}})
+            : HttpResponse.json({createdTasks: 14, skippedProfiles: 0, totalTasks: 14, estimatedMinutes: 600, estimatedShifts: 1})))
+        const reads = record('get', `${BASE}/operations/:id`, () => HttpResponse.json({id: operation, status: 'PAUSED',
+            error: {status: 500, errorCode: 'OPS-410', message: 'Abandoned'}}))
+
+        expect(await startTaskGeneration(ORDER, {})).toEqual({operation: {id: operation, kind: 'GENERATE_TASKS', status: 'QUEUED'}})
+        expect((await startTaskGeneration(ORDER, {})).result.createdTasks).toBe(14)
+        expect(posts.map((request) => request.headers.get('prefer'))).toEqual([GENERATION_PREFER, GENERATION_PREFER])
+        const unknown = await getOperation(operation)
+        expect(reads[0].url.pathname).toBe(`${BASE}/operations/${operation}`)
+        expect(OPERATION_STATUS.parse(unknown.status)).toBe('UNKNOWN')
+        expect(isFinishedOperation(unknown)).toBe(true)
+        expect(isFinishedOperation({status: 'RUNNING'})).toBe(false)
+        const failure = operationError(unknown)
+        expect([failure.status, failure.code]).toEqual([500, 'OPS-410'])
+        expect(errorMessage(failure)).toBe('La operación se interrumpió en el servicio (se paró la instancia que la llevaba): vuelve a lanzarla.')
+        expect(errorMessage(operationError({id: operation, error: {status: 409, errorCode: 'TRN-001', message: 'Order is COMPLETED'}})))
+            .toBe('El estado actual no permite esta operación. Order is COMPLETED')
+        // La previsualización sigue siendo síncrona: sin Prefer.
+        const previews = record('post', `${BASE}/orders/${ORDER}/tasks/generate`, () => HttpResponse.json({createdTasks: 0, dryRun: true}))
+        await generateTasks(ORDER, {dryRun: true})
+        expect(previews[0].headers.get('prefer')).toBeNull()
     })
 
     it('generar el tramo de la orden es la petición de siempre: vacía, o assetTypes con los tipos para todo', async () => {
