@@ -1,14 +1,17 @@
 import {searchPeople} from '../../api/resources/people.js'
-import {personLabel} from '../../api/resources/values.js'
+import {personLabel, unitLabel} from '../../api/resources/values.js'
+import {searchVehicles} from '../../api/resources/vehicles.js'
 import ServerSearchMultiSelect from '../../ui/ServerSearchMultiSelect.jsx'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {resourcesKey} from './useResources.js'
 
 /**
- * Los desplegables de personas (el port de ResourcesPickers), buscadas en el servidor mientras se
- * escribe: solo las activas y solo de las categorías que admite lo que se elige (el jefe de una unidad
- * según su nivel, los linemen operarios o jefes de equipo), para no ofrecer lo que el servicio va a
- * rechazar. Quien decide sigue siendo el servicio (409 UNI-001).
+ * Los desplegables de personas y vehículos de mto-resources (el port de ResourcesPickers), buscados en
+ * el servidor mientras se escribe: solo las personas activas y de las categorías que admite lo que se
+ * elige (el jefe de una unidad según su nivel, los linemen operarios o jefes de equipo, el jefe de un
+ * turno cualquiera menos un operario), y solo los vehículos activos y disponibles, para no ofrecer lo
+ * que el servicio va a rechazar. Quien decide sigue siendo el servicio (409 UNI-001, o SHF-001 en un
+ * turno). Los usan el organigrama y los turnos de mantenimiento.
  */
 
 /** Una persona como opción de un desplegable, con su resumen (para saber si es el jefe, su categoría…). */
@@ -42,5 +45,22 @@ export function PeopleMultiSelect({categories, current = [], ...props}) {
     return (
         <ServerSearchMultiSelect queryKey={resourcesKey('people-picker', categories)} search={searchFor(categories)} searchWhenEmpty clearable
                                  current={current.map(personOption)} placeholder="Escribe su nombre o su código" {...props}/>
+    )
+}
+
+function vehicleOption(vehicle) {
+    return {value: vehicle.vehicleId ?? vehicle.id, label: unitLabel(vehicle)}
+}
+
+async function searchAvailableVehicles(text, {signal}) {
+    const page = await searchVehicles({search: text, available: true, active: true, size: 20}, {signal})
+    return page.content.map(vehicleOption)
+}
+
+/** Varios vehículos activos y disponibles; current son los que ya tiene el campo (los de un turno, con vehicleId). */
+export function VehiclesMultiSelect({current = [], ...props}) {
+    return (
+        <ServerSearchMultiSelect queryKey={resourcesKey('vehicle-picker')} search={searchAvailableVehicles} searchWhenEmpty clearable
+                                 current={current.map(vehicleOption)} placeholder="Escribe su código" {...props}/>
     )
 }

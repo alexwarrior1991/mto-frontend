@@ -3,6 +3,8 @@ import {instantToLocalDateTime, localDateTimeToInstant, toInstantParam, toLocalD
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {sortWithTieBreak, toPage, toPageParams} from '../paging.js'
+import {categoriesAtLeast, categoryRank} from '../resources/enums.js'
+import {personLabel, unitLabel} from '../resources/values.js'
 import {maintenancePath} from './values.js'
 
 /**
@@ -20,7 +22,18 @@ import {maintenancePath} from './values.js'
  *   (409 SHF-001 si no): asignar es una llamada por tarea, para que el servicio compruebe cada una.
  *   Un aislador o un seccionador que une dos vías está en las dos (`connectedTrackId`): vale un turno
  *   de cualquiera, y la búsqueda admite varias vías (`trackId` repetido) para pedirlos de una vez.
+ * - La dotación (jefe, supervisor, linemen) y los vehículos son de mto-resources y viajan por sus ids;
+ *   linemen y vehículos son conjuntos, y quitarlos todos viaja a null. En el alta, lo que no se dice lo
+ *   copia el servicio de un equipo de mto-resources. Sin resources-read no viajan: no se pueden elegir.
+ *   Las demás reglas (de 2 a 6 linemen para iniciar, las plazas, el remolque, una persona o un vehículo
+ *   en otro turno del día) las dice el servicio con 409 SHF-001.
+ * - Al cerrar, cada vehículo dice dónde se deja (`parkings`): un sitio de mto-resources, una vía y su
+ *   kp, o un texto. Solo viaja lo rellenado; sin nada, vale el estacionamiento del turno.
  */
+
+/** El jefe de un turno es cualquiera menos un operario; su supervisor, de supervisor para arriba. */
+export const SHIFT_LEADER_CATEGORIES = Object.freeze(categoriesAtLeast(categoryRank('TEAM_LEADER')))
+export const SHIFT_SUPERVISOR_CATEGORIES = Object.freeze(categoriesAtLeast(categoryRank('SUPERVISOR')))
 
 /** Sin columna elegida, el más reciente primero. */
 export const BY_SHIFT_DATE_DESC = 'shiftDate,desc'
@@ -124,7 +137,25 @@ export function shiftFormValues(shift, {today = null} = {}) {
         measurementEquipment: shift?.measurementEquipment ?? '',
         personnel: shift?.personnel ?? '',
         observations: shift?.observations ?? '',
+        teamLeaderPersonId: shift?.teamLeader?.id ?? null,
+        supervisorPersonId: shift?.supervisor?.id ?? null,
+        linemanPersonIds: (shift?.linemen ?? []).map((person) => person.id),
+        vehicleIds: (shift?.vehicles ?? []).map((vehicle) => vehicle.vehicleId),
     }
+}
+
+/** La dotación y los vehículos del formulario, por sus ids. */
+function crewValues(values) {
+    return {
+        teamLeaderPersonId: values.teamLeaderPersonId || null,
+        supervisorPersonId: values.supervisorPersonId || null,
+        linemanPersonIds: values.linemanPersonIds ?? [],
+        vehicleIds: values.vehicleIds ?? [],
+    }
+}
+
+function nonEmpty(list) {
+    return list.length > 0 ? list : null
 }
 
 /** Del formulario a los tipos de la petición: ids como número, fechas y horas como Instant. */
@@ -150,33 +181,101 @@ function requestValues(values) {
     }
 }
 
-/** El alta: lo vacío no viaja. Sin base ni vehículo, el servicio pone los del equipo. */
-export function shiftRequest(values) {
+/**
+ * El alta: lo vacío no viaja. Sin base ni vehículo, el servicio pone los del equipo, y con un equipo de
+ * mto-resources también la dotación y los vehículos que no se digan. Sin resources-read no viajan.
+ */
+export function shiftRequest(values, {readsResources = false} = {}) {
     const request = requestValues(values)
-    return withoutNulls({...request, blockingDisconnectorIds: request.blockingDisconnectorIds.length > 0 ? request.blockingDisconnectorIds : null})
+    const crew = crewValues(values)
+    return withoutNulls({
+        ...request,
+        blockingDisconnectorIds: nonEmpty(request.blockingDisconnectorIds),
+        ...(readsResources
+            ? {...crew, linemanPersonIds: nonEmpty(crew.linemanPersonIds), vehicleIds: nonEmpty(crew.vehicleIds)}
+            : {}),
+    })
 }
 
 const PATCHABLE = Object.freeze(['shiftDate', 'teamId', 'baseName', 'vehicle', 'possessionType', 'plannedStart', 'plannedEnd',
     'blockingDisconnectorIds', 'earthingPoints', 'parkingPlace', 'executionPackageId', 'trackIds', 'startKp', 'endKp', 'personnel',
     'measurementEquipment', 'observations'])
+const CREW = Object.freeze(['teamLeaderPersonId', 'supervisorPersonId', 'linemanPersonIds', 'vehicleIds'])
 
 /**
- * Lo que cambió de un turno, lo vaciado y su versión, o null si nada. Vías y seccionadores se comparan
- * como conjunto, y los instantes como instantes: el servicio los devuelve sin milisegundos.
+ * Lo que cambió de un turno, lo vaciado y su versión, o null si nada. Vías, seccionadores, linemen y
+ * vehículos se comparan como conjunto, y los instantes como instantes: el servicio los devuelve sin
+ * milisegundos. Sin resources-read la dotación y los vehículos no viajan.
  */
-export function shiftPatch(original, values) {
+export function shiftPatch(original, values, {readsResources = false} = {}) {
     return buildMergePatch({
         ...original,
         teamId: original.team?.id ?? null,
         plannedStart: toInstantParam(original.plannedStart) ?? null,
         plannedEnd: toInstantParam(original.plannedEnd) ?? null,
         blockingDisconnectorIds: (original.blockingDisconnectors ?? []).map((disconnector) => disconnector.id),
-    }, requestValues(values), {
-        fields: PATCHABLE,
+        ...crewValues(shiftFormValues(original)),
+    }, {...requestValues(values), ...crewValues(values)}, {
+        fields: readsResources ? [...PATCHABLE, ...CREW] : PATCHABLE,
         numberFields: ['startKp', 'endKp', 'executionPackageId'],
-        setFields: ['blockingDisconnectorIds', 'trackIds'],
+        setFields: ['blockingDisconnectorIds', 'trackIds', 'linemanPersonIds', 'vehicleIds'],
         version: original.version,
     })
+}
+
+/** La dotación y los vehículos de un turno en una línea, para quien no puede elegirlos. */
+export function crewText(shift) {
+    const people = (list) => (list.length === 0 ? '-' : list.map(personLabel).join(', '))
+    return [`Jefe: ${shift?.teamLeader ? personLabel(shift.teamLeader) : '-'}`,
+        `Supervisor: ${shift?.supervisor ? personLabel(shift.supervisor) : '-'}`,
+        `Linemen: ${people(shift?.linemen ?? [])}`,
+        `Vehículos: ${(shift?.vehicles ?? []).length === 0 ? '-' : shift.vehicles.map(unitLabel).join(', ')}`].join(' · ')
+}
+
+/** Las filas de dónde se deja cada vehículo del turno al cerrarlo, vacías. */
+export function parkingFormValues(vehicles) {
+    return (vehicles ?? []).map((vehicle) => ({vehicleId: vehicle.vehicleId, parkingSiteId: null, trackId: null, kp: '', description: ''}))
+}
+
+function parkingOf(row) {
+    return {
+        vehicleId: row.vehicleId,
+        parkingSiteId: row.parkingSiteId || null,
+        trackId: idOrNull(row.trackId),
+        kp: numberOrNull(row.kp),
+        description: textOrNull(row.description),
+    }
+}
+
+function isFilled(parking) {
+    return parking.parkingSiteId !== null || parking.trackId !== null || parking.kp !== null || parking.description !== null
+}
+
+/**
+ * Lo evidente de una fila, antes de llamar: un kp va con su vía, y uno de solo vía no se deja con solo un
+ * texto. Devuelve {field, message} o null; lo demás lo dice el servicio (409 SHF-001).
+ */
+export function parkingRowError(row, mobility) {
+    const parking = parkingOf(row)
+    if (parking.kp !== null && parking.trackId === null) {
+        return {field: 'trackId', message: 'Un KP va con su vía'}
+    }
+    if (isFilled(parking) && mobility === 'RAIL_ONLY' && parking.parkingSiteId === null && parking.trackId === null) {
+        return {field: 'description', message: 'Uno de solo vía se deja sobre una vía: un sitio o una vía'}
+    }
+    return null
+}
+
+/**
+ * Lo rellenado de cada fila, sin lo que no se dijo, y la fila de la que viene cada una (para llevar un
+ * error del servicio, parkings[0].kp, a su fila); null si no hay nada: vale el estacionamiento del turno.
+ */
+export function parkingsRequest(rows) {
+    const sent = (rows ?? []).map((row, index) => ({index, parking: parkingOf(row)})).filter(({parking}) => isFilled(parking))
+    return {
+        parkings: sent.length === 0 ? null : sent.map(({parking}) => withoutNulls(parking)),
+        rowOf: sent.map(({index}) => index),
+    }
 }
 
 /** Lo que el diálogo de iniciar o cerrar parte de un turno. */
@@ -186,6 +285,7 @@ export function transitionFormValues(shift) {
         voltageCutoffAt: instantToLocalDateTime(shift.voltageCutoffAt),
         netWorkMinutes: '',
         observations: shift.observations ?? '',
+        parkings: parkingFormValues(shift.vehicles),
     }
 }
 
@@ -202,5 +302,5 @@ export function shiftTransitionRequest(transition, values) {
         return withoutNulls({actualStart: when, voltageCutoffAt})
     }
     return withoutNulls({actualEnd: when, voltageCutoffAt, netWorkMinutes: numberOrNull(values.netWorkMinutes),
-        observations: textOrNull(values.observations)})
+        observations: textOrNull(values.observations), parkings: parkingsRequest(values.parkings).parkings})
 }

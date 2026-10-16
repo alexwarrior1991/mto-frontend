@@ -274,6 +274,16 @@ export function useReachableSites(mobility) {
     })
 }
 
+/** Los sitios de aparcamiento activos, para nombrar y elegir dónde quedó un vehículo de un turno; solo con resources-read. */
+export function useParkingSites({enabled = true} = {}) {
+    return useQuery({
+        queryKey: resourcesKey('parking-sites', 'active'),
+        queryFn: ({signal}) => searchParkingSites({active: true, size: 200}, {signal}),
+        staleTime: NOT_FRESH,
+        enabled,
+    })
+}
+
 /** El alta o la modificación de un vehículo, desde su editor; se relee todo el módulo. */
 export function useSaveVehicle() {
     const queryClient = useQueryClient()

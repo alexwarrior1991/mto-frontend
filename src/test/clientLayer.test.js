@@ -160,8 +160,12 @@ import {
     createShift,
     listShiftProfiles,
     listShiftTasks,
+    parkingRowError,
+    parkingsRequest,
     patchShift,
     searchShifts,
+    SHIFT_LEADER_CATEGORIES,
+    SHIFT_SUPERVISOR_CATEGORIES,
     shiftFormValues,
     shiftPatch,
     shiftRequest,
@@ -2475,6 +2479,41 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(unassigns[0].body).toBe('')
         expect(unassigned.shiftId).toBeNull()
         expect(() => transitionShift(SHIFT, 'reopen', {})).toThrow(/desconocida/)
+    })
+
+    it('la dotación y los vehículos de un turno viajan por sus ids, como conjuntos y solo con resources-read; cerrar dice dónde queda cada vehículo', () => {
+        const leader = '3c4d5e6f-0000-4000-8000-0000000000a1'
+        const [first, second] = ['3c4d5e6f-0000-4000-8000-0000000000a2', '3c4d5e6f-0000-4000-8000-0000000000a3']
+        const [rail, road] = ['9d0e1f20-0000-4000-8000-0000000000a1', '9d0e1f20-0000-4000-8000-0000000000a2']
+        const read = shift('PLANNED', {teamLeader: {id: leader, code: 'PER-000003'}, supervisor: null,
+            linemen: [{id: first, code: 'PER-000011'}, {id: second, code: 'PER-000012'}],
+            vehicles: [{vehicleId: rail, code: 'DR-01', mobility: 'RAIL_ONLY', parking: null}, {vehicleId: road, code: 'VAN-01', mobility: 'ROAD_ONLY'}]})
+        const values = shiftFormValues(read)
+        expect([values.teamLeaderPersonId, values.linemanPersonIds, values.vehicleIds]).toEqual([leader, [first, second], [rail, road]])
+
+        const fresh = {shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: ['12'], teamLeaderPersonId: leader, supervisorPersonId: null,
+            linemanPersonIds: [], vehicleIds: [rail]}
+        expect(shiftRequest(fresh, {readsResources: true})).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12],
+            teamLeaderPersonId: leader, vehicleIds: [rail]})
+        expect(shiftRequest(fresh)).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12]})
+        expect(shiftPatch(read, {...values, linemanPersonIds: [second, first], vehicleIds: [road, rail]}, {readsResources: true})).toBeNull()
+        expect(shiftPatch(read, {...values, linemanPersonIds: [], vehicleIds: [rail], supervisorPersonId: leader}, {readsResources: true}))
+            .toEqual({linemanPersonIds: null, vehicleIds: [rail], supervisorPersonId: leader, version: 5})
+        expect(shiftPatch(read, {...values, linemanPersonIds: []})).toBeNull()
+        expect(SHIFT_LEADER_CATEGORIES).not.toContain('WORKER')
+        expect(SHIFT_SUPERVISOR_CATEGORIES).toEqual(['SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
+
+        const rows = [{vehicleId: rail, parkingSiteId: null, trackId: '12', kp: '4.250', description: ' '},
+            {vehicleId: road, parkingSiteId: null, trackId: null, kp: '', description: ''}]
+        expect(parkingsRequest(rows)).toEqual({parkings: [{vehicleId: rail, trackId: 12, kp: 4.25}], rowOf: [0]})
+        expect(parkingsRequest([rows[1]]).parkings).toBeNull()
+        expect(shiftTransitionRequest('close', {when: null, voltageCutoffAt: null, netWorkMinutes: '', observations: '', parkings: rows}))
+            .toEqual({parkings: [{vehicleId: rail, trackId: 12, kp: 4.25}]})
+        expect(parkingRowError({vehicleId: rail, kp: '4', trackId: null}, 'RAIL_ONLY')).toEqual({field: 'trackId', message: 'Un KP va con su vía'})
+        expect(parkingRowError({vehicleId: rail, description: 'Playa de vías'}, 'RAIL_ONLY')).toEqual({field: 'description',
+            message: 'Uno de solo vía se deja sobre una vía: un sitio o una vía'})
+        expect(parkingRowError({vehicleId: road, description: 'Puerta 3'}, 'ROAD_ONLY')).toBeNull()
+        expect(parkingRowError({vehicleId: rail}, 'RAIL_ONLY')).toBeNull()
     })
 
     it('trabajar una tarea: iniciarla en un turno, contestar un punto y completarla con sus defectos y materiales', async () => {

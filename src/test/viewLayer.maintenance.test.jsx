@@ -1512,6 +1512,50 @@ function shift(status, extra = {}) {
     }
 }
 
+const CREW_LEADER = '3c4d5e6f-0000-4000-8000-0000000000a1'
+const CREW_A = '3c4d5e6f-0000-4000-8000-0000000000a2'
+const CREW_B = '3c4d5e6f-0000-4000-8000-0000000000a3'
+const CREW_VEHICLE = '9d0e1f20-0000-4000-8000-0000000000a1'
+const CREW_VAN = '9d0e1f20-0000-4000-8000-0000000000a2'
+const CREW_SITE = '8c9d0e1f-0000-4000-8000-0000000000a1'
+
+/** La dotación de un turno de mto-resources: su jefe, dos linemen, una dresina (con dónde quedó) y una furgoneta. */
+function withCrew({parking = null} = {}) {
+    return {
+        teamLeader: {id: CREW_LEADER, code: 'PER-000003', fullName: 'Yossi Cohen', username: 'equipo.jefe', category: 'TEAM_LEADER'},
+        supervisor: null,
+        linemen: [{id: CREW_A, code: 'PER-000011', fullName: 'Lineman Uno', username: null, category: 'WORKER'},
+            {id: CREW_B, code: 'PER-000012', fullName: 'Lineman Dos', username: null, category: 'WORKER'}],
+        vehicles: [{vehicleId: CREW_VEHICLE, code: 'DR-01', name: 'Dresina 1', mobility: 'RAIL_ONLY', category: 'CATENARY_TOWER_CAR', available: true,
+            parking}, {vehicleId: CREW_VAN, code: 'VAN-01', name: 'Furgoneta', mobility: 'ROAD_ONLY', category: 'VAN', available: true, parking: null}],
+    }
+}
+
+/** mto-resources para los turnos: las personas, los vehículos disponibles y los sitios, con la URL de cada petición. */
+function serveCrew() {
+    const requests = []
+    const page = (rows) => ({content: rows, page: {number: 0, size: 20, totalElements: rows.length, totalPages: 1}})
+    server.use(
+        http.get('/api/resources/people', ({request}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(page([{id: CREW_LEADER, code: 'PER-000003', fullName: 'Yossi Cohen', category: 'TEAM_LEADER', active: true},
+                {id: CREW_A, code: 'PER-000011', fullName: 'Lineman Uno', category: 'WORKER', active: true}]))
+        }),
+        http.get('/api/resources/vehicles', ({request}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(page([{id: CREW_VEHICLE, code: 'DR-01', name: 'Dresina 1', active: true}]))
+        }),
+        http.get('/api/resources/parking-sites', ({request}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(page([
+                {id: CREW_SITE, code: 'APT-RSH', name: 'Apartadero de Rishpon', kind: 'SIDING', railAccess: true, roadAccess: false, active: true},
+                {id: '8c9d0e1f-0000-4000-8000-0000000000a2', code: 'PRK-RSH', name: 'Parking de Rishpon', kind: 'ROAD_PARKING', railAccess: false,
+                    roadAccess: true, active: true}]))
+        }),
+    )
+    return requests
+}
+
 async function openShift(session, current, options = {}) {
     const requests = serveMaintenance({teams: TEAMS, taskTypes: TASK_TYPES, ...options, shifts: [current, ...(options.shifts ?? [])]})
     const view = renderRoute(`/mantenimiento/turnos/${current.id}`, {session})
@@ -1679,6 +1723,124 @@ describe('los turnos', () => {
         for (const name of ['Modificar', 'Asignar tareas', 'Cerrar', 'Cancelar']) {
             expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
         }
+    })
+
+    it('un turno nuevo elige su dotación y sus vehículos en mto-resources, y lo que se deja vacío no viaja', async () => {
+        const created = shift('PLANNED', withCrew())
+        const posts = recordWrites('post', `${BASE}/shifts`, () => HttpResponse.json(created, {status: 201}))
+        serveMaintenance({teams: TEAMS, shifts: [created], assets: [DISCONNECTOR]})
+        const resources = serveCrew()
+        const {user} = await open('/mantenimiento/turnos', loginAs('mantenimiento.tecnico'), 'Turnos', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo turno'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo turno'})
+        await typeInto(user, dialog, 'Fecha', '05/10/2026')
+        await choose(user, dialog, 'Vías', 'VIA 1 (PAQ NORTE)')
+        await user.keyboard('{Escape}')
+        expect(within(dialog).getAllByText('Vacío: el del equipo, si es de mto-resources')).toHaveLength(3)
+        await choose(user, dialog, 'Jefe del turno', 'PER-000003 · Yossi Cohen')
+        const leaders = resources.filter((url) => url.pathname === '/api/resources/people').at(-1)
+        expect(leaders.searchParams.getAll('category'))
+            .toEqual(['TEAM_LEADER', 'SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
+        expect(param(leaders, 'active')).toBe('true')
+        await choose(user, dialog, 'Linemen', 'PER-000011 · Lineman Uno')
+        await user.keyboard('{Escape}')
+        await choose(user, dialog, 'Vehículos', 'DR-01 · Dresina 1')
+        await user.keyboard('{Escape}')
+        const offered = resources.filter((url) => url.pathname === '/api/resources/vehicles').at(-1)
+        expect([param(offered, 'available'), param(offered, 'active')]).toEqual(['true', 'true'])
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(posts.map((write) => write.body)).toEqual([{shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12],
+            teamLeaderPersonId: CREW_LEADER, linemanPersonIds: [CREW_A], vehicleIds: [CREW_VEHICLE]}]))
+        expect(await screen.findByLabelText('Dotación del turno')).toHaveTextContent(
+            'Jefe: PER-000003 · Yossi Cohen · Supervisor: - · Linemen (2): PER-000011 · Lineman Uno, PER-000012 · Lineman Dos')
+    })
+
+    it('la dotación de un turno cambia como conjunto: quitar todos los linemen viaja a null, y un CRW-404 deja el diálogo abierto', async () => {
+        const current = shift('PLANNED', withCrew())
+        const patches = recordWrites('patch', `${BASE}/shifts/${SHIFT1}`, (body, call) => (call === 1
+            ? maintenanceError(404, 'CRW-404', 'Crew person not found')
+            : HttpResponse.json(current)))
+        serveCrew()
+        const {user} = await openShift(loginAs('mantenimiento.tecnico'), current)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SH-000001'})
+        await user.click(within(dialog).getByRole('combobox', {name: 'Linemen'}))
+        await user.keyboard('{Backspace}{Backspace}')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Vehículos'}))
+        await user.keyboard('{Backspace}{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar SH-000001'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(2))
+        expect(patches.map((write) => write.body)).toEqual([1, 2].map(() => ({linemanPersonIds: null, vehicleIds: [CREW_VEHICLE], version: 3})))
+    })
+
+    it('sin resources-read la dotación de un turno se lee como está, no se pide nada a mto-resources y no viaja', async () => {
+        const current = shift('PLANNED', withCrew())
+        const patches = recordWrites('patch', `${BASE}/shifts/${SHIFT1}`, () => HttpResponse.json(current))
+        const {user, requests} = await openShift(sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE, P.CONFIG_READ]), current)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SH-000001'})
+        expect(within(dialog).queryByRole('combobox', {name: 'Linemen'})).not.toBeInTheDocument()
+        expect(within(dialog).getByLabelText('Dotación del turno')).toHaveTextContent('Jefe: PER-000003 · Yossi Cohen · Supervisor: - · '
+            + 'Linemen: PER-000011 · Lineman Uno, PER-000012 · Lineman Dos · Vehículos: DR-01 · Dresina 1, VAN-01 · Furgoneta')
+        await user.type(within(dialog).getByRole('textbox', {name: 'Observaciones'}), 'Con lluvia')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{observations: 'Con lluvia', version: 3}]))
+        expect(requests.some((url) => url.pathname.startsWith('/api/resources'))).toBe(false)
+    })
+
+    it('al cerrar, cada vehículo dice dónde se deja; lo evidente se dice en su fila, solo viaja lo rellenado y un SHF-001 deja el diálogo abierto', async () => {
+        const current = shift('IN_PROGRESS', withCrew())
+        const closes = recordWrites('post', `${BASE}/shifts/${SHIFT1}/close`, (body, call) => {
+            if (call === 1) {
+                return maintenanceError(409, 'SHF-001', 'Vehicle DR-01 is rail-only: it is left on a track')
+            }
+            Object.assign(current, withCrew({parking: {siteId: CREW_SITE, trackId: 12, kp: 4.25, description: null}}), {status: 'CLOSED'})
+            return HttpResponse.json(current)
+        })
+        serveCrew()
+        const {user} = await openShift(loginAs('mantenimiento.tecnico'), current)
+
+        await user.click(screen.getByRole('button', {name: 'Cerrar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Cerrar SH-000001'})
+        const rail = within(dialog).getByRole('group', {name: 'Dónde queda DR-01'})
+        const road = within(dialog).getByRole('group', {name: 'Dónde queda VAN-01'})
+        expect(within(road).queryByRole('combobox', {name: 'Vía'})).not.toBeInTheDocument()
+        await user.click(within(rail).getByRole('combobox', {name: 'Sitio'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['APT-RSH · Apartadero de Rishpon'])
+        await user.keyboard('{Escape}')
+        await user.click(within(road).getByRole('combobox', {name: 'Sitio'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['PRK-RSH · Parking de Rishpon'])
+        await user.keyboard('{Escape}')
+
+        await user.type(within(rail).getByRole('textbox', {name: 'Descripción'}), 'En la playa de vías')
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        expect(await within(rail).findByText('Uno de solo vía se deja sobre una vía: un sitio o una vía')).toBeInTheDocument()
+        await user.clear(within(rail).getByRole('textbox', {name: 'Descripción'}))
+        await user.type(within(rail).getByRole('textbox', {name: 'KP'}), '4.25')
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        expect(await within(rail).findByText('Un KP va con su vía')).toBeInTheDocument()
+        expect(closes).toHaveLength(0)
+
+        await choose(user, rail, 'Vía', 'VIA 1 (PAQ NORTE)')
+        await choose(user, rail, 'Sitio', 'APT-RSH · Apartadero de Rishpon')
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        expect(await screen.findByText('El turno no admite ese trabajo. Vehicle DR-01 is rail-only: it is left on a track')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Cerrar SH-000001'})).toBeInTheDocument()
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(closes).toHaveLength(2))
+        expect(closes.map((write) => write.body)).toEqual([1, 2].map(() => ({
+            parkings: [{vehicleId: CREW_VEHICLE, parkingSiteId: CREW_SITE, trackId: 12, kp: 4.25}]})))
+        await waitFor(() => expect(shiftStatus()).toHaveTextContent('Cerrado'))
+        await waitFor(() => expect(screen.getByLabelText('Vehículos del turno')).toHaveTextContent(
+            'Vehículos: DR-01 · Dresina 1 (aparcado: APT-RSH · VIA 1 (PAQ NORTE) kp 4.25), VAN-01 · Furgoneta'))
     })
 
     it('cancelar pide un motivo, y un turno que no existe se dice una vez y vuelve a la lista', async () => {

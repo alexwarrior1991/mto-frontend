@@ -6,6 +6,7 @@ import {NotFoundError} from '../../api/errors.js'
 import {canCloseShift, canStartShift, isOpenShift, POSSESSION, SHIFT_STATUS} from '../../api/maintenance/enums.js'
 import {shiftRevisionsPath} from '../../api/maintenance/shifts.js'
 import {assetLabel, teamLabel} from '../../api/maintenance/values.js'
+import {personLabel, unitLabel} from '../../api/resources/values.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import {errorMessage} from '../../ui/errors/messages.js'
@@ -14,6 +15,7 @@ import {formatDate, formatDateTime} from '../../ui/format.js'
 import LazyTabs from '../../ui/LazyTabs.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
+import {useParkingSites} from '../resources/useResources.js'
 import AssignTasksModal from './AssignTasksModal.jsx'
 import {SHIFTS_PATH} from './maintenanceRoutes.js'
 import {describeShift, kpRange} from './maintenanceTexts.js'
@@ -23,7 +25,7 @@ import ShiftProfilesPanel from './ShiftProfilesPanel.jsx'
 import ShiftReportPanel from './ShiftReportPanel.jsx'
 import ShiftTasksPanel from './ShiftTasksPanel.jsx'
 import ShiftTransitionModal from './ShiftTransitionModal.jsx'
-import {useConfigurationNames} from './useMaintenanceNames.js'
+import {shortId, useConfigurationNames} from './useMaintenanceNames.js'
 import {useShift, useShiftTransition} from './useMaintenance.js'
 
 /** mantenimiento/turnos/:shiftId: la ficha de un turno (el port de ShiftDetailView). Cada turno empieza de cero (key por id). */
@@ -32,11 +34,27 @@ export default function ShiftDetailPage() {
     return <ShiftDetail key={shiftId} shiftId={shiftId}/>
 }
 
+/** Un vehículo del turno y, una vez cerrado, dónde quedó: el sitio de mto-resources, la vía y su kp, o el texto. */
+function vehicleText(vehicle, siteName, trackName) {
+    const parking = vehicle.parking
+    if (!parking) {
+        return unitLabel(vehicle)
+    }
+    const where = [
+        parking.siteId ? siteName(parking.siteId) : null,
+        parking.trackId === null || parking.trackId === undefined ? null
+            : `${trackName(parking.trackId)}${parking.kp === null || parking.kp === undefined ? '' : ` kp ${Number(parking.kp)}`}`,
+        parking.description?.trim() || null,
+    ].filter(Boolean)
+    return `${unitLabel(vehicle)} (aparcado: ${where.join(' · ')})`
+}
+
 /**
- * La cabecera (equipo, posesión, vías, ventana prevista y real, corte de tensión, minutos netos y
- * seccionadores abiertos), los botones que su estado admite y las pestañas de tareas, perfiles y el
- * parte, que piden sus datos la primera vez que se abren. Modificar, asignar tareas, iniciar, cerrar y
- * cancelar piden maintenance-write; solo se ofrece lo que el estado admite, pero decide el servicio.
+ * La cabecera (equipo, posesión, vías, ventana prevista y real, corte de tensión, minutos netos,
+ * seccionadores abiertos, la dotación y los vehículos con dónde quedó cada uno), los botones que su
+ * estado admite y las pestañas de tareas, perfiles y el parte, que piden sus datos la primera vez que se
+ * abren. Modificar, asignar tareas, iniciar, cerrar y cancelar piden maintenance-write; solo se ofrece lo
+ * que el estado admite, pero decide el servicio. Los sitios se nombran con resources-read.
  */
 function ShiftDetail({shiftId}) {
     const session = useSession()
@@ -44,6 +62,9 @@ function ShiftDetail({shiftId}) {
     const navigate = useNavigate()
     const names = useConfigurationNames({tracks: true})
     const shift = useShift(shiftId)
+    const readsResources = session.has(P.RESOURCES_READ)
+    const sites = useParkingSites({enabled: readsResources && (shift.data?.vehicles ?? []).some((vehicle) => vehicle.parking?.siteId)})
+    const siteName = (id) => (sites.data?.content ?? []).find((site) => site.id === id)?.code ?? shortId(id)
     const cancelling = useShiftTransition(shiftId)
     // El diálogo abierto: 'edit', 'assign', 'start', 'close', 'cancel' o 'history'.
     const [dialog, setDialog] = useState(null)
@@ -107,6 +128,18 @@ function ShiftDetail({shiftId}) {
                     {[`Seccionadores abiertos: ${orDash(disconnectors)}`, `Puesta a tierra: ${orDash(current.earthingPoints)}`,
                         `Estacionamiento: ${orDash(current.parkingPlace)}`].join(' · ')}
                 </Text>
+                {(current.teamLeader || current.supervisor || (current.linemen ?? []).length > 0) && (
+                    <Text size="sm" aria-label="Dotación del turno">
+                        {[`Jefe: ${current.teamLeader ? personLabel(current.teamLeader) : '-'}`,
+                            `Supervisor: ${current.supervisor ? personLabel(current.supervisor) : '-'}`,
+                            `Linemen (${(current.linemen ?? []).length}): ${orDash((current.linemen ?? []).map(personLabel).join(', '))}`].join(' · ')}
+                    </Text>
+                )}
+                {(current.vehicles ?? []).length > 0 && (
+                    <Text size="sm" aria-label="Vehículos del turno">
+                        {`Vehículos: ${current.vehicles.map((vehicle) => vehicleText(vehicle, siteName, names.trackName)).join(', ')}`}
+                    </Text>
+                )}
                 {current.personnel?.trim() && <Text size="sm">{`Personal: ${current.personnel}`}</Text>}
                 {current.observations?.trim() && <Text size="sm" style={{whiteSpace: 'pre-line'}}>{`Observaciones: ${current.observations}`}</Text>}
             </Stack>
