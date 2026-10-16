@@ -21,6 +21,7 @@ export const MENU_GROUPS = Object.freeze({
     usuarios: {label: 'Usuarios', icon: 'users'},
     almacen: {label: 'Almacén', icon: 'warehouse'},
     mantenimiento: {label: 'Mantenimiento', icon: 'maintenance'},
+    recursos: {label: 'Recursos', icon: 'resources'},
     actividad: {label: 'Actividad', icon: 'activity'},
 })
 

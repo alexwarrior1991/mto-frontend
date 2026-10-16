@@ -8,7 +8,7 @@ import {signIn} from './keycloak.js'
  */
 
 const AUDIENCES = ['mto-configuration-api', 'mto-users-api', 'mto-stock-api', 'mto-maintenance-api',
-    'mto-notification-api', 'mto-gateway-api']
+    'mto-notification-api', 'mto-resources-api', 'mto-field-api', 'mto-gateway-api']
 
 test('un enlace profundo sobrevive a la entrada, y sin permiso se dice cual falta', async ({page}) => {
     await page.goto('/actividad/accesos?username=config.lector')
@@ -19,7 +19,7 @@ test('un enlace profundo sobrevive a la entrada, y sin permiso se dice cual falt
     await expect(page.getByText('notification-access-read')).toBeVisible()
 })
 
-test('Inicio ensena las seis audiencias y el menu depende de los permisos', async ({page}) => {
+test('Inicio ensena las ocho audiencias y el menu depende de los permisos', async ({page}) => {
     await page.goto('/')
     await signIn(page, 'config.responsable')
 

@@ -4,11 +4,18 @@
  * Inicio. De aqui salen el catalogo de permisos (auth/permissions.js), las audiencias que Inicio
  * espera y las sondas.
  *
- * Un servicio nuevo (mto-field, por ejemplo) es una entrada mas aqui, mas su ruta en el gateway y
- * su audience mapper en el cliente mto-frontend del realm.
+ * Un servicio nuevo es una entrada mas aqui, mas su ruta en el gateway y su audience mapper en el
+ * cliente mto-frontend del realm.
  */
 
 export const GATEWAY_AUDIENCE = 'mto-gateway-api'
+
+/**
+ * Las APIs cuya audiencia lleva el token aunque esta aplicacion no tenga pantallas suyas: mto-field
+ * es gRPC (los dispositivos y la consola de la posesion le hablan directamente, sin gateway), pero el
+ * mismo token tiene que valerle.
+ */
+export const AUDIENCE_ONLY = Object.freeze(['mto-field-api'])
 
 export const SERVICES = Object.freeze([
     {
@@ -47,10 +54,17 @@ export const SERVICES = Object.freeze([
         roles: ['notification-inbox', 'notification-activity-read', 'notification-access-read', 'notification-admin'],
         probe: {permission: 'notification-inbox', path: '/api/notifications/inbox/unread-count'},
     },
+    {
+        name: 'mto-resources',
+        clientId: 'mto-resources-api',
+        prefix: '/api/resources',
+        roles: ['resources-read', 'resources-write', 'resources-fleet-write', 'resources-location-write', 'resources-delete'],
+        probe: {permission: 'resources-read', path: '/api/resources/vehicle-types', query: {page: 0, size: 1}},
+    },
 ])
 
 /** Las audiencias que un mismo access token tiene que llevar para valer en todo el dominio. */
-export const EXPECTED_AUDIENCES = Object.freeze([...SERVICES.map((service) => service.clientId), GATEWAY_AUDIENCE])
+export const EXPECTED_AUDIENCES = Object.freeze([...SERVICES.map((service) => service.clientId), ...AUDIENCE_ONLY, GATEWAY_AUDIENCE])
 
 /** El prefijo publico de un servicio en el gateway (/api/configuration), para que siga viviendo solo aqui. */
 export function prefixOf(name) {

@@ -6,6 +6,7 @@ import {
     NotFoundError,
     SessionExpiredError,
     TokenRejectedError,
+    TooManyRequestsError,
     UnavailableError,
     ValidationError,
 } from '../../api/errors.js'
@@ -45,6 +46,11 @@ export function errorMessage(error) {
     }
     if (error instanceof UnavailableError) {
         return unavailableMessage(error)
+    }
+    // Las operaciones de fondo de mto-maintenance y mto-resources: el tope de todo el despliegue esta
+    // lleno. No es un fallo de la peticion; vale reintentarla pasado el Retry-After.
+    if (error instanceof TooManyRequestsError && error.code === 'OPS-429') {
+        return 'Hay demasiadas operaciones en marcha.' + retryIn(error)
     }
     // El unico 410 del dominio es el fichero de un trabajo de mto-configuration que ya no esta
     // (purgado, o generado en otra replica): un 404 sugeriria reintentar, y esto pide relanzarlo.
@@ -124,6 +130,21 @@ function conflictMessage(error) {
         case 'PRJ-409':
         case 'ASM-409':
             return 'Ya existe otro con ese código.'
+        // mto-resources: ademas del codigo, un usuario o un numero de empleado (personas), una matricula
+        // o un numero ferroviario (vehiculos). El detalle dice cual; recargar no lo arregla.
+        case 'PER-409':
+        case 'UNI-409':
+        case 'VEH-409':
+        case 'VTY-409':
+        case 'PRK-409':
+            return 'Ya existe otro con ese valor (código, usuario, número de empleado, matrícula o número ferroviario).' + detail(error)
+        // mto-resources: las reglas del organigrama (de 2 a 6 linemen, el nivel del padre, la categoria
+        // del jefe, una persona en otro equipo) y las de la flota (donde puede estar un vehiculo segun su
+        // movilidad, el remolque, un vehiculo retirado). El detalle dice cual.
+        case 'UNI-001':
+            return 'El organigrama no admite ese cambio.' + detail(error)
+        case 'VEH-001':
+            return 'La flota no admite ese cambio.' + detail(error)
         // mto-users: un nombre de usuario o un email repetido. Recargar no lo arregla, asi que no se pide.
         case 'USR-409':
             return 'Ya existe un usuario con ese nombre de usuario o ese email.' + detail(error)
@@ -141,10 +162,13 @@ function unavailableMessage(error) {
     if (error.status === 502) {
         return 'El servicio no ha podido completar la operación.' + detail(error)
     }
-    const retry = error.retryAfterSeconds === null || error.retryAfterSeconds === undefined
+    return 'El servicio no está disponible ahora mismo.' + retryIn(error)
+}
+
+function retryIn(error) {
+    return error.retryAfterSeconds === null || error.retryAfterSeconds === undefined
         ? ' Inténtalo más tarde.'
         : ` Inténtalo en ${error.retryAfterSeconds} s.`
-    return 'El servicio no está disponible ahora mismo.' + retry
 }
 
 function fieldError({field, code, message}) {

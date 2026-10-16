@@ -73,7 +73,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
   `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
-  roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas),
+  roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas;
+  `AUDIENCE_ONLY`, la audiencia de `mto-field`, que el token lleva aunque aquí no tenga pantallas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
   `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
@@ -284,7 +285,7 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   servicios no les reenvía `Origin`), y sin `Origin` tampoco él ve una petición CORS: la SPA no
   depende de su lista de orígenes y una misma imagen vale para cualquier dominio. Es seguro porque
   la API se autentica con Bearer y no con cookies (nginx quita también las cookies).
-- **Los permisos son roles de cliente de los cinco clientes de API**, leídos del **access token**
+- **Los permisos son roles de cliente de los seis clientes de API**, leídos del **access token**
   (`resource_access`), y solo los del catálogo de cada cliente. Un rol de realm nunca concede nada,
   aunque se llame como un permiso; los nombres no se repiten entre clientes. `securityLayer.test.js`
   compara `ROLE_CATALOG` con los roles de cliente del realm (`fixtures/realm-client-roles.json`).
@@ -568,11 +569,13 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   aviso genérico. Un id con «:» (los federados) va codificado en la ruta y en la llamada.
 - **La configuración del entorno llega en tiempo de ejecución** (`/config.json`): una imagen vale
   para todos los entornos. Nada de `VITE_*`; la base de la API es siempre `/api`.
-- **Un servicio nuevo (por ejemplo `mto-field`) se añade en un solo sitio por pieza**: su entrada en
+- **Un servicio nuevo (por ejemplo `mto-resources`) se añade en un solo sitio por pieza**: su entrada en
   `api/services.js` (de ahí salen permisos, audiencias y sondas), su módulo en `api/` y `features/`,
   sus rutas en `routeTable.js`; en la plataforma, su ruta en el gateway y su audience mapper en el
   cliente `mto-frontend` (`check_realm_consistency.py` exige todas las audiencias en todo cliente de
-  login). Ninguna lista de servicios se escribe a mano en más de un sitio.
+  login). Uno sin pantallas aquí, como `mto-field` (gRPC, sin gateway), solo pone su audiencia en
+  `AUDIENCE_ONLY`, para que Inicio la espere. Ninguna lista de servicios se escribe a mano en más de un
+  sitio.
 - **Todo lo local es npm o Node**: nada de bash ni de variables en línea en los scripts de
   `package.json`; los `.sh` solo viven dentro de la imagen y van fijados a LF (`.gitattributes`). Las
   configuraciones de `.run/` llaman a scripts que existen (`app.test.js`).

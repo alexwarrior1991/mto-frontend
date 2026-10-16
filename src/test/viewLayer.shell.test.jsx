@@ -19,7 +19,7 @@ function menu() {
 }
 
 describe('Inicio: quien ha entrado y con que', () => {
-    it('ensena la persona, las seis audiencias, los permisos por cliente y los roles de realm como informativos', async () => {
+    it('ensena la persona, las ocho audiencias, los permisos por cliente y los roles de realm como informativos', async () => {
         const session = sessionWith([P.CONFIG_READ, P.NOTIFICATION_INBOX], {
             username: 'config.lector',
             realmRoles: ['mto-viewer'],
@@ -32,6 +32,10 @@ describe('Inicio: quien ha entrado y con que', () => {
         expect(container.querySelector('[data-audience="mto-stock-api"]')).toHaveAttribute('data-present', 'true')
         expect(container.querySelector('[data-audience="mto-notification-api"]')).toHaveAttribute('data-present', 'false')
         expect(container.querySelector('[data-audience="mto-notification-api"]')).toHaveTextContent('(falta)')
+        expect(container.querySelectorAll('[data-audience]')).toHaveLength(8)
+        expect(container.querySelector('[data-audience="mto-resources-api"]')).toHaveAttribute('data-present', 'false')
+        expect(container.querySelector('[data-audience="mto-field-api"]')).toHaveAttribute('data-present', 'false')
+        expect(within(container.querySelector('[data-client="mto-resources-api"]')).getByText('ninguno')).toBeInTheDocument()
         expect(screen.getByText('account')).toBeInTheDocument()
         const configuration = container.querySelector('[data-client="mto-configuration-api"]')
         expect(within(configuration).getByText('config-read')).toBeInTheDocument()

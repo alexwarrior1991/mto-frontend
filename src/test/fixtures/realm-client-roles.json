@@ -1,5 +1,5 @@
 {
-  "source": "keycloak/*-partial-import.json de mto-configuration, mto-users, mto-stock, mto-maintenance y mto-notification (roles de cliente)",
+  "source": "keycloak/*-partial-import.json de mto-configuration, mto-users, mto-stock, mto-maintenance, mto-notification y mto-resources (roles de cliente)",
   "clients": {
     "mto-configuration-api": [
       "config-audit",
@@ -26,6 +26,15 @@
       "notification-inbox",
       "ops-metrics",
       "ops-write"
+    ],
+    "mto-resources-api": [
+      "ops-metrics",
+      "ops-write",
+      "resources-delete",
+      "resources-fleet-write",
+      "resources-location-write",
+      "resources-read",
+      "resources-write"
     ],
     "mto-stock-api": [
       "ops-metrics",

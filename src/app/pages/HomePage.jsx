@@ -6,7 +6,8 @@ import ServiceProbes from './ServiceProbes.jsx'
 
 /**
  * Inicio: quien ha entrado y con que (el port de HomeView del backoffice). El diagnostico cierra el
- * circuito entero a simple vista: las seis audiencias tienen que estar en el access token, los
+ * circuito entero a simple vista: las ocho audiencias tienen que estar en el access token (la de
+ * mto-field tambien, aunque aqui no tenga pantallas), los
  * permisos son roles de cliente (nunca de realm) y cada servicio contesta a traves del gateway.
  */
 export default function HomePage() {

@@ -665,6 +665,21 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde.')
     })
 
+    it('mto-resources: una regla del organigrama o de la flota lleva el detalle, un valor repetido no pide recargar, y el OPS-429 dice cuándo reintentar', () => {
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'UNI-001', detail: 'Team EQ-NORTE would have 1 linemen'})})))
+            .toBe('El organigrama no admite ese cambio. Team EQ-NORTE would have 1 linemen')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'VEH-001', detail: 'A rail-only vehicle is never on the road'})})))
+            .toBe('La flota no admite ese cambio. A rail-only vehicle is never on the road')
+        for (const code of ['PER-409', 'UNI-409', 'VEH-409', 'VTY-409', 'PRK-409']) {
+            expect(errorMessage(new ConflictError(409, {problem: problem({code, detail: 'Username equipo.jefe is already in use'})})))
+                .toBe('Ya existe otro con ese valor (código, usuario, número de empleado, matrícula o número ferroviario). Username equipo.jefe is already in use')
+        }
+        expect(errorMessage(new TooManyRequestsError(429, {problem: problem({code: 'OPS-429'}), retryAfterSeconds: 3})))
+            .toBe('Hay demasiadas operaciones en marcha. Inténtalo en 3 s.')
+        expect(errorMessage(new TooManyRequestsError(429, {problem: problem({code: 'OPS-429'})})))
+            .toBe('Hay demasiadas operaciones en marcha. Inténtalo más tarde.')
+    })
+
     it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
         expect(errorMessage(new ConflictError(409, {problem: problem({code: 'USR-409', detail: 'User exists with same username'})})))
             .toBe('Ya existe un usuario con ese nombre de usuario o ese email. User exists with same username')
@@ -937,9 +952,9 @@ describe('format.js: cifras y fechas', () => {
 })
 
 describe('services.js y probes.js: los servicios del dominio en un solo sitio', () => {
-    it('las seis audiencias que un token tiene que llevar: las cinco APIs y el gateway', () => {
+    it('las ocho audiencias que un token tiene que llevar: las seis APIs con pantallas, mto-field y el gateway', () => {
         expect(EXPECTED_AUDIENCES).toEqual(['mto-configuration-api', 'mto-users-api', 'mto-stock-api', 'mto-maintenance-api',
-            'mto-notification-api', 'mto-gateway-api'])
+            'mto-notification-api', 'mto-resources-api', 'mto-field-api', 'mto-gateway-api'])
         expect(SERVICE_PROBES.map((probe) => probe.service)).toEqual(SERVICES.map((service) => service.name))
         for (const probe of SERVICE_PROBES) {
             expect(SERVICES.find((service) => service.name === probe.service).roles).toContain(probe.permission)
@@ -949,6 +964,8 @@ describe('services.js y probes.js: los servicios del dominio en un solo sitio', 
     it('el prefijo de cada servicio sale de aqui, y uno que no existe no se inventa', () => {
         expect(prefixOf('mto-configuration')).toBe('/api/configuration')
         expect(SERVICES.map((service) => prefixOf(service.name))).toEqual(SERVICES.map((service) => service.prefix))
+        expect(prefixOf('mto-resources')).toBe('/api/resources')
+        // mto-field es gRPC: el token lleva su audiencia, pero aqui no tiene prefijo ni pantallas.
         expect(() => prefixOf('mto-field')).toThrow('Servicio desconocido: mto-field')
     })
 

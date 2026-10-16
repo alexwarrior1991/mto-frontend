@@ -24,7 +24,7 @@ import {fakeAccessToken, sessionWith} from './session.js'
  * donde vive el token y como se renueva. Lo que hacia SecurityLayerTest en el backoffice.
  */
 
-describe('permisos: roles de cliente de los cinco clientes de API', () => {
+describe('permisos: roles de cliente de los seis clientes de API', () => {
     it('cada cliente aporta sus roles, y nada mas', () => {
         const claims = decodeJwtPayload(fakeAccessToken({
             clientRoles: {
@@ -40,13 +40,16 @@ describe('permisos: roles de cliente de los cinco clientes de API', () => {
 
     it('un rol de realm nunca abre nada, aunque se llame como un permiso', () => {
         const session = buildSession(fakeAccessToken({
-            realmRoles: ['users-read', 'stock-read', 'maintenance-read', 'notification-access-read', 'mto-admin'],
+            realmRoles: ['users-read', 'stock-read', 'maintenance-read', 'notification-access-read', 'resources-read',
+                'mto-position-team-leader', 'mto-admin'],
         }))
 
         expect(session.permissions.size).toBe(0)
         expect(session.has(P.USERS_READ)).toBe(false)
         expect(session.has(P.NOTIFICATION_ACCESS_READ)).toBe(false)
-        expect(session.realmRoles).toEqual(['maintenance-read', 'mto-admin', 'notification-access-read', 'stock-read', 'users-read'])
+        expect(session.has(P.RESOURCES_READ)).toBe(false)
+        expect(session.realmRoles).toEqual(['maintenance-read', 'mto-admin', 'mto-position-team-leader', 'notification-access-read',
+            'resources-read', 'stock-read', 'users-read'])
     })
 
     it('el catalogo coincide con los roles de cliente del realm (sin los de operacion) y no se repite entre clientes', () => {
