@@ -620,8 +620,8 @@ describe('los catálogos', () => {
         const puts = recordWrites('put', `${BASE}/teams/${TEAM1}`, (body) => HttpResponse.json({...TEAM, ...body}))
         const {user} = await open('/mantenimiento/equipos', loginAs('mantenimiento.tecnico'), 'Equipos', 1)
 
-        await waitFor(() => expect(textsOf(dataRows('Equipos')[0]).slice(0, 6))
-            .toEqual(['EQ-01', 'Brigada norte', 'Base Norte', 'DR-2', 'PAQ NORTE, PAQ SUR', 'Activo']))
+        await waitFor(() => expect(textsOf(dataRows('Equipos')[0]).slice(0, 10))
+            .toEqual(['EQ-01', 'Brigada norte', 'Local', '', '', '', 'Base Norte', 'DR-2', 'PAQ NORTE, PAQ SUR', 'Activo']))
         await user.click(screen.getByRole('button', {name: 'Modificar EQ-01'}))
         const dialog = await screen.findByRole('dialog', {name: 'Modificar el equipo EQ-01'})
         await typeInto(user, dialog, 'Base', '')
@@ -629,6 +629,32 @@ describe('los catálogos', () => {
         await waitFor(() => expect(puts).toHaveLength(1))
         expect(puts[0].body).toEqual({code: 'EQ-01', name: 'Brigada norte', baseName: null, vehicle: 'DR-2', active: true, executionPackageIds: [3, 5]})
         expect(await screen.findByText('Guardado EQ-01 - Brigada norte')).toBeInTheDocument()
+    })
+
+    it('uno de mto-resources se lee: su origen, su jefe, su supervisor y sus linemen, y la fila lleva a su unidad y a su vehículo', async () => {
+        const unit = '5e6f7081-0000-4000-8000-000000000001'
+        const vehicleId = '9d0e1f20-0000-4000-8000-000000000001'
+        const synced = {
+            id: '3c3c3c3c-0000-4000-8000-0000000000a1', code: 'A', name: 'Equipo A', baseName: null, vehicle: 'DR-01', active: true,
+            executionPackageIds: [3], synchronizedFromResources: true, sourceEntityId: unit,
+            leader: {id: 'p1', code: 'PER-000003', fullName: 'Yossi Cohen', username: 'equipo.jefe', category: 'TEAM_LEADER'},
+            supervisor: {id: 'p2', code: 'PER-000020', fullName: 'Dana Levi', username: null, category: 'SUPERVISOR'},
+            members: [{id: 'p3', code: 'PER-000011', fullName: 'Lineman 1'}, {id: 'p4', code: 'PER-000012', fullName: 'Lineman 2'}],
+            defaultVehicleId: vehicleId, audit: null,
+        }
+        serveMaintenance({teams: [synced, TEAM]})
+        server.use(http.get('/api/resources/vehicles/:id', () => HttpResponse.json({id: vehicleId, code: 'DR-01', name: 'Dresina 1',
+            type: {mobility: 'RAIL_ONLY'}, position: null, active: true, version: 1})), http.get('/api/resources/vehicles/:id/locations',
+            () => HttpResponse.json({content: [], page: {number: 0, size: 20, totalElements: 0, totalPages: 0}})))
+        const {user} = await open('/mantenimiento/equipos', loginAs('mantenimiento.responsable'), 'Equipos', 2)
+
+        await waitFor(() => expect(textsOf(dataRows('Equipos')[0]).slice(0, 8)).toEqual(['A', 'Equipo A', 'mto-resources', 'PER-000003 · Yossi Cohen',
+            'PER-000020 · Dana Levi', '2', '', 'DR-01']))
+        expect(textsOf(dataRows('Equipos')[1]).slice(2, 7)).toEqual(['Local', '', '', '', 'Base Norte'])
+        expect(actionsOf(rowOf('Equipos', 'A'))).toEqual(['Abrir A en el organigrama', 'Abrir el vehículo de A'])
+        expect(actionsOf(rowOf('Equipos', 'EQ-01'))).toEqual(['Modificar EQ-01'])
+        await user.click(screen.getByRole('button', {name: 'Abrir el vehículo de A'}))
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Dresina 1'})).toBeInTheDocument()
     })
 
     it('quien solo lee ve los equipos sin alta ni modificar', async () => {

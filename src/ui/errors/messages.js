@@ -67,6 +67,12 @@ function notFoundMessage(error) {
             return 'Esa sesión ya no existe o no es de este usuario.'
         case 'CRED-404':
             return 'Esa credencial ya no existe o no es de este usuario.'
+        // mto-maintenance: una persona o un vehiculo de mto-resources que todavia no ha llegado por evento
+        // (se acaba de dar de alta alli). Llega en unos segundos: reintentar vale.
+        case 'CRW-404':
+            return 'Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'
+        case 'FLT-404':
+            return 'Ese vehículo aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'
         // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
         case 'NTF-404':
             return 'Esa notificación ya no existe o no va dirigida a ti.'
@@ -118,6 +124,8 @@ function conflictMessage(error) {
             return 'El turno no admite ese trabajo.' + detail(error)
         case 'MAT-001':
             return 'La línea de material no admite esta operación.' + detail(error)
+        case 'TEA-001':
+            return 'El equipo es de mto-resources: se cambia en Recursos > Organigrama.'
         case 'AST-001':
             return 'El activo está desactivado, o ese dato lo manda mto-configuration.' + detail(error)
         // Un codigo repetido en mto-maintenance (activos y equipos) y en los catalogos de mto-stock:

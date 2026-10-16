@@ -55,6 +55,14 @@ export function isActiveTeam(team) {
     return team?.active === true
 }
 
+/**
+ * Un equipo de mto-resources: su jefe, su supervisor, sus linemen y su vehículo son de allí, y aquí solo
+ * se lee (su PUT es 409 TEA-001). Uno de antes, sin la clave, es local.
+ */
+export function isSynchronizedTeam(team) {
+    return team?.synchronizedFromResources === true
+}
+
 /** En el orden del plan: por orderIndex, y por código lo que no lo tiene o empata. */
 export function inPlanOrder(entries) {
     return [...(entries ?? [])].sort((left, right) => (left.orderIndex ?? Number.MAX_SAFE_INTEGER) - (right.orderIndex ?? Number.MAX_SAFE_INTEGER)

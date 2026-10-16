@@ -757,6 +757,14 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Hay demasiadas operaciones en marcha. Inténtalo en 3 s.')
         expect(errorMessage(new TooManyRequestsError(429, {problem: problem({code: 'OPS-429'})})))
             .toBe('Hay demasiadas operaciones en marcha. Inténtalo más tarde.')
+        // Lo que mantenimiento dice de lo que es de mto-resources: un equipo sincronizado, y una persona o un
+        // vehículo que aún no ha llegado por evento.
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'TEA-001', detail: 'Team A is synchronized from mto-resources'})})))
+            .toBe('El equipo es de mto-resources: se cambia en Recursos > Organigrama.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'CRW-404', detail: 'Crew person not found'})})))
+            .toBe('Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'FLT-404', detail: 'Fleet vehicle not found'})})))
+            .toBe('Ese vehículo aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
     })
 
     it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
