@@ -9,8 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `mto-backoffice`** (Vaadin): las mismas pantallas, las mismas rutas y las mismas reglas, y las dos
 aplicaciones se usan indistintamente. Es un
 **cliente**: sin base de datos y sin lógica de negocio. Lo que una pantalla necesita y la API no da
-bien se arregla en el servicio (`mto-configuration`, `mto-users`, `mto-stock`, `mto-maintenance` o
-`mto-notification`), no aquí. `README.md` es la referencia funcional y operativa (probar en local,
+bien se arregla en el servicio (`mto-configuration`, `mto-users`, `mto-stock`, `mto-maintenance`,
+`mto-notification` o `mto-resources`), no aquí. `README.md` es la referencia funcional y operativa (probar en local,
 WebStorm, desplegar).
 
 ⚠️ **Las dos aplicaciones hacen lo mismo.** `mto-backoffice` fue la especificación funcional al
@@ -124,7 +124,11 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `maintenance/inspections.js` (las inspecciones, un punto de su checklist, y
     el defecto y la orden correctiva que generan), `maintenance/defects.js` (los defectos y sus
     transiciones: vincular a una orden, resolver, cerrar y descartar) y `maintenance/reports.js` (el
-    parte de un turno, el avance y el mes, en JSON y como fichero).
+    parte de un turno, el avance y el mes, en JSON y como fichero);
+  - `maintenance/operations.js` (las operaciones de fondo que deja un `Prefer: respond-async`:
+    `GENERATION_PREFER`, `getOperation` por su id, `OPERATION_STATUS` tolerante, `isFinishedOperation` y
+    `operationError`, su error como el de la llamada síncrona; `startTaskGeneration`, en `tasks.js`,
+    devuelve `{result}` o `{operation}`).
   `notification/` es `mto-notification`: `notification/values.js` (`notificationPath`, y quién y
   sobre qué: `actorText` y `subjectText`), `notification/enums.js` (`ACTIVITY_CATEGORY`,
   `ACTIVITY_SEVERITY`, `ACTOR_KIND` y `ACCESS_OUTCOME`, tolerantes, y `activityCategories`, las del
@@ -133,6 +137,15 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   su `payload` y los accesos; `searchActivity` rechaza antes de llamar la categoría `ACCESS`, y
   `searchAccess`, una IP que no es un literal, `isIpLiteral`) y `notification/links.js`
   (`notificationTarget`: a dónde lleva el enlace de una notificación).
+  `resources/` es `mto-resources`: `resources/values.js` (`resourcesPath`, `personLabel`, `unitLabel`),
+  `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
+  pueden colgar, `headCategories`, `LINEMAN_CATEGORIES` y la regla de 2 a 6, la movilidad con sus
+  categorías, los tipos de ubicación que admite cada una, `recordableKinds`, todos tolerantes),
+  `resources/people.js`, `resources/units.js` (el árbol, una unidad, sus hijas y sus linemen,
+  `newUnitRequest` y `unitPatch`, con el vehículo por defecto de un equipo), `resources/fleet.js` (modelos
+  con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y sitios de aparcamiento) y `resources/vehicles.js`
+  (los vehículos, sus ubicaciones, `locationFields` y `locationRequest`, y el tablero, `fleetPositions`,
+  por vía y kp con el vehículo para desempatar, y `whereOf`).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -160,13 +173,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   desplegable que busca en el servidor mientras se escribe y conserva lo elegido: el perfil de un
   seccionador y los desplegables del almacén), `RevisionsModal.jsx` (el port de `RevisionsDialog`: el
   historial de una fila), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
-  los seccionadores que abre un turno) y `typedDates.js` (las fechas, y fechas y horas, escritas en
-  un `DateInput`). `notifySuccess.js` trae además `notifyWarning`, el aviso amarillo de diez segundos
-  (lo que se hizo a medias, como unas tareas asignadas y otras rechazadas). Cada fase añade aquí lo
+  los seccionadores que abre un turno), `TreeTable.jsx` (un árbol con columnas, `role="treegrid"`: el
+  organigrama, porque `Tree` de Mantine no tiene columnas) y `typedDates.js` (las fechas, y fechas y
+  horas, escritas en un `DateInput`). `notifySuccess.js` trae además `notifyWarning`, el aviso amarillo
+  de diez segundos (lo que se hizo a medias, como unas tareas asignadas y otras rechazadas). Cada fase añade aquí lo
   que comparte.
 - `features/<módulo>/` — las pantallas de cada fase (`catalogues`, `infrastructure`, `jobs`, `users`,
-  `stock`, `maintenance`, `notifications`). No llaman a `fetch`: usan `api/`. `catalogues/` es el port
-  de `ui/lov`:
+  `stock`, `maintenance`, `notifications`, `resources`). No llaman a `fetch`: usan `api/`. `catalogues/`
+  es el port de `ui/lov`:
   - `CataloguePage`, con `key` por recurso para que cambiar de catálogo empiece de cero;
   - `CatalogueTable`, `CatalogueEditorModal` (`@mantine/form`) y `CatalogueBulkCreateModal`;
   - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar) y
@@ -262,6 +276,18 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     error, y marcar, que relee la bandeja y el contador sin esperarlos), `notificationRoutes.js` y
     `notificationTexts.js` (recuentos, el nombre de la campana, los campos de una línea y su
     `payload` clave a clave).
+
+  `resources/` es el port de `ui/resources`:
+  - `PeoplePage` (con `?unitId=`) y `PersonEditorModal`;
+  - `OrganizationPage` (el árbol en `TreeTable`) y `UnitDetailPage` (la ficha, con `key` por id), con
+    `UnitEditorModal`, `ChildUnitsPanel`, `TeamMembersPanel`, `TeamMembersModal` y `MemberModals`;
+  - `VehicleTypesPage` y `VehicleTypeEditorModal` (por secciones según la movilidad),
+    `ParkingSitesPage` y `ParkingSiteEditorModal`;
+  - `VehiclesPage`, `VehicleEditorModal`, `VehicleDetailPage` con `VehicleLocationsPanel`, `LocationModal`
+    y `FleetBoardPage`, el tablero;
+  - `ResourcesPickers.jsx` (`PersonSelect`, `PeopleMultiSelect` y `VehiclesMultiSelect`, que usan también
+    los turnos de mantenimiento), `useResources.js` (las claves `['resources', …]`), `resourcesForms.js`,
+    `resourcesTexts.js` y `resourcesRoutes.js`.
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -490,7 +516,36 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   ofrece en una orden en borrador o planificada sobre un tramo o con EP: una sobre un aislador o un
   seccionador también genera.
 - **Solo se sondea con la pantalla abierta** (`refetchInterval` de React Query con
-  `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s.
+  `refetchIntervalInBackground: false`): los trabajos en curso cada 2 s, la campana cada 30 s, y una
+  generación de tareas que sigue en el servicio cada 2 s mientras su diálogo esté abierto.
+- **Personal, organigrama y flota son de `mto-resources`, y sus reglas las decide el servicio.** Lo que
+  se copia aquí (`resources/enums.js`) es solo para no ofrecer lo que va a fallar: un equipo nace con su
+  jefe y de 2 a 6 linemen, comprobado antes de llamar; «Añadir lineman» se apaga con 6 y «Sale del
+  equipo» con 2; cambiar varios a la vez es la lista entera (`PUT /members`); el padre de una unidad es
+  de un nivel estrictamente superior y de la misma disciplina, y su jefe, de las categorías que admite
+  el nivel; un modelo enseña las secciones de su movilidad y quitar una capacidad vacía sus cifras; un
+  vehículo pide lo que exige su modelo; «Registrar dónde está» ofrece solo lo que admite su movilidad.
+  Lo demás es su 409 `UNI-001` o `VEH-001`, con el diálogo abierto. Se modifica con merge-patch y la
+  versión leída, nada se borra (`DELETE` desactiva o retira, con `resources-delete`) y reactivar es un
+  `PATCH active=true`. El tablero se lee por vía y kp (`whereOf`: un remolcado está donde su portador)
+  y se vuelve a pedir con «Actualizar», sin sondeo.
+- **Un equipo de mantenimiento que llega de `mto-resources` se lee** (`isSynchronizedTeam`): su fila
+  lleva a su unidad y a su vehículo, no a «Modificar», que sería 409 `TEA-001`.
+- **La dotación y los vehículos de un turno son de `mto-resources`.** Con `resources-read` se eligen
+  allí (el jefe, cualquiera menos un operario; el supervisor, de supervisor para arriba; los linemen,
+  operarios o jefes de equipo; los vehículos, disponibles); en el alta lo vacío no viaja y lo copia el
+  servicio del equipo; al modificar, linemen y vehículos son conjuntos y quitarlos todos viaja a `null`.
+  Sin `resources-read` se leen y no viajan. Lo demás es el 409 `SHF-001` del servicio, y
+  `CRW-404`/`FLT-404` lo que aún no ha llegado por evento. Cerrar dice dónde queda cada vehículo (un
+  sitio que alcanza por su movilidad, una vía y su kp, o un texto): solo viaja lo rellenado
+  (`parkingsRequest`), lo evidente se dice en su fila antes de llamar (`parkingRowError`) y un error del
+  servicio sobre `parkings[i]` cae en la fila de la que salió.
+- **Generar tareas de verdad va con `Prefer: respond-async, wait=5`** (`startTaskGeneration`, con
+  `apiFetch({prefer, withStatus})`). Un 200 es lo de siempre; un 202 trae la operación, que el diálogo
+  sigue (`useFollowGeneration`) por su id, nunca por su `Location`: al terminar bien dice lo mismo que la
+  llamada síncrona y relee las tareas; si falla, su error (`operationError`; `OPS-410` es una abandonada)
+  con el diálogo abierto; cerrarlo deja de seguirla y avisa de que continúa en el servicio. El 429
+  `OPS-429` dice cuándo reintentar. La previsualización sigue siendo síncrona.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el
   token.** Aquí no se filtra por nadie ni se cuenta nada.
   - La campana sale solo con `notification-inbox` (un rol de realm no la da). Pide el contador al
@@ -591,7 +646,7 @@ Todo corre en Node con Vitest y jsdom, sin Docker:
   añade el bloque de contratos de su servicio.
 - `src/test/securityLayer.test.js` — `auth/`.
 - `src/test/viewLayer.<módulo>.test.jsx` (`shell`, `catalogues`, `infrastructure`, `jobs`, `users`,
-  `stock`, `maintenance`, `notifications`) —
+  `stock`, `maintenance`, `notifications`, `resources`) —
   las pantallas con la tabla de rutas real (`renderRoute(path, {session})` en `render.jsx`, con
   `createMemoryRouter` y Mantine en `env="test"`). Las sesiones se hacen con `loginAs(usuarioDeDesarrollo)` o
   `sessionWith([permisos])` (`session.js`): un token sin firmar que pasa por el mapeo real. Los casos
@@ -612,7 +667,11 @@ imagen de este commit construida desde el checkout, la publicada de cada hermano
 `CI=true` (más margen, `forbidOnly`, sin reintentos). `e2e/api.js` pone por la API lo que una prueba
 necesita y no recorre en pantalla (un token del password grant local, y `/api` por el origen de la
 SPA): así valen en una plataforma recién levantada. `coexistence.spec.js` salta al backoffice y vuelve,
-con la misma ruta, su filtro y el mismo SSO, e `infrastructure.spec.js` dibuja el esquema de su vía con
-un perfil y su ménsula en las dos aplicaciones. El CI construye además la imagen y la prueba de humo
+con la misma ruta, su filtro y el mismo SSO (también el organigrama), e `infrastructure.spec.js` dibuja
+el esquema de su vía con un perfil y su ménsula en las dos aplicaciones. `resources.spec.js` crea un
+equipo con la regla de 2 a 6, un modelo bivial 9A y un vehículo puesto en vía que sale en el tablero, y
+lleva un equipo de `mto-resources` a un turno de mantenimiento que, al cerrarse, deja su vehículo
+aparcado como del turno en `mto-resources` (`expect.poll`, porque llega por evento); usa códigos E2E,
+nunca `A` ni `B`, y lo desactiva o retira todo al acabar. El CI construye además la imagen y la prueba de humo
 (`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no
 arranca).

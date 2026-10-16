@@ -27,7 +27,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 [`mto-notification`](../mto-notification), [`mto-gateway`](../mto-gateway) y
 [`mto-backoffice`](../mto-backoffice); la infraestructura local es de [`mto-platform`](../mto-platform).
 
-## Estado: fase 9
+## Estado: fase 10
 
 - **Fase 0 · Cimientos**: entrada con Keycloak conservando la URL pedida, token en memoria renovado
   con el refresh token, el marco con el menú filtrado por permisos y **todas las rutas del
@@ -146,6 +146,14 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     como en el backoffice, con la columna de cada servicio.
   - El e2e recorre las dos aplicaciones contra la plataforma entera, en el CI de `mto-frontend`,
     `mto-backoffice` y `mto-platform`, con `mto-platform/scripts/e2e.sh`.
+- **Fase 10 · Recursos**: el personal, el organigrama y la flota de `mto-resources` (`recursos/*`), y
+  mantenimiento adaptado a ellos, a la par con el backoffice.
+  - Personal, organigrama (el árbol y la ficha de cada unidad, con la regla de 2 a 6 linemen de un
+    equipo), modelos de vehículo, sitios de aparcamiento, vehículos con dónde está cada uno y su
+    histórico, y el tablero de la flota por vía y kp.
+  - Mantenimiento: los equipos que llegan de `mto-resources` se leen, el turno elige su dotación y sus
+    vehículos allí y, al cerrarlo, dice dónde queda cada vehículo; generar las tareas de un EP grande
+    sigue en el servicio si tarda (`Prefer: respond-async`) y el diálogo la sigue hasta su resultado.
 
 | Fase | Contenido | Equivale en el backoffice |
 |---|---|---|
@@ -158,6 +166,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
 | F8 | Convivencia: las dos aplicaciones en la plataforma, el salto entre ellas y el backoffice al día | — |
 | F9 | Las diferencias con el backoffice, cerradas, y el e2e de las dos aplicaciones en el CI | — |
+| F10 | Recursos (personal, organigrama, flota y tablero) y mantenimiento adaptado a ellos | F10 |
 
 ## Probar en local
 
@@ -374,6 +383,20 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     aunque después cambien los filtros.
   - «Historial» abre las revisiones de cada ficha; la pestaña **Estados**, las transiciones con su
     comentario.
+- **Recursos** (con `recursos.responsable`; `recursos.gestor` lo puede todo menos desactivar y retirar,
+  y `recursos.lector` solo leer):
+  - En **Organigrama**, el botón «+» de una unidad da de alta otra debajo. Un equipo nace con su jefe y
+    de 2 a 6 linemen; en su ficha, «Añadir lineman» se apaga con 6 y «Sale del equipo» con 2, y «Cambiar
+    los linemen» los sustituye todos a la vez.
+  - En **Modelos de vehículo**, el editor enseña las secciones de su movilidad: una bivial pide su
+    equipo ferroviario (9A, 9B o 9C). En **Vehículos**, el editor pide lo que exige su modelo y «Registrar
+    dónde está» ofrece solo lo que admite su movilidad.
+  - El **Tablero de la flota** ordena los vehículos por vía y kp; uno remolcado está donde su portador.
+    «Actualizar» lo vuelve a pedir.
+  - En mantenimiento, con `mantenimiento.responsable`: un equipo de `mto-resources` no se modifica en
+    **Equipos** (su fila lleva al organigrama); un **turno** de ese equipo copia su jefe, sus linemen y
+    su vehículo, y «Cerrar» pregunta dónde queda cada vehículo, que después sale en su ficha en
+    Recursos como dejado por el turno.
 - **Notificaciones** (con `usuarios.responsable`, cuyo perfil recibe los avisos de las cuentas y lee el
   registro y los accesos; `notificacion.lector` lee la bandeja y el registro, y `notificacion.auditor`,
   además, los accesos):
@@ -399,6 +422,8 @@ La contraseña de todos es `local` (los crea `apply-partials.sh` en `mto-platfor
 | `mantenimiento.lector` / `.tecnico` / `.responsable` | `mto-maintenance-viewer` / `mto-maintenance-technician` / `mto-maintenance-manager` |
 | `usuarios.lector` / `.gestor` / `.responsable` | `mto-users-viewer` / `mto-users-manager` / `mto-users-admin` |
 | `notificacion.lector` / `.auditor` / `.responsable` | `mto-notification-viewer` / `mto-notification-auditor` / `mto-notification-admin` |
+| `recursos.lector` / `.gestor` / `.responsable` | `mto-resources-viewer` / `mto-resources-manager` / `mto-resources-admin` |
+| `equipo.operario` / `.jefe` / `.supervisor` / `.jefe-supervisores`, `mantenimiento.jefe`, `proyecto.jefe` | los perfiles de puesto `mto-position-*` |
 
 ### `npm run doctor`
 

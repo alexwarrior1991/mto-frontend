@@ -42,3 +42,25 @@ test('la misma pantalla en el backoffice y de vuelta, con su filtro y sin volver
     await expect(spa).toHaveURL(ACTIVITY)
     await expect(spa.getByRole('combobox', {name: 'Categoría'})).toHaveValue('Sistema')
 })
+
+test('el organigrama en las dos aplicaciones, en la misma ruta y sin volver a entrar', async ({page, context}) => {
+    await page.goto('/recursos/organigrama')
+    await signIn(page, 'recursos.lector')
+    await expect(page.getByRole('heading', {name: 'Organigrama', level: 2})).toBeVisible()
+    await expect(page.getByRole('treegrid', {name: 'Organigrama'}).getByRole('row', {name: /^MNT · /})).toBeVisible()
+
+    const [backoffice] = await Promise.all([
+        context.waitForEvent('page'),
+        page.getByRole('link', {name: 'Abrir en el backoffice'}).click(),
+    ])
+    await expect(backoffice.getByRole('heading', {name: 'Organigrama', level: 2})).toBeVisible(FIRST_VISIT)
+    await expect(backoffice).toHaveURL(/\/recursos\/organigrama(\?|$)/)
+    await expect(backoffice.getByText('MNT · Maintenance', {exact: true})).toBeVisible()
+
+    const [spa] = await Promise.all([
+        context.waitForEvent('page'),
+        backoffice.getByRole('link', {name: 'Abrir en mto-frontend'}).click(),
+    ])
+    await expect(spa.getByRole('heading', {name: 'Organigrama', level: 2})).toBeVisible(FIRST_VISIT)
+    await expect(spa).toHaveURL(/\/recursos\/organigrama(\?|$)/)
+})
