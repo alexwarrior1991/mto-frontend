@@ -29,6 +29,7 @@ const CONFIG = [P.CONFIG_READ]
 const USERS = [P.USERS_READ]
 const STOCK = [P.STOCK_READ]
 const MAINTENANCE = [P.MAINTENANCE_READ]
+const RESOURCES = [P.RESOURCES_READ]
 
 export const ROUTES = Object.freeze([
     {path: '', title: 'Inicio', page: 'home', menu: {order: 0, icon: 'home'}},
@@ -71,6 +72,8 @@ export const ROUTES = Object.freeze([
     {path: 'mantenimiento/equipos', title: 'Equipos', page: 'maintenanceTeams', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 66, icon: 'teams'}},
     {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', page: 'maintenanceTaskTypes', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
     {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', page: 'maintenanceTemplates', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},
+
+    {path: 'recursos/personal', title: 'Personal', page: 'resourcesPeople', requires: RESOURCES, menu: {group: 'recursos', order: 70, icon: 'people'}},
 
     {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], menu: {order: 80, icon: 'notifications'}},
     {path: 'actividad', title: 'Registro de actividad', page: 'activity', requires: [P.NOTIFICATION_ACTIVITY_READ], menu: {group: 'actividad', order: 82, icon: 'activity'}},

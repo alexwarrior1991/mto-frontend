@@ -1,6 +1,6 @@
 /**
- * Una modificación de mto-maintenance es un PATCH application/merge-patch+json (RFC 7396) con la
- * versión leída (el port de MergePatch y Changes del backoffice):
+ * Una modificación de mto-maintenance o de mto-resources es un PATCH application/merge-patch+json
+ * (RFC 7396) con la versión leída (el port de MergePatch y Changes del backoffice):
  *
  * - lo que cambió viaja con su valor;
  * - lo que se vació viaja a null (que el servicio lo admita es cosa suya: 400 VAL-001 si no);

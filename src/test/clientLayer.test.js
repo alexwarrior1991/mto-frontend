@@ -205,6 +205,18 @@ import {actorText, subjectText} from '../api/notification/values.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
+import {categoriesAtLeast, categoryRank, PERSON_CATEGORY} from '../api/resources/enums.js'
+import {
+    createPerson,
+    deactivatePerson,
+    newPersonRequest,
+    patchPerson,
+    personPatch,
+    personRevisionsPath,
+    reactivatePerson,
+    searchPeople,
+} from '../api/resources/people.js'
+import {personLabel} from '../api/resources/values.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {
     assemblyBody,
@@ -2622,6 +2634,69 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         ])
         expect(orders.content[0].entity.code).toBe('MO-000001')
         expect(none).toBeInstanceOf(NotFoundError)
+    })
+})
+
+describe('resources/*.js: el personal, el organigrama y la flota de mto-resources', () => {
+    const BASE = '/api/resources'
+    const PERSON = '3c4d5e6f-0000-4000-8000-000000000001'
+    const UNIT = '4d5e6f70-0000-4000-8000-000000000002'
+    const json = (request) => JSON.parse(request.body)
+    const page = (content, {number = 0, size = 50, totalElements = content.length} = {}) => ({
+        content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size), first: number === 0, last: true},
+    })
+    const person = (extra = {}) => ({
+        id: PERSON, code: 'PER-000003', employeeNumber: 'E-1042', firstName: 'Yossi', lastName: 'Cohen', fullName: 'Yossi Cohen',
+        username: 'equipo.jefe', category: 'TEAM_LEADER', employer: 'SUBCONTRACTOR', company: 'Catenarias del Norte',
+        phone: '+972 50 000 0000', active: true, version: 3, ...extra,
+    })
+
+    it('las personas: la búsqueda con la categoría repetida, el alta sin lo vacío, la modificación con lo cambiado, desactivar y reactivar', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/people`, () => HttpResponse.json(page([person(), person({id: 'otra', category: 'SAFETY_OFFICER'})])))
+        const posts = record('post', `${BASE}/people`, () => HttpResponse.json(person({category: 'WORKER'}), {status: 201}))
+        const patches = record('patch', `${BASE}/people/:id`, () => HttpResponse.json(person()))
+        const deletes = record('delete', `${BASE}/people/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchPeople({search: ' cohen ', categories: ['TEAM_LEADER', 'WORKER'], unitId: UNIT, active: true})
+        await createPerson(newPersonRequest({firstName: ' Yossi ', lastName: 'Cohen', category: 'WORKER', employer: 'OWN',
+            company: 'no viaja', employeeNumber: ' ', username: '', phone: null}))
+        await patchPerson(PERSON, personPatch(person(), {...person(), category: 'SUPERVISOR', phone: '  ', employer: 'OWN'}))
+        await deactivatePerson(PERSON)
+        await reactivatePerson(person({active: false, version: 4}))
+        await searchPeople()
+
+        expect(searches[0].url.search).toBe(`?search=cohen&category=WORKER&category=TEAM_LEADER&unitId=${UNIT}&active=true`
+            + '&page=0&size=50&sort=lastName%2Casc&sort=firstName%2Casc&sort=id%2Casc')
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=lastName%2Casc&sort=firstName%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({firstName: 'Yossi', lastName: 'Cohen', category: 'WORKER', employer: 'OWN'})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {category: 'SUPERVISOR', employer: 'OWN', company: null, phone: null, version: 3}],
+            [MERGE_PATCH, {active: true, version: 4}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/people/${PERSON}`)
+        expect(PERSON_CATEGORY.parse(found.content[1].category)).toBe('UNKNOWN')
+        expect(PERSON_CATEGORY.label(found.content[1].category)).toBe('Desconocido')
+        expect(personLabel(found.content[0])).toBe('PER-000003 · Yossi Cohen')
+        expect(personPatch(person(), person())).toBeNull()
+        expect(personRevisionsPath(PERSON)).toBe(`${BASE}/people/${PERSON}/revisions`)
+        expect(categoriesAtLeast(2)).toEqual(['TEAM_LEADER', 'SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION',
+            'PROJECT_MANAGER'])
+        expect(categoryRank('SAFETY_OFFICER')).toBe(0)
+    })
+
+    it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {
+        useToken()
+        record('post', `${BASE}/people`, () => HttpResponse.json({
+            timestamp: '2026-10-16T06:07:00Z', status: 409, error: 'CONFLICT', message: 'Username equipo.jefe is already in use',
+            path: '/api/v1/resources/people', method: 'POST', errorCode: 'PER-409', correlationId: 'corr-r1', validationErrors: [],
+        }, {status: 409}))
+
+        const error = await failure(createPerson({firstName: 'Otra', lastName: 'Persona', category: 'WORKER', username: 'equipo.jefe'}))
+
+        expect(error).toBeInstanceOf(ConflictError)
+        expect(error.code).toBe('PER-409')
+        expect(error.reference).toBe('corr-r1')
     })
 })
 
