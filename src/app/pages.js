@@ -22,6 +22,7 @@ import TeamsPage from '../features/maintenance/TeamsPage.jsx'
 import AccessPage from '../features/notifications/AccessPage.jsx'
 import ActivityPage from '../features/notifications/ActivityPage.jsx'
 import NotificationsPage from '../features/notifications/NotificationsPage.jsx'
+import FleetBoardPage from '../features/resources/FleetBoardPage.jsx'
 import OrganizationPage from '../features/resources/OrganizationPage.jsx'
 import ParkingSitesPage from '../features/resources/ParkingSitesPage.jsx'
 import PeoplePage from '../features/resources/PeoplePage.jsx'
@@ -87,6 +88,7 @@ export const PAGES = Object.freeze({
     resourcesUnit: UnitDetailPage,
     resourcesVehicles: VehiclesPage,
     resourcesVehicle: VehicleDetailPage,
+    resourcesBoard: FleetBoardPage,
     resourcesVehicleTypes: VehicleTypesPage,
     resourcesParkingSites: ParkingSitesPage,
     notifications: NotificationsPage,

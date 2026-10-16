@@ -143,12 +143,14 @@ export function newUnitRequest(values) {
         executionPackageIds: packages.length > 0 ? packages : null,
         memberPersonIds: members.length > 0 ? members : null,
         joinedOn: team ? values.joinedOn ?? null : null,
+        defaultVehicleId: team ? values.defaultVehicleId ?? null : null,
     })
 }
 
 /**
  * La modificación: lo que cambió frente a lo leído, lo vaciado a null y la versión; los EP como
- * conjunto. Sin config-read los EP no se tocan: los leídos no se mandan a vaciar. null si no cambió nada.
+ * conjunto. Sin config-read los EP no se tocan: los leídos no se mandan a vaciar. El vehículo por
+ * defecto, solo de un equipo, se cambia o se vacía. null si no cambió nada.
  */
 export function unitPatch(original, values, {readsPackages = true} = {}) {
     const before = {
@@ -156,13 +158,16 @@ export function unitPatch(original, values, {readsPackages = true} = {}) {
         parentId: original.parent?.id ?? null,
         headPersonId: original.head?.id ?? null,
         executionPackageIds: [...(original.executionPackageIds ?? [])].sort((a, b) => a - b),
+        defaultVehicleId: original.defaultVehicle?.id ?? null,
     }
     const after = {
         name: textOrNull(values.name),
         parentId: values.parentId ?? null,
         headPersonId: values.headPersonId ?? null,
         executionPackageIds: [...(values.executionPackageIds ?? [])].map(Number).sort((a, b) => a - b),
+        defaultVehicleId: values.defaultVehicleId ?? null,
     }
-    const fields = readsPackages ? ['name', 'parentId', 'headPersonId', 'executionPackageIds'] : ['name', 'parentId', 'headPersonId']
+    const fields = ['name', 'parentId', 'headPersonId', ...(readsPackages ? ['executionPackageIds'] : []),
+        ...(original.kind === 'TEAM' ? ['defaultVehicleId'] : [])]
     return buildMergePatch(before, after, {fields, setFields: ['executionPackageIds'], version: original.version})
 }

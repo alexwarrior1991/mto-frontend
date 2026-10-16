@@ -40,6 +40,7 @@
     "recursos/organigrama/:unitId",
     "recursos/flota",
     "recursos/flota/:vehicleId",
+    "recursos/flota/tablero",
     "recursos/flota/modelos",
     "recursos/flota/aparcamientos",
     "notificaciones",

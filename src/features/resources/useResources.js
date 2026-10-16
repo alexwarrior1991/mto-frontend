@@ -14,6 +14,7 @@ import {
 import {createPerson, deactivatePerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
 import {
     createVehicle,
+    fleetPositions,
     getVehicle,
     listLocations,
     patchVehicle,
@@ -299,5 +300,15 @@ export function useRecordLocation(vehicleId) {
         mutationFn: (body) => recordLocation(vehicleId, body),
         meta: {notifyError: false},
         onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** El tablero de la flota, por vía y kp; se vuelve a pedir con «Actualizar», sin sondeo. */
+export function useFleetBoard(params) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', 'board', params),
+        queryFn: ({signal}) => fleetPositions({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
     })
 }

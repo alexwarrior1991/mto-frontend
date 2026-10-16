@@ -2816,6 +2816,19 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
         expect(unitPatch(read, {name: ' Supervisión norte ', parentId: 'prj', headPersonId: PERSON, executionPackageIds: ['4', '5']})).toBeNull()
         expect(unitRevisionsPath(SUPERVISION)).toBe(`${BASE}/units/${SUPERVISION}/revisions`)
 
+        // El vehículo por defecto es de un equipo: nace con él, se cambia y se vacía; otra unidad no lo manda nunca.
+        const vehicleId = '9d0e1f20-0000-4000-8000-000000000001'
+        const team = {...read, kind: 'TEAM', head: {id: PERSON}, defaultVehicle: {id: vehicleId, code: 'DR-01'}}
+        const same = {name: read.name, parentId: read.parent.id, headPersonId: PERSON, executionPackageIds: read.executionPackageIds}
+        expect(newUnitRequest({code: 'C', name: 'Equipo C', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION, headPersonId: PERSON,
+            executionPackageIds: [], memberPersonIds: [A, B], joinedOn: null, defaultVehicleId: vehicleId}).defaultVehicleId).toBe(vehicleId)
+        expect(newUnitRequest({code: 'P', name: 'P', kind: 'PROJECT', discipline: null, parentId: null, headPersonId: null, executionPackageIds: [],
+            memberPersonIds: [], defaultVehicleId: vehicleId})).not.toHaveProperty('defaultVehicleId')
+        expect(unitPatch(team, {...same, defaultVehicleId: vehicleId})).toBeNull()
+        expect(unitPatch(team, {...same, defaultVehicleId: null})).toEqual({defaultVehicleId: null, version: 2})
+        expect(unitPatch({...team, defaultVehicle: null}, {...same, defaultVehicleId: vehicleId})).toEqual({defaultVehicleId: vehicleId, version: 2})
+        expect(unitPatch(read, {...same, headPersonId: read.head?.id ?? null, defaultVehicleId: vehicleId})).toBeNull()
+
         expect(flattenTree(roots).map((node) => node.code)).toEqual(['PRJ', 'SUP-N', 'A', 'ZONA', 'OLD'])
         expect(UNIT_KIND.parse(roots[0].children[1].kind)).toBe('UNKNOWN')
         expect(unitLabel(roots[0].children[2])).toBe('OLD')

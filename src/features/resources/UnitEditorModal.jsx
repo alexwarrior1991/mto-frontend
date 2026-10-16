@@ -4,15 +4,23 @@ import {useForm} from '@mantine/form'
 import {useState} from 'react'
 import {headCategories, LINEMAN_CATEGORIES, MAX_LINEMEN, MIN_LINEMEN, UNIT_KIND, WORK_DISCIPLINE} from '../../api/resources/enums.js'
 import {disciplineUnder, newUnitRequest, parentsFor, unitPatch} from '../../api/resources/units.js'
+import {searchVehicles} from '../../api/resources/vehicles.js'
 import {unitLabel} from '../../api/resources/values.js'
 import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
+import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
 import {ReferencesMultiSelect} from '../maintenance/MaintenancePickers.jsx'
 import {useConfigurationNames} from '../maintenance/useMaintenanceNames.js'
 import {PeopleMultiSelect, PersonSelect} from './ResourcesPickers.jsx'
 import {requiredText, UNIT_LENGTHS} from './resourcesForms.js'
-import {useSaveUnit} from './useResources.js'
+import {resourcesKey, useSaveUnit} from './useResources.js'
+
+/** Los vehículos disponibles, para el vehículo por defecto de un equipo. */
+async function searchAvailableVehicles(text, {signal}) {
+    const page = await searchVehicles({search: text, available: true, active: true, size: 20}, {signal})
+    return page.content.map((vehicle) => ({value: vehicle.id, label: unitLabel(vehicle)}))
+}
 
 /**
  * El alta y la modificación de una unidad del organigrama (el port de UnitEditorDialog).
@@ -45,6 +53,7 @@ export default function UnitEditorModal({unit, parent = null, tree, onClose, onS
             executionPackageIds: [...(unit?.executionPackageIds ?? [])].sort((a, b) => a - b).map(String),
             memberPersonIds: [],
             joinedOn: null,
+            defaultVehicleId: unit?.defaultVehicle?.id ?? null,
         },
         validate: {
             code: creating ? requiredText('El código es obligatorio', UNIT_LENGTHS.code) : null,
@@ -159,6 +168,14 @@ export default function UnitEditorModal({unit, parent = null, tree, onClose, onS
                                 <TextInput label="EP" readOnly value={(unit?.executionPackageIds ?? []).map((id) => `#${id}`).join(', ')}
                                            description="Sin permiso para leer infraestructura: se quedan como están"/>
                             )}
+                        {team && (
+                            <ServerSearchSelect label="Vehículo por defecto" queryKey={resourcesKey('default-vehicle-picker')}
+                                                search={searchAvailableVehicles} searchWhenEmpty clearable
+                                                clearButtonProps={{'aria-label': 'Quitar el vehículo por defecto'}}
+                                                current={unit?.defaultVehicle ? {value: unit.defaultVehicle.id, label: unitLabel(unit.defaultVehicle)} : null}
+                                                description="El que copia un turno nuevo del equipo si no se dice otro" placeholder="Escribe su código"
+                                                {...form.getInputProps('defaultVehicleId')}/>
+                        )}
                         {creating && team && (
                             <PeopleMultiSelect label="Linemen" withAsterisk categories={LINEMAN_CATEGORIES}
                                                description={`${form.values.memberPersonIds.length} de 2 a 6`}

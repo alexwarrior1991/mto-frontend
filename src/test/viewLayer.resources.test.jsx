@@ -154,7 +154,8 @@ describe('el menú y las rutas', () => {
     it('«Recursos» sale con resources-read, y no sin él', () => {
         const resources = buildMenu(loginAs('recursos.lector')).find((item) => item.key === 'recursos')
         expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal'],
-            ['Organigrama', '/recursos/organigrama'], ['Vehículos', '/recursos/flota'], ['Modelos de vehículo', '/recursos/flota/modelos'],
+            ['Organigrama', '/recursos/organigrama'], ['Vehículos', '/recursos/flota'], ['Tablero de la flota', '/recursos/flota/tablero'],
+            ['Modelos de vehículo', '/recursos/flota/modelos'],
             ['Sitios de aparcamiento', '/recursos/flota/aparcamientos']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
@@ -1104,5 +1105,112 @@ describe('los vehículos', () => {
         expect(deletes).toHaveLength(1)
         await user.click(within(rowOf('Vehículos', 'DR-02')).getByRole('button', {name: 'Reactivar DR-02'}))
         await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{active: true, version: 6}]))
+    })
+})
+
+/** El tablero simulado: las filas tal cual, paginadas, con la URL de cada petición. */
+function serveBoard(rows, {vehicles = []} = {}) {
+    const requests = serveVehicles({vehicles})
+    server.use(http.get(`${BASE}/vehicles/positions`, ({request}) => {
+        const url = new URL(request.url)
+        requests.push(url)
+        return HttpResponse.json(pageOf(rows, url))
+    }))
+    return requests
+}
+
+describe('el tablero de la flota', () => {
+    it('va por vía y kp con el vehículo para desempatar, uno remolcado está donde su portador, y se filtra y se actualiza en el servicio', async () => {
+        const carrier = vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, location('ON_TRACK', {trackId: 12, kp: 10.5}))
+        const towedAt = location('ATTACHED', {carrier: {id: VEHICLE2, code: 'DR-02', name: null, mobility: 'RAIL_ONLY', category: 'TRACK_MAINTENANCE_CAR'}})
+        const requests = serveBoard([
+            {vehicle: {id: VEHICLE2, code: 'DR-02', name: 'Vehículo DR-02', mobility: 'RAIL_ONLY', category: 'CATENARY_TOWER_CAR'},
+                operationalStatus: 'OPERATIONAL', available: true, position: carrier.position, effective: null},
+            {vehicle: {id: VEHICLE1, code: 'PL-01', name: 'Vehículo PL-01', mobility: 'RAIL_ONLY', category: 'RAIL_WAGON'},
+                operationalStatus: 'LIMITED', available: true, position: towedAt, effective: carrier.position},
+        ], {vehicles: [vehicle(VEHICLE1, 'PL-01', RAIL_MODEL, towedAt), carrier]})
+        const session = loginAs('recursos.gestor')
+        const {user} = await open('/recursos/flota/tablero', session, 'Tablero de la flota', 2)
+        const boards = () => requests.filter((url) => url.pathname === `${BASE}/vehicles/positions`)
+
+        await waitFor(() => expect(textsOf(dataRows('Tablero de la flota')[0]).slice(0, 7)).toEqual(['VIA 1 (EP 4)', '10.5', 'DR-02 · Vehículo DR-02',
+            'Solo vía', 'En vía', '', 'Operativo']))
+        expect(textsOf(dataRows('Tablero de la flota')[1]).slice(0, 7)).toEqual(['VIA 1 (EP 4)', '10.5', 'PL-01 · Vehículo PL-01', 'Solo vía',
+            'Remolcado por DR-02', '', 'Limitado'])
+        expect(boards()[0].search).toBe('?page=0&size=50&sort=trackId%2Casc&sort=kp%2Casc&sort=vehicleId%2Casc')
+        expect(screen.getByText('2 vehículos')).toBeInTheDocument()
+
+        await choose(user, document.body, 'EP', 'EP 4')
+        await user.click(screen.getByRole('combobox', {name: 'Vía'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['VIA 1 (EP 4)'])
+        await user.click(screen.getByRole('option', {name: 'VIA 1 (EP 4)'}))
+        await choose(user, document.body, 'Dónde está', 'En vía')
+        await waitFor(() => expect(boards().at(-1).searchParams.get('kind')).toBe('ON_TRACK'))
+        expect([boards().at(-1).searchParams.get('executionPackageId'), boards().at(-1).searchParams.get('trackId')]).toEqual(['4', '12'])
+
+        const before = boards().length
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        await waitFor(() => expect(boards()).toHaveLength(before + 1))
+        expect(boards().at(-1).search).toBe(boards().at(-2).search)
+
+        await choose(user, document.body, 'EP', 'EP 5')
+        expect(screen.getByRole('combobox', {name: 'Vía'})).toHaveValue('')
+
+        await user.click(within(rowOf('Tablero de la flota', 'PL-01 · Vehículo PL-01')).getByRole('button', {name: 'Registrar dónde está PL-01'}))
+        expect(await screen.findByRole('dialog', {name: 'Registrar dónde está PL-01 · Vehículo PL-01'})).toBeInTheDocument()
+        expect(requests.some((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}`)).toBe(true)
+    })
+
+    it('quien solo lee abre los vehículos y no registra nada; sin config-read no hay EP ni vía, y la vía es #id', async () => {
+        serveBoard([{vehicle: {id: VEHICLE2, code: 'DR-02', name: null, mobility: 'RAIL_ONLY', category: 'CATENARY_TOWER_CAR'},
+            operationalStatus: 'OPERATIONAL', available: true, position: location('ON_TRACK', {trackId: 12, kp: 10.5}), effective: null}],
+        {vehicles: [{...vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, null), name: null}]})
+        const {user} = await open('/recursos/flota/tablero', sessionWith([P.RESOURCES_READ]), 'Tablero de la flota', 1)
+
+        expect(textsOf(dataRows('Tablero de la flota')[0]).slice(0, 3)).toEqual(['#12', '10.5', 'DR-02'])
+        expect(screen.queryByRole('combobox', {name: 'EP'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('combobox', {name: 'Vía'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Tablero de la flota', 'DR-02'))).toEqual(['Abrir DR-02'])
+        await user.click(within(rowOf('Tablero de la flota', 'DR-02')).getByRole('button', {name: 'Abrir DR-02'}))
+        expect(await screen.findByRole('heading', {name: 'DR-02'})).toBeInTheDocument()
+    })
+})
+
+describe('el vehículo por defecto de un equipo', () => {
+    it('se elige entre los disponibles y viaja en el merge-patch; quitarlo viaja a null, y otra unidad no lo ofrece', async () => {
+        const withVehicle = {...teamUnit(2), defaultVehicle: {id: VEHICLE1, code: 'DR-01', name: 'Dresina 1', mobility: 'RAIL_ONLY',
+            category: 'CATENARY_TOWER_CAR'}}
+        serveOrganization({units: {[TEAM_UNIT]: withVehicle, [SUPERVISION_UNIT]: supervisionUnit()}, members: {[TEAM_UNIT]: linemen(2)}})
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, null)]})
+        const writes = recordWrites('patch', `${BASE}/units/:id`, () => HttpResponse.json(withVehicle))
+        const {user} = await openUnit(loginAs('recursos.gestor'), TEAM_UNIT, 'A · Equipo A')
+
+        expect(screen.getByText(/Vehículo: DR-01 · Dresina 1/)).toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Modificar A · Equipo A'})
+        const picker = within(dialog).getByRole('combobox', {name: 'Vehículo por defecto'})
+        expect(picker).toHaveValue('DR-01 · Dresina 1')
+        await user.click(picker)
+        await user.click(await screen.findByRole('option', {name: 'DR-02 · Vehículo DR-02'}))
+        const search = requests.filter((url) => url.pathname === `${BASE}/vehicles`).at(-1)
+        expect([search.searchParams.get('available'), search.searchParams.get('active')]).toEqual(['true', 'true'])
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        dialog = await screen.findByRole('dialog', {name: 'Modificar A · Equipo A'})
+        // El botón de vaciar de Mantine va con aria-hidden (el teclado vacía borrando): se busca por su etiqueta.
+        await user.click(within(dialog).getByLabelText('Quitar el vehículo por defecto'))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(2))
+        expect(writes.map((write) => write.body)).toEqual([{defaultVehicleId: VEHICLE2, version: 7}, {defaultVehicleId: null, version: 7}])
+    })
+
+    it('una unidad que no es un equipo no lleva vehículo, ni en el editor ni en el merge-patch', async () => {
+        serveOrganization({units: {[SUPERVISION_UNIT]: supervisionUnit(), [TEAM_UNIT]: teamUnit(4)}})
+        const {user} = await openUnit(loginAs('recursos.gestor'), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})
+        expect(within(dialog).queryByRole('combobox', {name: 'Vehículo por defecto'})).not.toBeInTheDocument()
     })
 })

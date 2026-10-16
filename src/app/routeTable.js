@@ -78,6 +78,7 @@ export const ROUTES = Object.freeze([
     {path: 'recursos/organigrama/:unitId', title: 'Unidad', page: 'resourcesUnit', requires: RESOURCES},
     {path: 'recursos/flota', title: 'Vehículos', page: 'resourcesVehicles', requires: RESOURCES, menu: {group: 'recursos', order: 72, icon: 'vehicles'}},
     {path: 'recursos/flota/:vehicleId', title: 'Vehículo', page: 'resourcesVehicle', requires: RESOURCES},
+    {path: 'recursos/flota/tablero', title: 'Tablero de la flota', page: 'resourcesBoard', requires: RESOURCES, menu: {group: 'recursos', order: 73, icon: 'board'}},
     {path: 'recursos/flota/modelos', title: 'Modelos de vehículo', page: 'resourcesVehicleTypes', requires: RESOURCES, menu: {group: 'recursos', order: 74, icon: 'vehicleTypes'}},
     {path: 'recursos/flota/aparcamientos', title: 'Sitios de aparcamiento', page: 'resourcesParkingSites', requires: RESOURCES, menu: {group: 'recursos', order: 75, icon: 'parkingSites'}},
 
