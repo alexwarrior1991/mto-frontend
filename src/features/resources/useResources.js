@@ -13,6 +13,16 @@ import {
 } from '../../api/resources/fleet.js'
 import {createPerson, deactivatePerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
 import {
+    createVehicle,
+    getVehicle,
+    listLocations,
+    patchVehicle,
+    reactivateVehicle,
+    recordLocation,
+    retireVehicle,
+    searchVehicles,
+} from '../../api/resources/vehicles.js'
+import {
     addMember,
     createUnit,
     deactivateUnit,
@@ -219,5 +229,75 @@ export function useParkingSiteAction() {
     return useMutation({
         mutationFn: ({action, site}) => (action === 'retire' ? retireParkingSite(site.id) : offerParkingSiteAgain(site)),
         onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useVehicleList(params) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', params),
+        queryFn: ({signal}) => searchVehicles({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** La ficha de un vehículo; si no existe, se dice una vez. Con notFound false, sin aviso (el portador de otro). */
+export function useVehicle(vehicleId, {enabled = true, notFound = true} = {}) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', 'vehicle', vehicleId),
+        queryFn: ({signal}) => getVehicle(vehicleId, {signal}),
+        enabled: enabled && Boolean(vehicleId),
+        retry: false,
+        staleTime: NOT_FRESH,
+        meta: notFound ? {notFoundMessage: `No existe el vehículo ${vehicleId}`} : {notifyError: false},
+    })
+}
+
+export function useVehicleLocations(vehicleId, params) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', 'locations', vehicleId, params),
+        queryFn: ({signal}) => listLocations(vehicleId, params, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Los sitios activos del catálogo a los que puede llegar un vehículo de esta movilidad: caben en una petición. */
+export function useReachableSites(mobility) {
+    const railAccess = mobility === 'RAIL_ONLY' ? true : null
+    const roadAccess = mobility === 'ROAD_ONLY' ? true : null
+    return useQuery({
+        queryKey: resourcesKey('parking-sites', 'reachable', mobility),
+        queryFn: ({signal}) => searchParkingSites({railAccess, roadAccess, active: true, size: 200}, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** El alta o la modificación de un vehículo, desde su editor; se relee todo el módulo. */
+export function useSaveVehicle() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createVehicle(body) : patchVehicle(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Retirar (DELETE) o reactivar (PATCH active=true) un vehículo; haya ido bien o no, se relee. */
+export function useVehicleAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, vehicle}) => (action === 'retire' ? retireVehicle(vehicle.id) : reactivateVehicle(vehicle)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Registrar dónde está un vehículo; mueve su posición, su ficha, la lista y el tablero: se relee todo el módulo. */
+export function useRecordLocation(vehicleId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => recordLocation(vehicleId, body),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
     })
 }

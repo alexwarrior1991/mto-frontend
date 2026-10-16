@@ -213,7 +213,9 @@ import {
     categoryRank,
     headCategories,
     LINEMAN_CATEGORIES,
+    LOCATION_KIND,
     PERSON_CATEGORY,
+    recordableKinds,
     UNIT_KIND,
     VEHICLE_CATEGORY,
 } from '../api/resources/enums.js'
@@ -267,6 +269,21 @@ import {
     unitRevisionsPath,
 } from '../api/resources/units.js'
 import {personLabel, unitLabel} from '../api/resources/values.js'
+import {
+    createVehicle,
+    fleetPositions,
+    listLocations,
+    locationRequest,
+    newVehicleRequest,
+    patchVehicle,
+    reactivateVehicle,
+    recordLocation,
+    retireVehicle,
+    searchVehicles,
+    shiftIdOf,
+    vehiclePatch,
+    whereOf,
+} from '../api/resources/vehicles.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {
     assemblyBody,
@@ -2918,6 +2935,62 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
             {roadAccess: true, version: 2},
             {active: true, version: 3},
         ])
+    })
+
+    it('los vehículos: la búsqueda, el alta con lo que pide su modelo, la modificación, sus ubicaciones y el tablero por vía y kp', async () => {
+        useToken()
+        const VEHICLE = '9d0e1f20-0000-4000-8000-000000000001'
+        const SHIFT = 'a0b1c2d3-0000-4000-8000-000000000001'
+        const railModel = {id: 'model', code: 'DIC-30', mobility: 'RAIL_ONLY', transportModeAuthorised: true}
+        const roadModel = {id: 'van', code: 'VAN', mobility: 'ROAD_ONLY'}
+        const dresina = {id: VEHICLE, code: 'DR-01', type: railModel, registrationPlate: null, railVehicleNumber: '99 80', owner: 'OWN',
+            operationalStatus: 'LIMITED', statusReason: 'Plataforma', manufactureYear: 2019, active: true, version: 6,
+            position: {kind: 'TELEPORTED', sourceReference: `mto-maintenance:shift:${SHIFT}`}}
+        const searches = record('get', `${BASE}/vehicles`, () => HttpResponse.json(page([dresina])))
+        const posts = record('post', `${BASE}/vehicles`, () => HttpResponse.json(dresina, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicles/:id`, () => HttpResponse.json(dresina))
+        record('delete', `${BASE}/vehicles/:id`, () => new HttpResponse(null, {status: 204}))
+        const locations = record('post', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json({kind: 'ON_TRACK'}, {status: 201}))
+        const histories = record('get', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json(page([])))
+        // MSW da prioridad a lo último que se registra: el tablero, después de los vehículos por id.
+        const boards = record('get', `${BASE}/vehicles/positions`, () => HttpResponse.json(page([{vehicle: {code: 'PL-01'}, position: {kind: 'ATTACHED'},
+            effective: {kind: 'ON_TRACK', trackId: 12}}])))
+
+        const found = await searchVehicles({search: ' dr ', mobility: 'RAIL_ONLY', status: 'LIMITED', available: true, active: true})
+        await createVehicle(newVehicleRequest({code: 'DR-02', typeId: 'model', registrationPlate: 'no viaja', railVehicleNumber: ' 99 81 ',
+            owner: 'OWN', ownerCompany: 'no viaja', operationalStatus: 'OPERATIONAL', statusReason: 'no viaja', manufactureYear: '2020'}, railModel))
+        await patchVehicle(VEHICLE, vehiclePatch(dresina, {...dresina, typeId: 'model', operationalStatus: 'OPERATIONAL', manufactureYear: '2019',
+            railVehicleNumber: '99 80'}, railModel))
+        await patchVehicle(VEHICLE, vehiclePatch(dresina, {...dresina, typeId: 'van', registrationPlate: '1234-ABC', manufactureYear: 2019,
+            statusReason: 'Plataforma'}, roadModel))
+        await retireVehicle(VEHICLE)
+        await reactivateVehicle({...dresina, active: false, version: 7})
+        await recordLocation(VEHICLE, locationRequest({kind: 'ON_TRACK', parkingSiteId: 'no viaja', executionPackageId: '4', trackId: '12', kp: '10.50',
+            latitude: '32', longitude: '34', accessPoint: 'no viaja', description: ' En la playa ', carrierVehicleId: 'no viaja',
+            observedAt: '2026-10-16 05:40:00'}, 'RAIL_ONLY'))
+        await listLocations(VEHICLE, {from: '2026-10-01', to: '2026-10-16'})
+        const board = await fleetPositions({trackId: 12})
+
+        expect(searches[0].url.search).toBe('?search=dr&mobility=RAIL_ONLY&status=LIMITED&available=true&active=true'
+            + '&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'DR-02', typeId: 'model', railVehicleNumber: '99 81', manufactureYear: 2020, owner: 'OWN',
+            operationalStatus: 'OPERATIONAL'})
+        expect(patches.map(json)).toEqual([
+            {operationalStatus: 'OPERATIONAL', statusReason: null, version: 6},
+            {typeId: 'van', registrationPlate: '1234-ABC', railVehicleNumber: null, version: 6},
+            {active: true, version: 7},
+        ])
+        expect(json(locations[0])).toEqual({kind: 'ON_TRACK', executionPackageId: 4, trackId: 12, kp: 10.5, description: 'En la playa',
+            observedAt: new Date(2026, 9, 16, 5, 40).toISOString()})
+        expect(histories[0].url.searchParams.get('from')).toBe(new Date(2026, 9, 1).toISOString())
+        expect(histories[0].url.searchParams.get('to')).toBe(new Date(2026, 9, 17).toISOString())
+        expect(histories[0].url.searchParams.has('sort')).toBe(false)
+        expect(boards[0].url.search).toBe('?trackId=12&page=0&size=50&sort=trackId%2Casc&sort=kp%2Casc&sort=vehicleId%2Casc')
+        expect(whereOf(board.content[0]).kind).toBe('ON_TRACK')
+        expect(shiftIdOf(found.content[0].position)).toBe(SHIFT)
+        expect(LOCATION_KIND.label(found.content[0].position.kind)).toBe('Desconocido')
+        expect(LOCATION_KIND.label('UNKNOWN')).toBe('Desconocida')
+        expect(recordableKinds('ROAD_ONLY')).toEqual(['PARKED', 'ON_ROAD', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN'])
     })
 
     it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {

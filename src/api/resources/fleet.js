@@ -163,10 +163,11 @@ export function vehicleTypePatch(original, values) {
     })
 }
 
-export async function searchParkingSites({search = '', kind = null, executionPackageId = null, active = null, page = 1, size = 50, sort = null} = {},
-                                         {signal} = {}) {
+export async function searchParkingSites({search = '', kind = null, executionPackageId = null, railAccess = null, roadAccess = null, active = null,
+    page = 1, size = 50, sort = null} = {}, {signal} = {}) {
     const body = await apiFetch(resourcesPath('parking-sites'), {
-        query: {search: textOrNull(search), kind, executionPackageId, active, ...toPageParams({page, size}), sort: sortWithTieBreak(sort, BY_CODE)},
+        query: {search: textOrNull(search), kind, executionPackageId, railAccess, roadAccess, active, ...toPageParams({page, size}),
+            sort: sortWithTieBreak(sort, BY_CODE)},
         signal,
     })
     return toPage(body)

@@ -207,3 +207,48 @@ export const PARKING_SITE_KIND = defineEnum({
     ROAD_PARKING: 'Aparcamiento de carretera',
     ACCESS_AREA: 'Zona de acceso',
 })
+
+export const VEHICLE_OWNER = defineEnum({OWN: 'Propio', LEASED: 'Alquilado', SUBCONTRACTOR: 'Subcontrata'})
+
+/** Cómo está un vehículo; uno que no está operativo dice por qué. Disponible es activo y operativo o limitado. */
+export const VEHICLE_STATUS = defineEnum({
+    OPERATIONAL: 'Operativo',
+    LIMITED: 'Limitado',
+    UNDER_REPAIR: 'En reparación',
+    OUT_OF_SERVICE: 'Fuera de servicio',
+})
+
+/**
+ * Dónde está un vehículo. UNKNOWN es aquí un valor del servicio («no se sabe dónde está», lo que deja un
+ * turno sin aparcamiento), además de lo que se lee de un valor que la aplicación no conoce.
+ */
+export const LOCATION_KIND = defineEnum({
+    PARKED: 'Aparcado',
+    ON_TRACK: 'En vía',
+    ON_ROAD: 'Por carretera',
+    IN_WORKSHOP: 'En taller',
+    ATTACHED: 'Con otro vehículo',
+    UNKNOWN: 'Desconocida',
+})
+
+/**
+ * Lo que se puede registrar de un vehículo de esta movilidad, copiado de FleetRules solo para no
+ * ofrecer lo que va a fallar (409 VEH-001): uno de solo vía nunca va por carretera, uno de solo
+ * carretera nunca está en la vía.
+ */
+export function recordableKinds(mobility) {
+    switch (mobility) {
+        case 'RAIL_ONLY':
+            return ['PARKED', 'ON_TRACK', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN']
+        case 'ROAD_ONLY':
+            return ['PARKED', 'ON_ROAD', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN']
+        case 'ROAD_RAIL':
+            return ['PARKED', 'ON_TRACK', 'ON_ROAD', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN']
+        default:
+            return ['UNKNOWN']
+    }
+}
+
+export const VEHICLE_ATTACHMENT = defineEnum({TOWED: 'Remolcado', CARRIED: 'Transportado'})
+
+export const LOCATION_SOURCE = defineEnum({MANUAL: 'A mano', SHIFT: 'Turno', FIELD: 'Campo', TELEMATICS: 'Telemática'})

@@ -154,7 +154,7 @@ describe('el menú y las rutas', () => {
     it('«Recursos» sale con resources-read, y no sin él', () => {
         const resources = buildMenu(loginAs('recursos.lector')).find((item) => item.key === 'recursos')
         expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal'],
-            ['Organigrama', '/recursos/organigrama'], ['Modelos de vehículo', '/recursos/flota/modelos'],
+            ['Organigrama', '/recursos/organigrama'], ['Vehículos', '/recursos/flota'], ['Modelos de vehículo', '/recursos/flota/modelos'],
             ['Sitios de aparcamiento', '/recursos/flota/aparcamientos']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
@@ -909,5 +909,200 @@ describe('los sitios de aparcamiento', () => {
         await waitFor(() => expect(writes).toHaveLength(1))
         expect(writes[0].body).toEqual({roadAccess: true, latitude: null, longitude: null, version: 2})
         expect(requests.some((url) => url.pathname.startsWith(CONFIGURATION))).toBe(false)
+    })
+})
+
+const VEHICLE1 = '9d0e1f20-0000-4000-8000-000000000001'
+const VEHICLE2 = '9d0e1f20-0000-4000-8000-000000000002'
+const LOCATION_SHIFT = 'a0b1c2d3-0000-4000-8000-000000000001'
+const RAIL_MODEL = {id: VEHICLE_TYPE2, code: 'DIC-30', name: 'Plasser DIC-30', mobility: 'RAIL_ONLY', category: 'CATENARY_TOWER_CAR', selfPropelled: true,
+    seats: 6, railGearType: null, transportModeAuthorised: true, capabilities: ['PANTOGRAPH']}
+const ROAD_RAIL_MODEL = {id: VEHICLE_TYPE1, code: 'UNIMOG-RR', name: 'Unimog bivial', mobility: 'ROAD_RAIL', category: 'ROAD_RAIL_TRUCK',
+    selfPropelled: true, seats: 3, railGearType: 'RAIL_WHEEL_DRIVE', transportModeAuthorised: false, capabilities: ['TOWING']}
+
+function location(kind, {trackId = null, kp = null, carrier = null, reference = null} = {}) {
+    return {
+        id: `b1c2d3e4-0000-4000-8000-${String(Math.floor(Math.random() * 1e12)).padStart(12, '0')}`, kind,
+        parkingSite: kind === 'PARKED' ? {id: PARKING_SITE1, code: 'APT-RSH', name: 'Apartadero de Rishpon', kind: 'SIDING'} : null,
+        executionPackageId: 4, trackId, kp, latitude: null, longitude: null, accessPoint: null, description: null, carrier,
+        attachment: carrier ? 'TOWED' : null, source: reference ? 'SHIFT' : 'MANUAL', sourceReference: reference, observedAt: '2026-10-16T03:40:00Z',
+        recordedAt: '2026-10-16T03:40:02Z', recordedBy: reference ? 'service-account-mto-maintenance-svc' : 'recursos.gestor',
+    }
+}
+
+function vehicle(id, code, type, position, active = true, extra = {}) {
+    return {
+        id, code, name: `Vehículo ${code}`, type, registrationPlate: type.mobility === 'RAIL_ONLY' ? null : '1234-ABC',
+        railVehicleNumber: type.mobility === 'ROAD_ONLY' ? null : '99 80 9427 001-1', serialNumber: null, manufactureYear: 2019, owner: 'OWN',
+        ownerCompany: null, operationalStatus: 'OPERATIONAL', statusReason: null, available: true, odometerKm: null, engineHours: null, notes: null,
+        position, active, version: 6, ...extra,
+    }
+}
+
+/** La flota simulada: los vehículos, cada uno por su id, sus ubicaciones y los sitios, con los catálogos y los nombres. */
+function serveVehicles({vehicles = [], locations = [], types = [], sites = []} = {}) {
+    const requests = serveFleetCatalogues({types, sites})
+    server.use(
+        http.get(`${BASE}/vehicles/:id/locations`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf(locations, url))
+        }),
+        http.get(`${BASE}/vehicles/:id`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            const found = vehicles.find((row) => row.id === params.id)
+            return found ? HttpResponse.json(found) : resourcesError(404, 'VEH-404', 'Vehicle not found')
+        }),
+        http.get(`${BASE}/vehicles`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf(vehicles, url))
+        }),
+    )
+    return requests
+}
+
+describe('los vehículos', () => {
+    it('la lista dice dónde está cada uno y se filtra en el servicio; quien solo lee solo abre las fichas', async () => {
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, location('PARKED', {trackId: 12, kp: 12.3,
+            reference: `mto-maintenance:shift:${LOCATION_SHIFT}`})), vehicle(VEHICLE2, 'UN-01', ROAD_RAIL_MODEL, null, false)]})
+        const {user} = await open('/recursos/flota', loginAs('recursos.lector'), 'Vehículos', 2)
+        const lists = () => requests.filter((url) => url.pathname === `${BASE}/vehicles`)
+
+        await waitFor(() => expect(textsOf(dataRows('Vehículos')[0])).toEqual(['DR-01', 'Vehículo DR-01', 'DIC-30', 'Solo vía', '', '99 80 9427 001-1',
+            'Operativo', 'Aparcado · APT-RSH · VIA 1 (EP 4) · kp 12.3', 'Activo', '']))
+        expect(textsOf(dataRows('Vehículos')[1]).slice(7, 9)).toEqual(['Sin ubicación', 'Retirado'])
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+
+        await choose(user, document.body, 'Movilidad', 'Solo vía')
+        await choose(user, document.body, 'Disponible', 'Disponibles')
+        await waitFor(() => expect(lists().at(-1).searchParams.get('available')).toBe('true'))
+        expect(lists().at(-1).searchParams.get('mobility')).toBe('RAIL_ONLY')
+        expect(screen.queryByRole('button', {name: 'Nuevo vehículo'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Vehículos', 'DR-01'))).toEqual(['Abrir DR-01'])
+    })
+
+    it('el editor exige lo que pide su modelo antes de llamar: matrícula, número ferroviario, empresa y motivo', async () => {
+        serveVehicles({types: [{...unimog(), transportModeAuthorised: false, capabilities: ['TOWING']}, dresina()]})
+        const writes = recordWrites('post', `${BASE}/vehicles`, () => HttpResponse.json(vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null), {status: 201}))
+        const {user} = await open('/recursos/flota', loginAs('recursos.responsable'), 'Vehículos', 0)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo vehículo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo vehículo'})
+        await typeInto(user, dialog, 'Código (número de flota)', 'DR-01')
+        await choose(user, dialog, 'Modelo', 'DIC-30 · Plasser DIC-30')
+        expect(within(dialog).queryByRole('textbox', {name: 'Matrícula'})).not.toBeInTheDocument()
+        await choose(user, dialog, 'Propiedad', 'Subcontrata')
+        await choose(user, dialog, 'Estado operativo', 'En reparación')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Su modelo va por vía abierta: lleva su número de vehículo ferroviario')).toBeInTheDocument()
+        expect(within(dialog).getByText('Uno que no es propio dice de quién es')).toBeInTheDocument()
+        expect(within(dialog).getByText('Uno que no está operativo dice por qué')).toBeInTheDocument()
+
+        await choose(user, dialog, 'Modelo', 'UNIMOG-RR · Unimog bivial')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Va por carretera: lleva su matrícula')).toBeInTheDocument()
+        expect(within(dialog).queryByText('Su modelo va por vía abierta: lleva su número de vehículo ferroviario')).not.toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Matrícula', '1234-ABC')
+        await typeInto(user, dialog, 'Empresa', 'Alquileres del Norte')
+        await typeInto(user, dialog, 'Motivo', 'Gato hidráulico')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toEqual({code: 'DR-01', typeId: VEHICLE_TYPE1, registrationPlate: '1234-ABC', owner: 'SUBCONTRACTOR',
+            ownerCompany: 'Alquileres del Norte', operationalStatus: 'UNDER_REPAIR', statusReason: 'Gato hidráulico'})
+    })
+
+    it('la ficha dice dónde está, uno remolcado dónde está su portador, y sus ubicaciones se filtran por días con el enlace al turno', async () => {
+        const carrier = vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, location('ON_TRACK', {trackId: 12, kp: 10.5}))
+        const towed = vehicle(VEHICLE1, 'PL-01', RAIL_MODEL, location('ATTACHED', {carrier: {id: VEHICLE2, code: 'DR-02', name: null,
+            mobility: 'RAIL_ONLY', category: 'TRACK_MAINTENANCE_CAR'}}))
+        const requests = serveVehicles({vehicles: [towed, carrier], locations: [location('PARKED', {trackId: 12, kp: 12.3,
+            reference: `mto-maintenance:shift:${LOCATION_SHIFT}`})]})
+        renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('mantenimiento.jefe')})
+
+        expect(await screen.findByRole('heading', {name: 'PL-01 · Vehículo PL-01'})).toBeInTheDocument()
+        const where = screen.getByLabelText('Dónde está')
+        expect(within(where).getByText('Remolcado por DR-02')).toBeInTheDocument()
+        expect(await within(where).findByText('DR-02 está: En vía · VIA 1 (EP 4) · kp 10.5')).toBeInTheDocument()
+        await waitFor(() => expect(textsOf(dataRows('Ubicaciones de PL-01')[0]).slice(1, 5)).toEqual(['Aparcado · APT-RSH · VIA 1 (EP 4) · kp 12.3', '',
+            'Turno', 'service-account-mto-maintenance-svc']))
+        expect(within(rowOf('Ubicaciones de PL-01', 'Turno')).getByRole('button', {name: 'Ver el turno'})).toBeInTheDocument()
+
+        const historyRequests = () => requests.filter((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}/locations`)
+        expect(historyRequests()[0].search).toBe('?page=0&size=20')
+    })
+
+    it('las ubicaciones se filtran por días: «Hasta» viaja como el principio del día siguiente', async () => {
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], locations: []})
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.lector')})
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+        await user.type(screen.getByRole('textbox', {name: 'Desde'}), '01/10/2026')
+        await user.type(screen.getByRole('textbox', {name: 'Hasta'}), '16/10/2026')
+        await user.keyboard('{Escape}')
+        const last = () => requests.filter((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}/locations`).at(-1)
+        await waitFor(() => expect(last().searchParams.get('to')).toBe(new Date(2026, 9, 17).toISOString()))
+        expect(last().searchParams.get('from')).toBe(new Date(2026, 9, 1).toISOString())
+    })
+
+    it('una ficha que no existe se dice y vuelve a la flota', async () => {
+        serveVehicles()
+        const missing = '9d0e1f20-0000-4000-8000-0000000000ff'
+        renderRoute(`/recursos/flota/${missing}`, {session: loginAs('recursos.lector')})
+        expect(await screen.findByText(`No existe el vehículo ${missing}`)).toBeInTheDocument()
+        expect(await screen.findByRole('table', {name: 'Vehículos'})).toBeInTheDocument()
+    })
+
+    it('registrar dónde está ofrece lo que admite su movilidad, comprueba lo evidente y deja el diálogo abierto con un VEH-001', async () => {
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], sites: [siding()]})
+        const writes = recordWrites('post', `${BASE}/vehicles/:id/locations`, (body, call) => (call === 1
+            ? resourcesError(409, 'VEH-001', 'Vehicle DR-01 is a rail-only vehicle: it is parked on a track')
+            : HttpResponse.json(location('ON_TRACK', {trackId: 12, kp: 10.5}), {status: 201})))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.gestor')})
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Registrar ubicación'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Registrar dónde está DR-01 · Vehículo DR-01'})
+        await waitFor(() => expect(requests.some((url) => url.pathname === `${BASE}/parking-sites` && url.searchParams.get('railAccess') === 'true'))
+            .toBe(true))
+        await user.click(within(dialog).getByRole('combobox', {name: 'Dónde está'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['Aparcado', 'En vía', 'En taller',
+            'Con otro vehículo', 'Desconocida'])
+        await user.keyboard('{Escape}')
+        await user.type(within(dialog).getByRole('textbox', {name: 'Descripción'}), 'En la playa de vías')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await within(dialog).findByText('Uno de solo vía se aparca sobre una vía: un sitio con acceso por vía, o una vía y un kp'))
+            .toBeInTheDocument()
+
+        await choose(user, dialog, 'Dónde está', 'En vía')
+        expect(within(dialog).queryByRole('combobox', {name: 'Sitio'})).not.toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await within(dialog).findByText('En vía dice su vía')).toBeInTheDocument()
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP 4)')
+        await typeInto(user, dialog, 'KP', '10.5')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await screen.findByText('La flota no admite ese cambio. Vehicle DR-01 is a rail-only vehicle: it is parked on a track'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Registrar dónde está DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'ON_TRACK', trackId: 12, kp: 10.5,
+            description: 'En la playa de vías'})))
+    })
+
+    it('retirar pide confirmación y el vehículo por defecto de un equipo lo dice el servicio; reactivar es un PATCH', async () => {
+        serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null), vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, null, false)]})
+        const deletes = recordWrites('delete', `${BASE}/vehicles/:id`, () => resourcesError(409, 'VEH-001', 'Vehicle DR-01 is the default vehicle of team A'))
+        const patches = recordWrites('patch', `${BASE}/vehicles/:id`, () => HttpResponse.json(vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, null)))
+        const {user} = await open('/recursos/flota', loginAs('recursos.responsable'), 'Vehículos', 2)
+
+        await user.click(within(rowOf('Vehículos', 'DR-01')).getByRole('button', {name: 'Retirar DR-01'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Retirar DR-01 · Vehículo DR-01'})
+        await user.click(within(confirm).getByRole('button', {name: 'Retirar'}))
+        expect(await screen.findByText('La flota no admite ese cambio. Vehicle DR-01 is the default vehicle of team A')).toBeInTheDocument()
+        expect(deletes).toHaveLength(1)
+        await user.click(within(rowOf('Vehículos', 'DR-02')).getByRole('button', {name: 'Reactivar DR-02'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{active: true, version: 6}]))
     })
 })

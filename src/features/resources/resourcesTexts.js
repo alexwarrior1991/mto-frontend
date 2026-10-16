@@ -1,4 +1,15 @@
-import {PERSON_CATEGORY, PERSON_EMPLOYER, UNIT_KIND, WORK_DISCIPLINE} from '../../api/resources/enums.js'
+import {
+    LOCATION_KIND,
+    LOCATION_SOURCE,
+    PERSON_CATEGORY,
+    PERSON_EMPLOYER,
+    UNIT_KIND,
+    VEHICLE_ATTACHMENT,
+    VEHICLE_OWNER,
+    VEHICLE_STATUS,
+    WORK_DISCIPLINE,
+} from '../../api/resources/enums.js'
+import {formatDateTime} from '../../ui/format.js'
 import {personLabel} from '../../api/resources/values.js'
 
 /**
@@ -64,3 +75,54 @@ export function accessText(site) {
     }
     return rail ? 'Vía' : road ? 'Carretera' : ''
 }
+
+/** Propio, o la empresa de uno alquilado o de subcontrata. */
+export function ownerText(vehicle) {
+    if (vehicle?.owner && vehicle.owner !== 'OWN' && vehicle.ownerCompany?.trim()) {
+        return `${VEHICLE_OWNER.label(vehicle.owner)} · ${vehicle.ownerCompany}`
+    }
+    return VEHICLE_OWNER.label(vehicle?.owner)
+}
+
+/** Cómo está un vehículo, con el motivo si no está operativo. */
+export function operationalText(status, reason) {
+    if (!status) {
+        return ''
+    }
+    return status !== 'OPERATIONAL' && reason?.trim() ? `${VEHICLE_STATUS.label(status)} · ${reason}` : VEHICLE_STATUS.label(status)
+}
+
+export function vehicleState(vehicle) {
+    return vehicle?.active === true ? 'Activo' : 'Retirado'
+}
+
+/**
+ * Dónde está (o estuvo) un vehículo, en una línea: «Aparcado · APT-RSH · VIA 1 · kp 12.3», «Remolcado por
+ * DR-02». Sin ubicación, «Sin ubicación».
+ */
+export function placeText(location, names) {
+    if (!location) {
+        return 'Sin ubicación'
+    }
+    if (location.kind === 'ATTACHED' && location.carrier) {
+        const how = location.attachment ? VEHICLE_ATTACHMENT.label(location.attachment) : LOCATION_KIND.label(location.kind)
+        return `${how} por ${location.carrier.code}`
+    }
+    return join(LOCATION_KIND.label(location.kind), location.parkingSite?.code, location.trackId == null ? null : names.trackName(location.trackId),
+        location.kp == null ? null : `kp ${location.kp}`, location.description)
+}
+
+/** De dónde salió una ubicación y cuándo. */
+export function originText(location) {
+    return location ? join(location.source ? LOCATION_SOURCE.label(location.source) : null,
+        location.observedAt ? formatDateTime(location.observedAt) : null, location.recordedBy) : ''
+}
+
+export function describeVehicle(vehicle) {
+    return join(vehicle.name, vehicle.type?.code, vehicle.registrationPlate, vehicle.railVehicleNumber,
+        operationalText(vehicle.operationalStatus, vehicle.statusReason), ownerText(vehicle), vehicleState(vehicle).toLowerCase())
+}
+
+/** Lo que dice la confirmación de retirar un vehículo, en la lista y en su ficha. */
+export const RETIRE_VEHICLE_TEXT = 'No se borra: sus ubicaciones y los turnos lo siguen nombrando, y deja de ofrecerse en los turnos nuevos. Si '
+    + 'es el vehículo por defecto de un equipo, el servicio no lo deja: cámbialo antes en el organigrama. Se puede reactivar.'
