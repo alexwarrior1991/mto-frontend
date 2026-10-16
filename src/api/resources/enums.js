@@ -101,3 +101,109 @@ export const WORK_DISCIPLINE = defineEnum({
     MAINTENANCE: 'Mantenimiento',
     CONSTRUCTION: 'Construcción',
 })
+
+/** Por dónde se mueve un modelo de vehículo: es lo que deciden las reglas de la flota. */
+export const VEHICLE_MOBILITY = defineEnum({
+    RAIL_ONLY: 'Solo vía',
+    ROAD_RAIL: 'Bivial',
+    ROAD_ONLY: 'Solo carretera',
+})
+
+/** Si va por la vía: uno de solo vía o una bivial. */
+export function runsOnTrack(mobility) {
+    return mobility === 'RAIL_ONLY' || mobility === 'ROAD_RAIL'
+}
+
+/** Si va por carretera: uno de solo carretera o una bivial. */
+export function runsOnRoad(mobility) {
+    return mobility === 'ROAD_ONLY' || mobility === 'ROAD_RAIL'
+}
+
+/**
+ * Qué es un modelo de vehículo. Cada categoría es de una sola movilidad, copiada del servicio solo para
+ * no ofrecer en el editor lo que va a fallar (400).
+ */
+export const VEHICLE_CATEGORY = defineEnum({
+    CATENARY_TOWER_CAR: 'Dresina de catenaria',
+    WIRING_TRAIN: 'Tren de tendido',
+    TRACK_MAINTENANCE_CAR: 'Dresina de vía',
+    INSPECTION_CAR: 'Vehículo de auscultación',
+    LOCOMOTIVE: 'Locomotora',
+    RAIL_WAGON: 'Vagón o plataforma',
+    TROLLEY: 'Vagoneta',
+    ROAD_RAIL_MEWP: 'Plataforma elevadora bivial',
+    ROAD_RAIL_TRUCK: 'Camión bivial',
+    ROAD_RAIL_EXCAVATOR: 'Excavadora bivial',
+    ROAD_RAIL_TRACTOR: 'Tractor bivial',
+    ROAD_RAIL_TRAILER: 'Remolque bivial',
+    VAN: 'Furgoneta',
+    PICKUP: 'Pick-up',
+    CREW_BUS: 'Autobús de personal',
+    CRANE_TRUCK: 'Camión grúa',
+    TRUCK: 'Camión',
+    LOW_LOADER: 'Góndola',
+    CAR: 'Turismo',
+})
+
+const CATEGORY_MOBILITY = Object.freeze({
+    CATENARY_TOWER_CAR: 'RAIL_ONLY', WIRING_TRAIN: 'RAIL_ONLY', TRACK_MAINTENANCE_CAR: 'RAIL_ONLY', INSPECTION_CAR: 'RAIL_ONLY',
+    LOCOMOTIVE: 'RAIL_ONLY', RAIL_WAGON: 'RAIL_ONLY', TROLLEY: 'RAIL_ONLY', ROAD_RAIL_MEWP: 'ROAD_RAIL', ROAD_RAIL_TRUCK: 'ROAD_RAIL',
+    ROAD_RAIL_EXCAVATOR: 'ROAD_RAIL', ROAD_RAIL_TRACTOR: 'ROAD_RAIL', ROAD_RAIL_TRAILER: 'ROAD_RAIL', VAN: 'ROAD_ONLY', PICKUP: 'ROAD_ONLY',
+    CREW_BUS: 'ROAD_ONLY', CRANE_TRUCK: 'ROAD_ONLY', TRUCK: 'ROAD_ONLY', LOW_LOADER: 'ROAD_ONLY', CAR: 'ROAD_ONLY',
+})
+
+/** Las categorías de una movilidad, para el desplegable del editor; sin movilidad, todas. */
+export function categoriesOf(mobility) {
+    return VEHICLE_CATEGORY.selectable().filter((option) => !mobility || CATEGORY_MOBILITY[option.value] === mobility)
+}
+
+export const VEHICLE_POWER = defineEnum({
+    DIESEL: 'Diésel',
+    ELECTRIC: 'Eléctrico',
+    BATTERY: 'Batería',
+    HYBRID: 'Híbrido',
+    MANUAL: 'Manual',
+})
+
+/** El equipo ferroviario de una bivial (EN 15746). Solo lo lleva una bivial, y siempre. */
+export const RAIL_GEAR_TYPE = defineEnum({
+    RAIL_WHEEL_DRIVE: '9A · tracción en la rueda ferroviaria',
+    FRICTION_DRIVE: '9B · tracción por fricción del neumático',
+    ROAD_WHEEL_DRIVE: '9C · neumático sobre el carril',
+})
+
+export const DRIVING_LICENCE = defineEnum({B: 'B', C: 'C', C_E: 'C+E'})
+
+/**
+ * Lo que sabe hacer un modelo. Las capacidades viajan como texto y no pasan por defineEnum: el conjunto
+ * viaja entero al modificarlo, y una que el servicio estrene tiene que volver tal cual. Una desconocida
+ * se pinta con su código.
+ */
+export const VEHICLE_CAPABILITIES = Object.freeze({
+    CRANE: 'Grúa',
+    ELEVATING_PLATFORM: 'Plataforma elevadora',
+    INSULATED_PLATFORM: 'Plataforma aislada',
+    ROTATING_PLATFORM: 'Plataforma giratoria',
+    PANTOGRAPH: 'Pantógrafo',
+    CONTACT_WIRE_HOLDER: 'Soporte del hilo de contacto',
+    WIRE_DRUM: 'Bobina de hilo',
+    OCS_MEASURING: 'Medición de catenaria',
+    TRACK_MEASURING: 'Medición de vía',
+    EARTHING: 'Puesta a tierra',
+    TOWING: 'Remolca',
+    CREW_CABIN: 'Cabina de personal',
+    WORKSHOP: 'Taller',
+})
+
+export function capabilityLabel(code) {
+    return VEHICLE_CAPABILITIES[code] ?? code
+}
+
+export const PARKING_SITE_KIND = defineEnum({
+    SIDING: 'Apartadero',
+    STATION_TRACK: 'Vía de estación',
+    DEPOT: 'Cochera',
+    WORKSHOP: 'Taller',
+    ROAD_PARKING: 'Aparcamiento de carretera',
+    ACCESS_AREA: 'Zona de acceso',
+})

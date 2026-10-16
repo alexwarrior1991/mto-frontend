@@ -76,6 +76,8 @@ export const ROUTES = Object.freeze([
     {path: 'recursos/personal', title: 'Personal', page: 'resourcesPeople', requires: RESOURCES, menu: {group: 'recursos', order: 70, icon: 'people'}},
     {path: 'recursos/organigrama', title: 'Organigrama', page: 'resourcesOrganization', requires: RESOURCES, menu: {group: 'recursos', order: 71, icon: 'organization'}},
     {path: 'recursos/organigrama/:unitId', title: 'Unidad', page: 'resourcesUnit', requires: RESOURCES},
+    {path: 'recursos/flota/modelos', title: 'Modelos de vehículo', page: 'resourcesVehicleTypes', requires: RESOURCES, menu: {group: 'recursos', order: 74, icon: 'vehicleTypes'}},
+    {path: 'recursos/flota/aparcamientos', title: 'Sitios de aparcamiento', page: 'resourcesParkingSites', requires: RESOURCES, menu: {group: 'recursos', order: 75, icon: 'parkingSites'}},
 
     {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], menu: {order: 80, icon: 'notifications'}},
     {path: 'actividad', title: 'Registro de actividad', page: 'activity', requires: [P.NOTIFICATION_ACTIVITY_READ], menu: {group: 'actividad', order: 82, icon: 'activity'}},

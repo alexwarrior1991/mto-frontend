@@ -54,3 +54,13 @@ export function describeUnit(unit) {
         unit.parent ? `en ${unit.parent.code}` : null, `jefe ${headText(unit.head).toLowerCase()}`,
         packages.length > 0 ? `EP ${packages.join(', ')}` : null, unitState(unit).toLowerCase())
 }
+
+/** Por dónde se llega a un sitio: «Vía y carretera», «Vía», «Carretera». */
+export function accessText(site) {
+    const rail = site?.railAccess === true
+    const road = site?.roadAccess === true
+    if (rail && road) {
+        return 'Vía y carretera'
+    }
+    return rail ? 'Vía' : road ? 'Carretera' : ''
+}

@@ -1,4 +1,16 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {
+    createParkingSite,
+    createVehicleType,
+    offerParkingSiteAgain,
+    offerVehicleTypeAgain,
+    patchParkingSite,
+    patchVehicleType,
+    retireParkingSite,
+    retireVehicleType,
+    searchParkingSites,
+    searchVehicleTypes,
+} from '../../api/resources/fleet.js'
 import {createPerson, deactivatePerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
 import {
     addMember,
@@ -152,6 +164,60 @@ export function useUnitAction() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: ({action, unit}) => (action === 'deactivate' ? deactivateUnit(unit.id) : reactivateUnit(unit)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useVehicleTypeList(params) {
+    return useQuery({
+        queryKey: resourcesKey('vehicle-types', params),
+        queryFn: ({signal}) => searchVehicleTypes({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** El alta o la modificación de un modelo, desde su editor; un modelo sale en los vehículos: se relee todo el módulo. */
+export function useSaveVehicleType() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createVehicleType(body) : patchVehicleType(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Retirar (DELETE) o volver a ofrecer (PATCH active=true) un modelo; haya ido bien o no, se relee. */
+export function useVehicleTypeAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, type}) => (action === 'retire' ? retireVehicleType(type.id) : offerVehicleTypeAgain(type)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useParkingSiteList(params) {
+    return useQuery({
+        queryKey: resourcesKey('parking-sites', params),
+        queryFn: ({signal}) => searchParkingSites({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+export function useSaveParkingSite() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createParkingSite(body) : patchParkingSite(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useParkingSiteAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, site}) => (action === 'retire' ? retireParkingSite(site.id) : offerParkingSiteAgain(site)),
         onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
     })
 }

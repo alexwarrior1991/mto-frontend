@@ -38,6 +38,8 @@
     "recursos/personal",
     "recursos/organigrama",
     "recursos/organigrama/:unitId",
+    "recursos/flota/modelos",
+    "recursos/flota/aparcamientos",
     "notificaciones",
     "actividad",
     "actividad/accesos"

@@ -154,7 +154,8 @@ describe('el menú y las rutas', () => {
     it('«Recursos» sale con resources-read, y no sin él', () => {
         const resources = buildMenu(loginAs('recursos.lector')).find((item) => item.key === 'recursos')
         expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal'],
-            ['Organigrama', '/recursos/organigrama']])
+            ['Organigrama', '/recursos/organigrama'], ['Modelos de vehículo', '/recursos/flota/modelos'],
+            ['Sitios de aparcamiento', '/recursos/flota/aparcamientos']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
     })
@@ -681,5 +682,232 @@ describe('el organigrama', () => {
         await open('/recursos/personal?unitId=no-es-un-id', loginAs('recursos.lector'), 'Personal', 1)
         expect(screen.queryByLabelText('Filtro de unidad')).not.toBeInTheDocument()
         expect(requests.every((url) => !url.searchParams.has('unitId'))).toBe(true)
+    })
+})
+
+const VEHICLE_TYPE1 = '7b8c9d0e-0000-4000-8000-000000000001'
+const VEHICLE_TYPE2 = '7b8c9d0e-0000-4000-8000-000000000002'
+const PARKING_SITE1 = '8c9d0e1f-0000-4000-8000-000000000001'
+
+function unimog(extra = {}) {
+    return {
+        id: VEHICLE_TYPE1, code: 'UNIMOG-RR', name: 'Unimog bivial', manufacturer: 'Mercedes-Benz', model: 'U423', mobility: 'ROAD_RAIL',
+        category: 'ROAD_RAIL_TRUCK', selfPropelled: true, portable: false, lengthM: 6.2, axles: 2, seats: 3, power: 'DIESEL', trackGaugeMm: 1435,
+        maxSpeedTrackWorkingKmh: 20, maxSpeedTrackTransportKmh: 40, transportModeAuthorised: false, railGearType: 'RAIL_WHEEL_DRIVE',
+        onTrackingMinutes: 10, needsPreparedAccess: null, maxSpeedRoadKmh: 90, requiredLicence: 'C', capabilities: ['CRANE', 'LASER_SCANNER'],
+        craneCapacityT: 5, active: true, version: 4, ...extra,
+    }
+}
+
+function dresina() {
+    return {
+        id: VEHICLE_TYPE2, code: 'DIC-30', name: 'Plasser DIC-30', manufacturer: 'Plasser', model: 'DIC-30', mobility: 'RAIL_ONLY',
+        category: 'CATENARY_TOWER_CAR', selfPropelled: true, portable: false, axles: 4, seats: 6, power: 'DIESEL', trackGaugeMm: 1435,
+        transportModeAuthorised: true, capabilities: ['ELEVATING_PLATFORM', 'PANTOGRAPH'], active: true, version: 2,
+    }
+}
+
+function siding(extra = {}) {
+    return {
+        id: PARKING_SITE1, code: 'APT-RSH', name: 'Apartadero de Rishpon', kind: 'SIDING', executionPackageId: 4, stationId: 7, trackId: 12,
+        kp: 12.3, railAccess: true, roadAccess: false, address: null, latitude: 32.2, longitude: 34.82, notes: null, active: true, version: 2,
+        ...extra,
+    }
+}
+
+/** Los catálogos de la flota simulados, y los nombres de mto-configuration (EP, vías y estaciones). */
+function serveFleetCatalogues({types = [], sites = []} = {}) {
+    const requests = serveResources()
+    server.use(
+        http.get(`${BASE}/vehicle-types`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf(types, url))
+        }),
+        http.get(`${BASE}/parking-sites`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf(sites, url))
+        }),
+    )
+    const lists = {
+        'execution-packages': [{id: 4, name: 'EP 4'}, {id: 5, name: 'EP 5'}],
+        tracks: [{id: 12, name: 'VIA 1', executionPackageId: 4}, {id: 20, name: 'VIA 9', executionPackageId: 5}],
+        stations: [{id: 7, name: 'Rishpon', executionPackageId: 4}],
+    }
+    for (const [path, rows] of Object.entries(lists)) {
+        server.use(http.post(`${CONFIGURATION}/${path}/filter`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf(rows, url))
+        }))
+    }
+    return requests
+}
+
+describe('los modelos de vehículo', () => {
+    it('se filtran en el servicio, con las categorías de la movilidad elegida, y quien solo lee no ve controles', async () => {
+        const requests = serveFleetCatalogues({types: [unimog(), dresina()]})
+        const {user} = await open('/recursos/flota/modelos', loginAs('recursos.lector'), 'Modelos de vehículo', 2)
+        const lists = () => requests.filter((url) => url.pathname === `${BASE}/vehicle-types`)
+
+        expect(textsOf(dataRows('Modelos de vehículo')[0])).toEqual(['UNIMOG-RR', 'Unimog bivial', 'Mercedes-Benz · U423', 'Bivial',
+            'Camión bivial', '3', 'Grúa, LASER_SCANNER', 'Activo', ''])
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+
+        await choose(user, document.body, 'Movilidad', 'Solo vía')
+        await user.click(screen.getByRole('combobox', {name: 'Categoría'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['Dresina de catenaria', 'Tren de tendido',
+            'Dresina de vía', 'Vehículo de auscultación', 'Locomotora', 'Vagón o plataforma', 'Vagoneta'])
+        await user.click(screen.getByRole('option', {name: 'Dresina de catenaria'}))
+        await choose(user, document.body, 'Capacidad', 'Pantógrafo')
+        await waitFor(() => expect(lists().at(-1).searchParams.get('capability')).toBe('PANTOGRAPH'))
+        expect([lists().at(-1).searchParams.get('mobility'), lists().at(-1).searchParams.get('category')]).toEqual(['RAIL_ONLY', 'CATENARY_TOWER_CAR'])
+
+        expect(screen.queryByRole('button', {name: 'Nuevo modelo'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Modelos de vehículo', 'UNIMOG-RR'))).toEqual([])
+    })
+
+    it('el alta va por secciones según la movilidad y sus cifras se comprueban con la columna del servicio antes de llamar', async () => {
+        serveFleetCatalogues()
+        const writes = recordWrites('post', `${BASE}/vehicle-types`, () => HttpResponse.json(unimog(), {status: 201}))
+        const {user} = await open('/recursos/flota/modelos', loginAs('recursos.gestor'), 'Modelos de vehículo', 0)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo modelo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo modelo de vehículo'})
+        await typeInto(user, dialog, 'Código', 'UNIMOG-RR')
+        await typeInto(user, dialog, 'Nombre', 'Unimog bivial')
+        await choose(user, dialog, 'Movilidad', 'Solo carretera')
+        expect(within(dialog).queryByRole('group', {name: 'En vía'})).not.toBeInTheDocument()
+        expect(within(dialog).queryByRole('group', {name: 'Bivial'})).not.toBeInTheDocument()
+        expect(within(dialog).getByRole('group', {name: 'Por carretera'})).toBeInTheDocument()
+        await choose(user, dialog, 'Categoría', 'Furgoneta')
+
+        await choose(user, dialog, 'Movilidad', 'Bivial')
+        expect(within(dialog).getByRole('combobox', {name: 'Categoría'})).toHaveValue('')
+        expect(within(dialog).getByRole('group', {name: 'En vía'})).toBeInTheDocument()
+        expect(within(dialog).getByRole('group', {name: 'Bivial'})).toBeInTheDocument()
+        await choose(user, dialog, 'Categoría', 'Camión bivial')
+        expect(within(dialog).queryByRole('textbox', {name: 'Grúa: capacidad (t)'})).not.toBeInTheDocument()
+        await choose(user, dialog, 'Capacidades', 'Grúa')
+        await user.keyboard('{Escape}')
+        await typeInto(user, dialog, 'Grúa: capacidad (t)', '5.5')
+        await typeInto(user, dialog, 'Largo (m)', '12345')
+        await typeInto(user, dialog, 'Ancho de vía (mm)', '1435')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Como mucho 4 cifras enteras')).toBeInTheDocument()
+        expect(within(dialog).getByText('Una bivial dice su equipo ferroviario')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Largo (m)', '6.20')
+        await choose(user, dialog, 'Equipo ferroviario', '9A · tracción en la rueda ferroviaria')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toEqual({
+            code: 'UNIMOG-RR', mobility: 'ROAD_RAIL', name: 'Unimog bivial', category: 'ROAD_RAIL_TRUCK', selfPropelled: true, portable: false,
+            lengthM: 6.2, trackGaugeMm: 1435, craneCapacityT: 5.5, transportModeAuthorised: false, railGearType: 'RAIL_WHEEL_DRIVE',
+            needsPreparedAccess: false, capabilities: ['CRANE'],
+        })
+    })
+
+    it('modificar no cambia el código ni la movilidad, quitar una capacidad vacía sus cifras y una desconocida vuelve tal cual', async () => {
+        serveFleetCatalogues({types: [unimog()]})
+        const writes = recordWrites('patch', `${BASE}/vehicle-types/:id`, (body, call) => (call === 1
+            ? resourcesError(400, 'VAL-001', 'Crane figures (craneCapacityT, craneReachM) need the CRANE capability')
+            : HttpResponse.json(unimog())))
+        const {user} = await open('/recursos/flota/modelos', loginAs('recursos.gestor'), 'Modelos de vehículo', 1)
+
+        await user.click(within(rowOf('Modelos de vehículo', 'UNIMOG-RR')).getByRole('button', {name: 'Modificar UNIMOG-RR'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar UNIMOG-RR · Unimog bivial'})
+        expect(within(dialog).getByRole('textbox', {name: 'Código'})).toHaveAttribute('readonly')
+        expect(within(dialog).getByRole('combobox', {name: 'Movilidad'})).toHaveAttribute('readonly')
+        expect(within(dialog).getByRole('textbox', {name: 'Grúa: capacidad (t)'})).toHaveValue('5')
+        // Elegir otra vez una capacidad elegida la quita.
+        await choose(user, dialog, 'Capacidades', 'Grúa')
+        await user.click(await screen.findByRole('option', {name: 'Remolca'}))
+        await user.keyboard('{Escape}')
+        expect(within(dialog).queryByRole('textbox', {name: 'Grúa: capacidad (t)'})).not.toBeInTheDocument()
+        await typeInto(user, dialog, 'Plazas', '5')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText(/need the CRANE capability/)).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar UNIMOG-RR · Unimog bivial'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => [write.contentType, write.body])).toEqual([1, 2].map(() => [MERGE_PATCH,
+            {seats: 5, craneCapacityT: null, capabilities: ['LASER_SCANNER', 'TOWING'], version: 4}]))
+    })
+
+    it('retirar pide resources-delete y confirmación; volver a ofrecerlo es un PATCH active=true', async () => {
+        serveFleetCatalogues({types: [dresina(), unimog({active: false})]})
+        const deletes = recordWrites('delete', `${BASE}/vehicle-types/:id`, () => new HttpResponse(null, {status: 204}))
+        const patches = recordWrites('patch', `${BASE}/vehicle-types/:id`, () => HttpResponse.json(unimog()))
+        const {user} = await open('/recursos/flota/modelos', loginAs('recursos.responsable'), 'Modelos de vehículo', 2)
+
+        expect(actionsOf(rowOf('Modelos de vehículo', 'DIC-30'))).toEqual(['Modificar DIC-30', 'Retirar DIC-30'])
+        expect(actionsOf(rowOf('Modelos de vehículo', 'UNIMOG-RR'))).toEqual(['Modificar UNIMOG-RR', 'Volver a ofrecer UNIMOG-RR'])
+        await user.click(within(rowOf('Modelos de vehículo', 'DIC-30')).getByRole('button', {name: 'Retirar DIC-30'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Retirar DIC-30 · Plasser DIC-30'})
+        expect(deletes).toHaveLength(0)
+        await user.click(within(confirm).getByRole('button', {name: 'Retirar'}))
+        await waitFor(() => expect(deletes.map((write) => write.params.id)).toEqual([VEHICLE_TYPE2]))
+
+        await user.click(within(rowOf('Modelos de vehículo', 'UNIMOG-RR')).getByRole('button', {name: 'Volver a ofrecer UNIMOG-RR'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{active: true, version: 4}]))
+    })
+})
+
+describe('los sitios de aparcamiento', () => {
+    it('un sitio se alcanza por vía, por carretera o por las dos, con acceso por vía dice su vía, y las coordenadas van juntas', async () => {
+        serveFleetCatalogues({sites: [siding()]})
+        const writes = recordWrites('post', `${BASE}/parking-sites`, () => HttpResponse.json(siding(), {status: 201}))
+        const {user} = await open('/recursos/flota/aparcamientos', loginAs('recursos.gestor'), 'Sitios de aparcamiento', 1)
+
+        await waitFor(() => expect(textsOf(dataRows('Sitios de aparcamiento')[0])).toEqual(['APT-RSH', 'Apartadero de Rishpon', 'Apartadero',
+            'EP 4', 'VIA 1 (EP 4) · kp 12.3', 'Vía', 'Activo', '']))
+        await user.click(screen.getByRole('button', {name: 'Nuevo sitio'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo sitio de aparcamiento'})
+        await typeInto(user, dialog, 'Código', 'APT-RSH')
+        await typeInto(user, dialog, 'Nombre', 'Apartadero de Rishpon')
+        await choose(user, dialog, 'Tipo', 'Apartadero')
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Acceso por carretera'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Un sitio se alcanza por vía, por carretera o por las dos')).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Acceso por vía'}))
+        await typeInto(user, dialog, 'Latitud', '32.2')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Con acceso por vía dice su vía')).toBeInTheDocument()
+        expect(within(dialog).getByText('Las coordenadas van juntas: latitud y longitud')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await choose(user, dialog, 'EP', 'EP 4')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Vía'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['VIA 1 (EP 4)'])
+        await user.click(screen.getByRole('option', {name: 'VIA 1 (EP 4)'}))
+        await typeInto(user, dialog, 'Latitud', '')
+        await typeInto(user, dialog, 'KP', '12.300')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toEqual({code: 'APT-RSH', name: 'Apartadero de Rishpon', kind: 'SIDING', executionPackageId: 4, trackId: 12,
+            kp: 12.3, railAccess: true, roadAccess: false})
+    })
+
+    it('sin config-read su EP, estación y vía se ven como #id, no se pide nada a mto-configuration y no viajan', async () => {
+        const requests = serveFleetCatalogues({sites: [siding()]})
+        const writes = recordWrites('patch', `${BASE}/parking-sites/:id`, () => HttpResponse.json(siding()))
+        const {user} = await open('/recursos/flota/aparcamientos', sessionWith([P.RESOURCES_READ, P.RESOURCES_WRITE]), 'Sitios de aparcamiento', 1)
+
+        expect(textsOf(dataRows('Sitios de aparcamiento')[0]).slice(3, 5)).toEqual(['#4', '#12 · kp 12.3'])
+        await user.click(within(rowOf('Sitios de aparcamiento', 'APT-RSH')).getByRole('button', {name: 'Modificar APT-RSH'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar APT-RSH · Apartadero de Rishpon'})
+        expect(within(dialog).getByRole('textbox', {name: 'EP, estación y vía'})).toHaveValue('#4 · #7 · #12')
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Acceso por carretera'}))
+        await typeInto(user, dialog, 'Latitud', '')
+        await typeInto(user, dialog, 'Longitud', '')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toEqual({roadAccess: true, latitude: null, longitude: null, version: 2})
+        expect(requests.some((url) => url.pathname.startsWith(CONFIGURATION))).toBe(false)
     })
 })

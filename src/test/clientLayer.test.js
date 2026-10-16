@@ -207,13 +207,34 @@ import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
 import {
     canHangFrom,
+    capabilityLabel,
     categoriesAtLeast,
+    categoriesOf,
     categoryRank,
     headCategories,
     LINEMAN_CATEGORIES,
     PERSON_CATEGORY,
     UNIT_KIND,
+    VEHICLE_CATEGORY,
 } from '../api/resources/enums.js'
+import {
+    createParkingSite,
+    createVehicleType,
+    figureTravels,
+    newParkingSiteRequest,
+    newVehicleTypeRequest,
+    offerParkingSiteAgain,
+    offerVehicleTypeAgain,
+    parkingSitePatch,
+    patchParkingSite,
+    patchVehicleType,
+    retireParkingSite,
+    retireVehicleType,
+    searchParkingSites,
+    searchVehicleTypes,
+    VEHICLE_TYPE_FIGURES,
+    vehicleTypePatch,
+} from '../api/resources/fleet.js'
 import {
     createPerson,
     deactivatePerson,
@@ -2829,6 +2850,74 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
         expect(headCategories('PROJECT', null)).toEqual(['PROJECT_MANAGER'])
         expect(headCategories('ZONE', null)).toEqual([])
         expect(LINEMAN_CATEGORIES).toEqual(['WORKER', 'TEAM_LEADER'])
+    })
+
+    it('los modelos: la búsqueda con sus filtros, el alta por secciones de su movilidad y la modificación con las capacidades como conjunto', async () => {
+        useToken()
+        const TYPE = '7b8c9d0e-0000-4000-8000-000000000001'
+        const type = {id: TYPE, code: 'UNIMOG-RR', name: 'Unimog bivial', mobility: 'ROAD_RAIL', category: 'HOVERCRAFT', selfPropelled: true,
+            portable: null, trackGaugeMm: 1435, railGearType: 'RAIL_WHEEL_DRIVE', needsPreparedAccess: null, seats: 3, craneCapacityT: 5,
+            capabilities: ['LASER_SCANNER', 'CRANE'], active: true, version: 4}
+        const searches = record('get', `${BASE}/vehicle-types`, () => HttpResponse.json(page([type])))
+        const posts = record('post', `${BASE}/vehicle-types`, () => HttpResponse.json(type, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicle-types/:id`, () => HttpResponse.json(type))
+        const deletes = record('delete', `${BASE}/vehicle-types/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchVehicleTypes({search: ' unimog ', mobility: 'ROAD_RAIL', category: 'ROAD_RAIL_TRUCK', capability: 'CRANE', active: true})
+        await createVehicleType(newVehicleTypeRequest({code: 'VAN-1', name: 'Furgoneta', mobility: 'ROAD_ONLY', category: 'VAN', selfPropelled: true,
+            seats: '3', trackGaugeMm: '1435', railGearType: 'RAIL_WHEEL_DRIVE', transportModeAuthorised: true, craneCapacityT: '4',
+            capabilities: ['EARTHING', 'CREW_CABIN'], maxSpeedRoadKmh: '120'}))
+        await patchVehicleType(TYPE, vehicleTypePatch(type, {...type, seats: '3', trackGaugeMm: '1435', craneCapacityT: '5',
+            capabilities: ['LASER_SCANNER', 'TOWING'], needsPreparedAccess: false, portable: false}))
+        await retireVehicleType(TYPE)
+        await offerVehicleTypeAgain({...type, active: false, version: 5})
+
+        expect(searches[0].url.search).toBe('?search=unimog&mobility=ROAD_RAIL&category=ROAD_RAIL_TRUCK&capability=CRANE&active=true'
+            + '&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'VAN-1', mobility: 'ROAD_ONLY', name: 'Furgoneta', category: 'VAN', selfPropelled: true, portable: false,
+            seats: 3, maxSpeedRoadKmh: 120, capabilities: ['CREW_CABIN', 'EARTHING']})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {craneCapacityT: null, capabilities: ['LASER_SCANNER', 'TOWING'], version: 4}],
+            [MERGE_PATCH, {active: true, version: 5}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/vehicle-types/${TYPE}`)
+        expect(vehicleTypePatch(type, {...type, seats: 3, trackGaugeMm: 1435, craneCapacityT: 5.0})).toBeNull()
+        expect(VEHICLE_CATEGORY.label(found.content[0].category)).toBe('Desconocido')
+        expect(capabilityLabel('LASER_SCANNER')).toBe('LASER_SCANNER')
+        expect(capabilityLabel('CRANE')).toBe('Grúa')
+        expect(categoriesOf('ROAD_ONLY').map((option) => option.value)).toEqual(['VAN', 'PICKUP', 'CREW_BUS', 'CRANE_TRUCK', 'TRUCK', 'LOW_LOADER', 'CAR'])
+        const crane = VEHICLE_TYPE_FIGURES.find((figure) => figure.field === 'craneCapacityT')
+        const gauge = VEHICLE_TYPE_FIGURES.find((figure) => figure.field === 'trackGaugeMm')
+        expect([figureTravels(crane, 'ROAD_RAIL', ['CRANE']), figureTravels(crane, 'ROAD_RAIL', []), figureTravels(gauge, 'ROAD_ONLY', [])])
+            .toEqual([true, false, false])
+    })
+
+    it('los sitios de aparcamiento: la búsqueda, el alta sin lo vacío y la modificación, que sin config-read no toca EP, estación ni vía', async () => {
+        useToken()
+        const SITE = '8c9d0e1f-0000-4000-8000-000000000001'
+        const site = {id: SITE, code: 'APT-RSH', name: 'Apartadero', kind: 'SIDING', executionPackageId: 4, stationId: 7, trackId: 12, kp: 12.3,
+            railAccess: true, roadAccess: false, latitude: 32.2, longitude: 34.82, active: true, version: 2}
+        const searches = record('get', `${BASE}/parking-sites`, () => HttpResponse.json(page([site])))
+        const posts = record('post', `${BASE}/parking-sites`, () => HttpResponse.json(site, {status: 201}))
+        const patches = record('patch', `${BASE}/parking-sites/:id`, () => HttpResponse.json(site))
+        record('delete', `${BASE}/parking-sites/:id`, () => new HttpResponse(null, {status: 204}))
+
+        await searchParkingSites({kind: 'SIDING', executionPackageId: 4, active: true})
+        await createParkingSite(newParkingSiteRequest({code: ' APT-RSH ', name: 'Apartadero', kind: 'SIDING', executionPackageId: '4', stationId: null,
+            trackId: '12', kp: '12.300', railAccess: true, roadAccess: false, address: ' ', latitude: '', longitude: ''}))
+        await patchParkingSite(SITE, parkingSitePatch(site, {...site, executionPackageId: '5', trackId: null, kp: '12.30', latitude: '', longitude: ''}))
+        await patchParkingSite(SITE, parkingSitePatch(site, {...site, executionPackageId: null, roadAccess: true}, {readsConfiguration: false}))
+        await retireParkingSite(SITE)
+        await offerParkingSiteAgain({...site, version: 3})
+
+        expect(searches[0].url.search).toBe('?kind=SIDING&executionPackageId=4&active=true&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'APT-RSH', name: 'Apartadero', kind: 'SIDING', executionPackageId: 4, trackId: 12, kp: 12.3,
+            railAccess: true, roadAccess: false})
+        expect(patches.map(json)).toEqual([
+            {executionPackageId: 5, trackId: null, latitude: null, longitude: null, version: 2},
+            {roadAccess: true, version: 2},
+            {active: true, version: 3},
+        ])
     })
 
     it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {

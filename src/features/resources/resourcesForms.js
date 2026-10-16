@@ -40,3 +40,61 @@ export function companyOfSubcontractor(value, values) {
 }
 
 export const UNIT_LENGTHS = Object.freeze({code: 16, name: 120})
+
+export const VEHICLE_TYPE_LENGTHS = Object.freeze({code: 32, name: 150, make: 100})
+export const PARKING_SITE_LENGTHS = Object.freeze({code: 32, name: 150, address: 255})
+
+/**
+ * Una cifra opcional de la flota con la columna del servicio (@Digits): nunca negativa, con sus
+ * cifras enteras y sus decimales; con decimals 0, un entero con su mínimo. Lo que no es un número no
+ * viaja: llegaría vacío y borraría la cifra guardada. Valen también +5, 5. y .5.
+ */
+export function optionalFigure({integers, decimals, min = 0}) {
+    return (value) => {
+        const text = String(value ?? '').trim()
+        if (!text) {
+            return null
+        }
+        if (decimals === 0) {
+            if (!/^\+?\d+$/.test(text)) {
+                return 'Un número entero, sin decimales'
+            }
+            return Number(text) < min ? (min > 0 ? `Como mínimo ${min}` : 'No puede ser negativo') : null
+        }
+        if (/^-/.test(text)) {
+            return 'No puede ser negativo'
+        }
+        const match = /^\+?(\d*)(?:\.(\d*))?$/.exec(text)
+        if (!match || (match[1] === '' && !match[2])) {
+            return 'No es un número: escríbelo con cifras, como 12.5'
+        }
+        const digits = match[1].replace(/^0+/, '')
+        if ((match[2] ?? '').length > decimals) {
+            return `Como mucho ${decimals} decimales`
+        }
+        return digits.length > integers ? `Como mucho ${integers} cifras enteras` : null
+    }
+}
+
+/** Un kp opcional de la flota: con signo, 9 enteros y 3 decimales, como el de mantenimiento. */
+export function optionalFleetKp(value) {
+    const text = String(value ?? '').trim()
+    if (!text) {
+        return null
+    }
+    return /^[-+]?(\d{1,9}(\.\d{0,3})?|\.\d{1,3})$/.test(text) ? null : 'Un kp con punto decimal y hasta tres decimales, como 12847.99'
+}
+
+/** Una coordenada opcional dentro de su rango (±90 la latitud, ±180 la longitud), con hasta seis decimales. */
+export function optionalCoordinate(limit) {
+    return (value) => {
+        const text = String(value ?? '').trim()
+        if (!text) {
+            return null
+        }
+        if (!/^[-+]?(\d{1,3}(\.\d{0,6})?|\.\d{1,6})$/.test(text)) {
+            return 'Un número con punto decimal y hasta seis decimales'
+        }
+        return Math.abs(Number(text)) <= limit ? null : `Entre -${limit} y ${limit}`
+    }
+}
