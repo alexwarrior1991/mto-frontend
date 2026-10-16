@@ -205,7 +205,15 @@ import {actorText, subjectText} from '../api/notification/values.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
-import {categoriesAtLeast, categoryRank, PERSON_CATEGORY} from '../api/resources/enums.js'
+import {
+    canHangFrom,
+    categoriesAtLeast,
+    categoryRank,
+    headCategories,
+    LINEMAN_CATEGORIES,
+    PERSON_CATEGORY,
+    UNIT_KIND,
+} from '../api/resources/enums.js'
 import {
     createPerson,
     deactivatePerson,
@@ -216,7 +224,28 @@ import {
     reactivatePerson,
     searchPeople,
 } from '../api/resources/people.js'
-import {personLabel} from '../api/resources/values.js'
+import {
+    addMember,
+    createUnit,
+    currentMembers,
+    deactivateUnit,
+    disciplineUnder,
+    flattenTree,
+    getUnit,
+    getUnitTree,
+    leaveTeam,
+    listMembers,
+    newUnitRequest,
+    parentsFor,
+    patchUnit,
+    reactivateTeam,
+    reactivateUnit,
+    replaceMembers,
+    unitChildren,
+    unitPatch,
+    unitRevisionsPath,
+} from '../api/resources/units.js'
+import {personLabel, unitLabel} from '../api/resources/values.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {
     assemblyBody,
@@ -2683,6 +2712,123 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
         expect(categoriesAtLeast(2)).toEqual(['TEAM_LEADER', 'SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION',
             'PROJECT_MANAGER'])
         expect(categoryRank('SAFETY_OFFICER')).toBe(0)
+    })
+
+    const TEAM = '5e6f7081-0000-4000-8000-000000000001'
+    const SUPERVISION = '5e6f7081-0000-4000-8000-000000000002'
+    const A = '3c4d5e6f-0000-4000-8000-00000000000a'
+    const B = '3c4d5e6f-0000-4000-8000-00000000000b'
+    const tree = () => [{
+        id: 'prj', code: 'PRJ', name: 'Proyecto', kind: 'PROJECT', discipline: null, head: null, executionPackageIds: [], linemen: null,
+        active: true, children: [
+            {id: SUPERVISION, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION', discipline: 'MAINTENANCE', head: null,
+                executionPackageIds: [4], linemen: null, active: true, children: [
+                    {id: TEAM, code: 'A', name: 'Equipo A', kind: 'TEAM', discipline: 'MAINTENANCE', head: null, executionPackageIds: [4, 5],
+                        linemen: 4, active: false, children: []},
+                ]},
+            {id: 'zona', code: 'ZONA', name: 'Zona', kind: 'ZONE', discipline: null, head: null, executionPackageIds: null, linemen: null,
+                active: true, children: null},
+            {id: 'old', code: 'OLD', name: 'OLD', kind: 'DEPARTMENT', discipline: 'CONSTRUCTION', head: null, executionPackageIds: [],
+                linemen: null, active: false, children: []},
+        ],
+    }]
+    const unit = (extra = {}) => ({
+        id: SUPERVISION, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION', discipline: 'MAINTENANCE',
+        parent: {id: 'prj', code: 'PRJ', name: 'Proyecto', kind: 'PROJECT'}, head: {id: PERSON, code: 'PER-000003', fullName: 'Yossi Cohen'},
+        executionPackageIds: [5, 4], members: [], active: true, version: 2, ...extra,
+    })
+
+    it('el organigrama: el árbol, una unidad, sus hijas por código con el id para desempatar, el alta de un equipo completo y la modificación con los EP como conjunto', async () => {
+        useToken()
+        // MSW da prioridad a lo último que se registra: el árbol, después de la unidad por id.
+        record('get', `${BASE}/units/:id`, () => HttpResponse.json(unit()))
+        const trees = record('get', `${BASE}/units/tree`, () => HttpResponse.json(tree()))
+        const lists = record('get', `${BASE}/units`, () => HttpResponse.json(page([unit()])))
+        const posts = record('post', `${BASE}/units`, () => HttpResponse.json(unit(), {status: 201}))
+        const patches = record('patch', `${BASE}/units/:id`, () => HttpResponse.json(unit()))
+        const deletes = record('delete', `${BASE}/units/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const roots = await getUnitTree({includeInactive: true})
+        const read = await getUnit(SUPERVISION)
+        await unitChildren(SUPERVISION)
+        await createUnit(newUnitRequest({code: ' B ', name: 'Equipo B', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION,
+            headPersonId: PERSON, executionPackageIds: ['11', '9'], memberPersonIds: [A, B], joinedOn: '2026-10-16'}))
+        await createUnit(newUnitRequest({code: 'PRJ2', name: 'Otro proyecto', kind: 'PROJECT', discipline: 'MAINTENANCE', parentId: SUPERVISION,
+            headPersonId: null, executionPackageIds: [], memberPersonIds: [A], joinedOn: '2026-10-16'}))
+        await patchUnit(SUPERVISION, unitPatch(read, {name: 'Supervisión norte', parentId: 'prj', headPersonId: null,
+            executionPackageIds: ['6', '4']}))
+        await patchUnit(SUPERVISION, unitPatch(read, {name: 'Supervisión del norte', parentId: 'prj', headPersonId: PERSON,
+            executionPackageIds: []}, {readsPackages: false}))
+        await deactivateUnit(SUPERVISION)
+        await reactivateUnit(unit({active: false, version: 3}))
+
+        expect(trees[0].url.search).toBe('?includeInactive=true')
+        expect(lists[0].url.search).toBe(`?parentId=${SUPERVISION}&page=0&size=200&sort=code%2Casc&sort=id%2Casc`)
+        expect(posts.map(json)).toEqual([
+            {code: 'B', name: 'Equipo B', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION, headPersonId: PERSON,
+                executionPackageIds: [9, 11], memberPersonIds: [A, B], joinedOn: '2026-10-16'},
+            {code: 'PRJ2', name: 'Otro proyecto', kind: 'PROJECT'},
+        ])
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {headPersonId: null, executionPackageIds: [4, 6], version: 2}],
+            [MERGE_PATCH, {name: 'Supervisión del norte', version: 2}],
+            [MERGE_PATCH, {active: true, version: 3}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/units/${SUPERVISION}`)
+        expect(unitPatch(read, {name: ' Supervisión norte ', parentId: 'prj', headPersonId: PERSON, executionPackageIds: ['4', '5']})).toBeNull()
+        expect(unitRevisionsPath(SUPERVISION)).toBe(`${BASE}/units/${SUPERVISION}/revisions`)
+
+        expect(flattenTree(roots).map((node) => node.code)).toEqual(['PRJ', 'SUP-N', 'A', 'ZONA', 'OLD'])
+        expect(UNIT_KIND.parse(roots[0].children[1].kind)).toBe('UNKNOWN')
+        expect(unitLabel(roots[0].children[2])).toBe('OLD')
+        expect(unitLabel(read)).toBe('SUP-N · Supervisión norte')
+        expect(parentsFor(roots, 'TEAM').map((node) => node.code)).toEqual(['PRJ', 'SUP-N'])
+        expect(parentsFor(roots, 'SUPERVISION', {selfId: SUPERVISION}).map((node) => node.code)).toEqual(['PRJ'])
+        expect(parentsFor(roots, null).map((node) => node.code)).toEqual(['PRJ', 'SUP-N'])
+        expect(parentsFor(roots, 'TEAM', {discipline: 'CONSTRUCTION'}).map((node) => node.code)).toEqual(['PRJ'])
+        expect(disciplineUnder(roots, SUPERVISION)).toBe('MAINTENANCE')
+        expect(disciplineUnder(roots, 'prj')).toBeNull()
+    })
+
+    it('los linemen de un equipo: los de ahora y los que salieron, la lista entera, uno que entra, uno que sale y la reactivación con sus linemen', async () => {
+        useToken()
+        const reads = record('get', `${BASE}/units/:id/members`, () => HttpResponse.json([
+            {id: 'm1', person: {id: A, code: 'PER-00000A'}, joinedOn: '2026-10-01', leftOn: null},
+            {id: 'm2', person: {id: B, code: 'PER-00000B'}, joinedOn: '2026-10-01', leftOn: '2026-10-21'},
+        ]))
+        const puts = record('put', `${BASE}/units/:id/members`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const posts = record('post', `${BASE}/units/:id/members`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const leaves = record('post', `${BASE}/units/:id/members/:personId/leave`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const patches = record('patch', `${BASE}/units/:id`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+
+        const members = await listMembers(TEAM, {includeFormer: true})
+        await replaceMembers(TEAM, [A, B], '2026-10-20')
+        await addMember(TEAM, A)
+        await leaveTeam(TEAM, A, '2026-10-21')
+        await reactivateTeam({id: TEAM, version: 8}, [A, B])
+
+        expect(reads[0].url.search).toBe('?includeFormer=true')
+        expect(currentMembers(members).map((member) => member.person.code)).toEqual(['PER-00000A'])
+        expect(json(puts[0])).toEqual({memberPersonIds: [A, B], effectiveOn: '2026-10-20'})
+        expect(json(posts[0])).toEqual({personId: A})
+        expect(leaves[0].url.pathname).toBe(`${BASE}/units/${TEAM}/members/${A}/leave`)
+        expect(json(leaves[0])).toEqual({leftOn: '2026-10-21'})
+        expect(json(patches[0])).toEqual({active: true, memberPersonIds: [A, B], version: 8})
+    })
+
+    it('las reglas copiadas del servicio para no ofrecer lo que va a fallar: de quién cuelga cada nivel y quién lo dirige', () => {
+        expect(canHangFrom('TEAM', 'SUPERVISION')).toBe(true)
+        expect(canHangFrom('TEAM', 'DEPARTMENT')).toBe(true)
+        expect(canHangFrom('TEAM', 'TEAM')).toBe(false)
+        expect(canHangFrom('SUPERVISION', 'SUPERVISION')).toBe(false)
+        expect(canHangFrom('PROJECT', 'PROJECT')).toBe(false)
+        expect(canHangFrom('TEAM', 'ZONE')).toBe(false)
+        expect(headCategories('DEPARTMENT', 'MAINTENANCE')).toEqual(['CHIEF_MAINTENANCE', 'PROJECT_MANAGER'])
+        expect(headCategories('DEPARTMENT', 'CONSTRUCTION')).toEqual(['CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
+        expect(headCategories('TEAM', 'MAINTENANCE')).toEqual(categoriesAtLeast(2))
+        expect(headCategories('PROJECT', null)).toEqual(['PROJECT_MANAGER'])
+        expect(headCategories('ZONE', null)).toEqual([])
+        expect(LINEMAN_CATEGORIES).toEqual(['WORKER', 'TEAM_LEADER'])
     })
 
     it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {

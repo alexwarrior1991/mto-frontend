@@ -38,3 +38,5 @@ export function companyOfSubcontractor(value, values) {
     }
     return text.length > PERSON_LENGTHS.company ? `Como mucho ${PERSON_LENGTHS.company} caracteres` : null
 }
+
+export const UNIT_LENGTHS = Object.freeze({code: 16, name: 120})

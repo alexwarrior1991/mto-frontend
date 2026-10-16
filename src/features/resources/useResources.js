@@ -1,5 +1,19 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
 import {createPerson, deactivatePerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
+import {
+    addMember,
+    createUnit,
+    deactivateUnit,
+    getUnit,
+    getUnitTree,
+    leaveTeam,
+    listMembers,
+    patchUnit,
+    reactivateTeam,
+    reactivateUnit,
+    replaceMembers,
+    unitChildren,
+} from '../../api/resources/units.js'
 
 /**
  * Las consultas y las escrituras del módulo de recursos, con lo que releen (claves ['resources', …]).
@@ -44,6 +58,100 @@ export function usePersonAction() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: ({action, person}) => (action === 'deactivate' ? deactivatePerson(person.id) : reactivatePerson(person)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** El organigrama entero: pocas decenas de unidades. */
+export function useUnitTree(includeInactive = false, {enabled = true} = {}) {
+    return useQuery({
+        queryKey: resourcesKey('units', 'tree', {includeInactive}),
+        queryFn: ({signal}) => getUnitTree({includeInactive}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+        enabled,
+    })
+}
+
+/** La ficha de una unidad; si no existe, se dice una vez. */
+export function useUnit(unitId, {enabled = true, notFound = true} = {}) {
+    return useQuery({
+        queryKey: resourcesKey('units', 'unit', unitId),
+        queryFn: ({signal}) => getUnit(unitId, {signal}),
+        enabled: enabled && Boolean(unitId),
+        retry: false,
+        staleTime: NOT_FRESH,
+        meta: notFound ? {notFoundMessage: `No existe la unidad ${unitId}`} : {notifyError: false},
+    })
+}
+
+export function useUnitChildren(unitId) {
+    return useQuery({
+        queryKey: resourcesKey('units', 'children', unitId),
+        queryFn: ({signal}) => unitChildren(unitId, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+export function useUnitMembers(unitId, includeFormer) {
+    return useQuery({
+        queryKey: resourcesKey('units', 'members', unitId, {includeFormer}),
+        queryFn: ({signal}) => listMembers(unitId, {includeFormer}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * El alta o la modificación de una unidad, desde su editor, que trata él mismo sus errores. Una
+ * unidad sale en el árbol, en su ficha, en las de sus hijas y en la lista de personal: se relee todo
+ * el módulo.
+ */
+export function useSaveUnit() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createUnit(body) : patchUnit(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/**
+ * Lo que cambia los linemen de un equipo o lo devuelve completo: la lista entera, uno que entra, uno
+ * que sale o la reactivación con sus linemen. El diálogo trata sus errores; tras guardar se relee todo
+ * el módulo.
+ */
+export function useTeamChange(team) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({change, memberPersonIds, personId, date = null}) => {
+            switch (change) {
+                case 'replace':
+                    return replaceMembers(team.id, memberPersonIds, date)
+                case 'add':
+                    return addMember(team.id, personId, date)
+                case 'leave':
+                    return leaveTeam(team.id, personId, date)
+                case 'reactivate':
+                    return reactivateTeam(team, memberPersonIds, date)
+                default:
+                    throw new Error(`Cambio desconocido: ${change}`)
+            }
+        },
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/**
+ * Desactivar (DELETE) o reactivar (PATCH active=true) una unidad que no es un equipo vuelto con sus
+ * linemen. Haya ido bien o no, se relee: si el servicio dice que no (409 UNI-001), la ficha enseña cómo
+ * está.
+ */
+export function useUnitAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, unit}) => (action === 'deactivate' ? deactivateUnit(unit.id) : reactivateUnit(unit)),
         onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
     })
 }

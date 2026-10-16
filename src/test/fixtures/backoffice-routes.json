@@ -36,6 +36,8 @@
     "mantenimiento/tipos-de-tarea",
     "mantenimiento/plantillas",
     "recursos/personal",
+    "recursos/organigrama",
+    "recursos/organigrama/:unitId",
     "notificaciones",
     "actividad",
     "actividad/accesos"

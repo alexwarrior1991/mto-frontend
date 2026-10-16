@@ -153,7 +153,8 @@ async function typeInto(user, container, label, text) {
 describe('el menú y las rutas', () => {
     it('«Recursos» sale con resources-read, y no sin él', () => {
         const resources = buildMenu(loginAs('recursos.lector')).find((item) => item.key === 'recursos')
-        expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal']])
+        expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal'],
+            ['Organigrama', '/recursos/organigrama']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
     })
@@ -286,5 +287,399 @@ describe('el personal', () => {
         const history = await screen.findByRole('dialog', {name: /Historial de PER-000003/})
         expect(await within(history).findByText('Yossi Cohen · Supervisor · Propio · activa')).toBeInTheDocument()
         expect(requests.some((url) => url.pathname === `${BASE}/people/${PERSON1}/revisions`)).toBe(true)
+    })
+})
+
+const CONFIGURATION = '/api/configuration'
+const PROJECT_UNIT = '5e6f7081-0000-4000-8000-000000000009'
+const DEPARTMENT_UNIT = '5e6f7081-0000-4000-8000-000000000008'
+const SUPERVISION_UNIT = '5e6f7081-0000-4000-8000-000000000002'
+const TEAM_UNIT = '5e6f7081-0000-4000-8000-000000000001'
+const LEADER = {id: PERSON1, code: 'PER-000003', fullName: 'Yossi Cohen', username: 'equipo.jefe', category: 'TEAM_LEADER'}
+const SUPERVISOR = {id: PERSON2, code: 'PER-000020', fullName: 'Dana Levi', username: null, category: 'SUPERVISOR'}
+
+function lineman(n) {
+    return {id: `3c4d5e6f-0000-4000-8000-00000000001${n}`, code: `PER-00001${n}`, fullName: `Lineman ${n}`, username: null, category: 'WORKER'}
+}
+
+function linemen(count) {
+    return Array.from({length: count}, (_, n) => ({id: `6f708192-0000-4000-8000-00000000000${n}`, person: lineman(n), joinedOn: '2026-10-01',
+        leftOn: null}))
+}
+
+function node(id, code, name, kind, discipline, head, executionPackageIds, linemenCount, active, children = []) {
+    return {id, code, name, kind, discipline, head, executionPackageIds, linemen: linemenCount, active, children}
+}
+
+function organization({teamActive = true} = {}) {
+    return [node(PROJECT_UNIT, 'PRJ', 'Proyecto', 'PROJECT', null, null, [], null, true, [
+        node(DEPARTMENT_UNIT, 'MNT', 'Mantenimiento', 'DEPARTMENT', 'MAINTENANCE', null, [], null, true, [
+            node(SUPERVISION_UNIT, 'SUP-N', 'Supervisión norte', 'SUPERVISION', 'MAINTENANCE', null, [4], null, true, [
+                node(TEAM_UNIT, 'A', 'Equipo A', 'TEAM', 'MAINTENANCE', LEADER, [5, 4], 4, teamActive),
+            ]),
+        ]),
+    ])]
+}
+
+function teamUnit(count, active = true) {
+    const members = active ? linemen(count) : []
+    return {
+        id: TEAM_UNIT, code: 'A', name: 'Equipo A', kind: 'TEAM', discipline: 'MAINTENANCE',
+        parent: {id: SUPERVISION_UNIT, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION'}, head: LEADER, executionPackageIds: [4, 5],
+        defaultVehicle: null, members, linemen: members.length, complete: members.length >= 2, supervisor: SUPERVISOR, chiefSupervisor: null,
+        active, version: 7, audit: null,
+    }
+}
+
+function supervisionUnit(active = true) {
+    return {
+        id: SUPERVISION_UNIT, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION', discipline: 'MAINTENANCE',
+        parent: {id: DEPARTMENT_UNIT, code: 'MNT', name: 'Mantenimiento', kind: 'DEPARTMENT'}, head: SUPERVISOR, executionPackageIds: [4],
+        defaultVehicle: null, members: [], linemen: null, complete: null, supervisor: null, chiefSupervisor: null, active, version: 2, audit: null,
+    }
+}
+
+/**
+ * El organigrama simulado: el árbol, cada unidad por su id, sus hijas, sus linemen (los de ahora y,
+ * con includeFormer, también los que salieron), su historial y los EP de mto-configuration. units y
+ * members se pueden cambiar en mitad de un caso.
+ */
+function serveOrganization({units = {}, members = {}, former = {}, people = [], teamActive = true} = {}) {
+    const requests = serveResources({people})
+    server.use(
+        http.get(`${BASE}/units/tree`, ({request}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(organization({teamActive}))
+        }),
+        http.get(`${BASE}/units/:id/members`, ({request, params}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            const now = members[params.id] ?? []
+            return HttpResponse.json(url.searchParams.get('includeFormer') === 'true' ? [...now, ...(former[params.id] ?? [])] : now)
+        }),
+        http.get(`${BASE}/units/:id/revisions`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(pageOf([{
+                revision: {revision: 3, revisionAt: '2026-10-16T06:00:00Z', operation: 'UPDATED', author: 'recursos.gestor', source: 'HTTP',
+                    correlationId: 'c-5'},
+                entity: units[params.id],
+            }], new URL(request.url)))
+        }),
+        http.get(`${BASE}/units/:id`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return units[params.id] ? HttpResponse.json(units[params.id]) : resourcesError(404, 'UNI-404', 'Organization unit not found')
+        }),
+        http.get(`${BASE}/units`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            const parentId = url.searchParams.get('parentId')
+            return HttpResponse.json(pageOf(Object.values(units).filter((unit) => unit.parent?.id === parentId), url))
+        }),
+        http.post(`${CONFIGURATION}/execution-packages/filter`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            return HttpResponse.json(pageOf([{id: 4, name: 'EP 4'}, {id: 5, name: 'EP 5'}, {id: 6, name: 'EP 6'}], url))
+        }),
+    )
+    return requests
+}
+
+function treeRows() {
+    return within(screen.getByRole('treegrid', {name: 'Organigrama'})).getAllByRole('row')
+        .filter((row) => row.hasAttribute('aria-level'))
+}
+
+function treeTexts(row) {
+    return within(row).getAllByRole('gridcell').map((cell) => cell.textContent)
+}
+
+function treeRowOf(code) {
+    return treeRows().find((row) => treeTexts(row)[0].startsWith(`${code} · `) || treeTexts(row)[0] === code)
+}
+
+async function openTree(session, expected = 4) {
+    const view = renderRoute('/recursos/organigrama', {session})
+    await waitFor(() => expect(treeRows()).toHaveLength(expected))
+    return view
+}
+
+async function openUnit(session, unitId, heading) {
+    const view = renderRoute(`/recursos/organigrama/${unitId}`, {session})
+    expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument()
+    return view
+}
+
+describe('el organigrama', () => {
+    it('llega desplegado, con el jefe o «Vacante», los linemen de un equipo y los EP con su nombre; quien solo lee abre las fichas', async () => {
+        const requests = serveOrganization({units: {[TEAM_UNIT]: teamUnit(4)}, members: {[TEAM_UNIT]: linemen(4)}})
+        const {user} = await openTree(loginAs('recursos.lector'))
+
+        expect(treeRows().map((row) => row.getAttribute('aria-level'))).toEqual(['1', '2', '3', '4'])
+        await waitFor(() => expect(treeTexts(treeRowOf('A'))).toEqual(['A · Equipo A', 'Equipo', 'Mantenimiento', 'PER-000003 · Yossi Cohen',
+            '4 de 2 a 6', 'EP 4, EP 5', 'Activa', '']))
+        expect(treeTexts(treeRowOf('MNT')).slice(3, 5)).toEqual(['Vacante', ''])
+        expect(screen.getByText('4 unidades')).toBeInTheDocument()
+        expect(requests.find((url) => url.pathname === `${BASE}/units/tree`).search).toBe('?includeInactive=false')
+        expect(screen.queryByRole('button', {name: 'Nueva unidad'})).not.toBeInTheDocument()
+        expect(actionsOf(treeRowOf('SUP-N'))).toEqual(['Plegar SUP-N · Supervisión norte', 'Abrir SUP-N'])
+
+        await user.click(within(treeRowOf('SUP-N')).getByRole('button', {name: 'Plegar SUP-N · Supervisión norte'}))
+        expect(treeRows()).toHaveLength(3)
+        expect(treeRowOf('SUP-N')).toHaveAttribute('aria-expanded', 'false')
+        await user.click(within(treeRowOf('SUP-N')).getByRole('button', {name: 'Desplegar SUP-N · Supervisión norte'}))
+        expect(treeRows()).toHaveLength(4)
+
+        await user.click(screen.getByRole('checkbox', {name: 'Ver también las inactivas'}))
+        await waitFor(() => expect(requests.some((url) => url.pathname === `${BASE}/units/tree` && url.search === '?includeInactive=true')).toBe(true))
+
+        await user.click(within(treeRowOf('A')).getByRole('button', {name: 'Abrir A'}))
+        expect(await screen.findByRole('heading', {name: 'A · Equipo A'})).toBeInTheDocument()
+        expect(screen.getByText('Linemen: 4 de 2 a 6 · Completo: Sí · Supervisor: PER-000020 · Dana Levi · Jefe de supervisores: - · Vehículo: -'))
+            .toBeInTheDocument()
+        await waitFor(() => expect(firstColumn('Linemen de A')).toHaveLength(4))
+        expect(screen.queryByRole('button', {name: 'Añadir lineman'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Modificar'})).not.toBeInTheDocument()
+    })
+
+    it('una unidad que no existe se dice y vuelve al organigrama', async () => {
+        serveOrganization()
+        const missing = '5e6f7081-0000-4000-8000-0000000000ff'
+        renderRoute(`/recursos/organigrama/${missing}`, {session: loginAs('recursos.lector')})
+
+        expect(await screen.findByText(`No existe la unidad ${missing}`)).toBeInTheDocument()
+        await waitFor(() => expect(treeRows()).toHaveLength(4))
+    })
+
+    it('un equipo nace completo bajo su padre, con su jefe y de 2 a 6 linemen comprobados antes de llamar; un error del servicio cae en su campo', async () => {
+        serveOrganization({people: [person(PERSON1, 'PER-000003', 'Yossi', 'Cohen', 'TEAM_LEADER', true),
+            person(lineman(1).id, 'PER-000011', 'Lineman', 'Uno', 'WORKER', true),
+            person(lineman(2).id, 'PER-000012', 'Lineman', 'Dos', 'WORKER', true)]})
+        const writes = recordWrites('post', `${BASE}/units`, (body, call) => (call === 1
+            ? resourcesError(400, 'REQ-VALIDATION', 'Validation failed', [{field: 'code', message: 'must match [A-Za-z0-9_-]+'}])
+            : HttpResponse.json(teamUnit(2), {status: 201})))
+        const {user} = await openTree(loginAs('recursos.gestor'))
+
+        expect(actionsOf(treeRowOf('A'))).toEqual(['Abrir A'])
+        await user.click(within(treeRowOf('SUP-N')).getByRole('button', {name: 'Nueva unidad debajo de SUP-N'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva unidad'})
+        await typeInto(user, dialog, 'Código', 'B')
+        await typeInto(user, dialog, 'Nombre', ' Equipo B ')
+        await choose(user, dialog, 'Nivel', 'Equipo')
+        expect(within(dialog).getByRole('combobox', {name: 'Depende de'})).toHaveValue('SUP-N · Supervisión norte')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Depende de'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['PRJ · Proyecto', 'MNT · Mantenimiento', 'SUP-N · Supervisión norte'])
+        await user.keyboard('{Escape}')
+        const discipline = within(dialog).getByRole('combobox', {name: 'Disciplina'})
+        expect(discipline).toHaveValue('Mantenimiento')
+        expect(discipline).toHaveAttribute('readonly')
+
+        await choose(user, dialog, 'Linemen', 'PER-000011 · Lineman Uno')
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Un equipo nace con 2 a 6 linemen, no con 1')).toBeInTheDocument()
+        expect(within(dialog).getByText('Un equipo trabaja siempre con su jefe')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await choose(user, dialog, 'Jefe', 'PER-000003 · Yossi Cohen')
+        await choose(user, dialog, 'Linemen', 'PER-000012 · Lineman Dos')
+        await user.keyboard('{Escape}')
+        await choose(user, dialog, 'EP', 'EP 6')
+        await user.click(await screen.findByRole('option', {name: 'EP 4'}))
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('must match [A-Za-z0-9_-]+')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nueva unidad'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Nueva unidad'})).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({
+            code: 'B', name: 'Equipo B', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION_UNIT, headPersonId: PERSON1,
+            executionPackageIds: [4, 6], memberPersonIds: [lineman(1).id, lineman(2).id],
+        })))
+    })
+
+    it('modificar manda los EP como conjunto y el jefe vaciado con la versión leída; una versión vieja deja el diálogo abierto', async () => {
+        serveOrganization({units: {[SUPERVISION_UNIT]: supervisionUnit(), [TEAM_UNIT]: teamUnit(4)}})
+        const writes = recordWrites('patch', `${BASE}/units/:id`, (body, call) => (call === 1
+            ? resourcesError(409, 'CON-001', 'Organization unit SUP-N was changed by someone else')
+            : HttpResponse.json(supervisionUnit())))
+        const {user} = await openUnit(loginAs('recursos.gestor'), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+
+        await waitFor(() => expect(textsOf(dataRows('Unidades de SUP-N')[0])).toEqual(['A · Equipo A', 'Equipo', 'PER-000003 · Yossi Cohen',
+            '4 de 2 a 6', 'EP 4, EP 5', 'Activa', '']))
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})
+        expect(within(dialog).getByRole('textbox', {name: 'Código'})).toHaveAttribute('readonly')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Depende de'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['PRJ · Proyecto', 'MNT · Mantenimiento'])
+        await user.keyboard('{Escape}')
+        await choose(user, dialog, 'EP', 'EP 6')
+        await user.keyboard('{Escape}')
+        await choose(user, dialog, 'Jefe', 'PER-000020 · Dana Levi')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Conflicto con otro cambio: recarga y vuelve a intentarlo.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})).not.toBeInTheDocument())
+        expect(writes.map((write) => [write.contentType, write.body])).toEqual([1, 2].map(() => [MERGE_PATCH,
+            {headPersonId: null, executionPackageIds: [4, 6], version: 2}]))
+
+        await user.click(screen.getByRole('button', {name: 'Historial'}))
+        const history = await screen.findByRole('dialog', {name: /Historial de SUP-N/})
+        expect(await within(history).findByText('Supervisión norte · Supervisión · Mantenimiento · en MNT · jefe per-000020 · dana levi · EP 4 · activa'))
+            .toBeInTheDocument()
+    })
+
+    it('sin config-read los EP se ven como #id, no se pide nada a mto-configuration y no viajan', async () => {
+        const requests = serveOrganization({units: {[SUPERVISION_UNIT]: supervisionUnit()}})
+        const writes = recordWrites('patch', `${BASE}/units/:id`, () => HttpResponse.json(supervisionUnit()))
+        const {user} = await openUnit(sessionWith([P.RESOURCES_READ, P.RESOURCES_WRITE]), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+
+        expect(screen.getByText('Disciplina: Mantenimiento · Depende de: MNT · Mantenimiento · Jefe: PER-000020 · Dana Levi · EP: #4'))
+            .toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})
+        expect(within(dialog).getByRole('textbox', {name: 'EP'})).toHaveValue('#4')
+        await typeInto(user, dialog, 'Nombre', 'Supervisión del norte')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(writes).toHaveLength(1))
+        expect(writes[0].body).toEqual({name: 'Supervisión del norte', version: 2})
+        expect(requests.some((url) => url.pathname.startsWith(CONFIGURATION))).toBe(false)
+    })
+
+    it('con 6 linemen no se añade otro, con 2 no sale ninguno, y cambiar varios es la lista entera de una vez', async () => {
+        const units = {[TEAM_UNIT]: teamUnit(6)}
+        const members = {[TEAM_UNIT]: linemen(6)}
+        serveOrganization({units, members, people: [person(lineman(5).id, 'PER-000015', 'Lineman', 'Cinco', 'WORKER', true),
+            person(lineman(0).id, 'PER-000010', 'Lineman', '0', 'WORKER', true), person(lineman(3).id, 'PER-000013', 'Lineman', '3', 'WORKER', true)]})
+        const view = await openUnit(loginAs('recursos.gestor'), TEAM_UNIT, 'A · Equipo A')
+        await waitFor(() => expect(firstColumn('Linemen de A')).toHaveLength(6))
+        expect(screen.getByRole('button', {name: 'Añadir lineman'})).toBeDisabled()
+        expect(within(rowOf('Linemen de A', 'PER-000010')).getByRole('button', {name: 'Sale del equipo PER-000010 · Lineman 0'})).toBeEnabled()
+        view.unmount()
+
+        units[TEAM_UNIT] = teamUnit(2)
+        members[TEAM_UNIT] = linemen(2)
+        const adds = recordWrites('post', `${BASE}/units/:id/members`, (body, call) => {
+            if (call === 1) {
+                return resourcesError(409, 'UNI-001', 'Lineman 5 is already a lineman of team B')
+            }
+            units[TEAM_UNIT] = teamUnit(3)
+            members[TEAM_UNIT] = linemen(3)
+            return HttpResponse.json(teamUnit(3))
+        })
+        const {user} = await openUnit(loginAs('recursos.gestor'), TEAM_UNIT, 'A · Equipo A')
+        await waitFor(() => expect(firstColumn('Linemen de A')).toHaveLength(2))
+        expect(within(rowOf('Linemen de A', 'PER-000010')).getByRole('button', {name: 'Sale del equipo PER-000010 · Lineman 0'})).toBeDisabled()
+        await user.click(screen.getByRole('button', {name: 'Añadir lineman'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Añadir lineman a A · Equipo A'})
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir'}))
+        expect(await within(dialog).findByText('Elige quién entra')).toBeInTheDocument()
+        await choose(user, dialog, 'Lineman', 'PER-000015 · Lineman Cinco')
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir'}))
+        expect(await screen.findByText('El organigrama no admite ese cambio. Lineman 5 is already a lineman of team B')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Añadir lineman a A · Equipo A'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir'}))
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Añadir lineman a A · Equipo A'})).not.toBeInTheDocument())
+        expect(adds.map((write) => write.body)).toEqual([{personId: lineman(5).id}, {personId: lineman(5).id}])
+
+        const leaves = recordWrites('post', `${BASE}/units/:id/members/:personId/leave`, () => {
+            members[TEAM_UNIT] = linemen(2)
+            units[TEAM_UNIT] = teamUnit(2)
+            return HttpResponse.json(teamUnit(2))
+        })
+        await waitFor(() => expect(firstColumn('Linemen de A')).toHaveLength(3))
+        await user.click(within(rowOf('Linemen de A', 'PER-000012')).getByRole('button', {name: 'Sale del equipo PER-000012 · Lineman 2'}))
+        dialog = await screen.findByRole('dialog', {name: 'PER-000012 · Lineman 2 sale de A · Equipo A'})
+        await user.type(within(dialog).getByRole('textbox', {name: 'Sale el'}), '21/10/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Sale del equipo'}))
+        await waitFor(() => expect(leaves).toHaveLength(1))
+        expect(leaves[0].params.personId).toBe(lineman(2).id)
+        expect(leaves[0].body).toEqual({leftOn: '2026-10-21'})
+        await waitFor(() => expect(firstColumn('Linemen de A')).toHaveLength(2))
+
+        const replaces = recordWrites('put', `${BASE}/units/:id/members`, () => HttpResponse.json(teamUnit(3)))
+        await user.click(screen.getByRole('button', {name: 'Cambiar los linemen'}))
+        dialog = await screen.findByRole('dialog', {name: 'Cambiar los linemen de A · Equipo A'})
+        expect(within(dialog).getByLabelText('Linemen elegidos')).toHaveTextContent('2 de 2 a 6')
+        // Borrar en el campo vacío quita el último elegido: con 1 no se llama.
+        await user.click(within(dialog).getByRole('combobox', {name: 'Linemen'}))
+        await user.keyboard('{Backspace}')
+        await user.keyboard('{Escape}')
+        expect(within(dialog).getByLabelText('Linemen elegidos')).toHaveTextContent('1 de 2 a 6')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Un equipo trabaja con 2 a 6 linemen, no con 1')).toBeInTheDocument()
+        expect(replaces).toHaveLength(0)
+        await choose(user, dialog, 'Linemen', 'PER-000013 · Lineman 3')
+        await user.keyboard('{Escape}')
+        await user.type(within(dialog).getByRole('textbox', {name: 'Desde el'}), '22/10/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(replaces).toHaveLength(1))
+        expect(replaces[0].body).toEqual({memberPersonIds: [lineman(0).id, lineman(3).id], effectiveOn: '2026-10-22'})
+    })
+
+    it('desactivar pide confirmación y lo que el servicio no deja se dice; un equipo vuelve con sus linemen y otra unidad con un PATCH', async () => {
+        const units = {[SUPERVISION_UNIT]: supervisionUnit(), [TEAM_UNIT]: teamUnit(0, false)}
+        serveOrganization({units, teamActive: false, people: [person(lineman(1).id, 'PER-000011', 'Lineman', 'Uno', 'WORKER', true),
+            person(lineman(2).id, 'PER-000012', 'Lineman', 'Dos', 'WORKER', true)]})
+        const deletes = recordWrites('delete', `${BASE}/units/:id`, () => resourcesError(409, 'UNI-001', 'SUP-N has active units under it'))
+        let view = await openUnit(loginAs('recursos.responsable'), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+        await view.user.click(screen.getByRole('button', {name: 'Desactivar'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Desactivar SUP-N · Supervisión norte'})
+        expect(deletes).toHaveLength(0)
+        await view.user.click(within(confirm).getByRole('button', {name: 'Desactivar'}))
+        expect(await screen.findByText('El organigrama no admite ese cambio. SUP-N has active units under it')).toBeInTheDocument()
+        expect(deletes).toHaveLength(1)
+        view.unmount()
+
+        const patches = recordWrites('patch', `${BASE}/units/:id`, (body) => {
+            units[TEAM_UNIT] = teamUnit(2)
+            return HttpResponse.json(body.memberPersonIds ? teamUnit(2) : supervisionUnit())
+        })
+        view = await openUnit(loginAs('recursos.responsable'), TEAM_UNIT, 'A · Equipo A')
+        expect(screen.queryByRole('button', {name: 'Desactivar'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Añadir lineman'})).not.toBeInTheDocument()
+        await view.user.click(screen.getByRole('button', {name: 'Reactivar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Reactivar A · Equipo A'})
+        await view.user.click(within(dialog).getByRole('button', {name: 'Reactivar'}))
+        expect(await within(dialog).findByText('Un equipo trabaja con 2 a 6 linemen, no con 0')).toBeInTheDocument()
+        expect(patches).toHaveLength(0)
+        await choose(view.user, dialog, 'Linemen', 'PER-000011 · Lineman Uno')
+        await view.user.click(await screen.findByRole('option', {name: 'PER-000012 · Lineman Dos'}))
+        await view.user.keyboard('{Escape}')
+        await view.user.click(within(dialog).getByRole('button', {name: 'Reactivar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0].body).toEqual({active: true, memberPersonIds: [lineman(1).id, lineman(2).id], version: 7})
+        expect(await screen.findByLabelText('Estado de la unidad')).toHaveTextContent('Activa')
+        view.unmount()
+
+        units[SUPERVISION_UNIT] = supervisionUnit(false)
+        view = await openUnit(loginAs('recursos.responsable'), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+        await view.user.click(screen.getByRole('button', {name: 'Reactivar'}))
+        await waitFor(() => expect(patches).toHaveLength(2))
+        expect(patches[1].body).toEqual({active: true, version: 2})
+    })
+
+    it('el personal toma la unidad de la URL, la nombra y la quita al pedirlo; un id que no es un UUID no filtra', async () => {
+        const requests = serveOrganization({units: {[SUPERVISION_UNIT]: supervisionUnit()}, people: [YOSSI]})
+        const {user} = await openUnit(loginAs('recursos.lector'), SUPERVISION_UNIT, 'SUP-N · Supervisión norte')
+        const lists = () => requests.filter((url) => url.pathname === `${BASE}/people`)
+
+        await user.click(screen.getByRole('button', {name: 'Ver su personal'}))
+        expect(await screen.findByLabelText('Filtro de unidad')).toHaveTextContent('Unidad: SUP-N · Supervisión norte')
+        await waitFor(() => expect(lists().at(-1).searchParams.get('unitId')).toBe(SUPERVISION_UNIT))
+
+        await user.click(screen.getByRole('button', {name: 'Quitar el filtro de unidad'}))
+        await waitFor(() => expect(screen.queryByLabelText('Filtro de unidad')).not.toBeInTheDocument())
+        await waitFor(() => expect(lists().at(-1).searchParams.get('unitId')).toBeNull())
+    })
+
+    it('un id de unidad que no es un UUID no filtra el personal', async () => {
+        const requests = serveResources({people: [YOSSI]})
+        await open('/recursos/personal?unitId=no-es-un-id', loginAs('recursos.lector'), 'Personal', 1)
+        expect(screen.queryByLabelText('Filtro de unidad')).not.toBeInTheDocument()
+        expect(requests.every((url) => !url.searchParams.has('unitId'))).toBe(true)
     })
 })

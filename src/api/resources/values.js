@@ -17,3 +17,12 @@ export function personLabel(person) {
     const name = typeof person.fullName === 'string' ? person.fullName.trim() : ''
     return name ? `${person.code} · ${name}` : (person.code ?? '')
 }
+
+/** «A · Equipo A», o solo el código si el nombre no dice más. */
+export function unitLabel(unit) {
+    if (!unit) {
+        return ''
+    }
+    const name = typeof unit.name === 'string' ? unit.name.trim() : ''
+    return name && name !== unit.code ? `${unit.code} · ${name}` : (unit.code ?? '')
+}

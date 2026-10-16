@@ -22,7 +22,9 @@ import TeamsPage from '../features/maintenance/TeamsPage.jsx'
 import AccessPage from '../features/notifications/AccessPage.jsx'
 import ActivityPage from '../features/notifications/ActivityPage.jsx'
 import NotificationsPage from '../features/notifications/NotificationsPage.jsx'
+import OrganizationPage from '../features/resources/OrganizationPage.jsx'
 import PeoplePage from '../features/resources/PeoplePage.jsx'
+import UnitDetailPage from '../features/resources/UnitDetailPage.jsx'
 import AssembliesPage from '../features/stock/AssembliesPage.jsx'
 import MaterialsPage from '../features/stock/MaterialsPage.jsx'
 import MovementsPage from '../features/stock/MovementsPage.jsx'
@@ -77,6 +79,8 @@ export const PAGES = Object.freeze({
     maintenanceTaskTypes: TaskTypesPage,
     maintenanceTemplates: InspectionTemplatesPage,
     resourcesPeople: PeoplePage,
+    resourcesOrganization: OrganizationPage,
+    resourcesUnit: UnitDetailPage,
     notifications: NotificationsPage,
     activity: ActivityPage,
     access: AccessPage,

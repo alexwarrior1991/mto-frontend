@@ -1,10 +1,11 @@
-import {Button, CloseButton, Group, MultiSelect, Stack, Text, TextInput, Title} from '@mantine/core'
+import {Badge, Button, CloseButton, Group, MultiSelect, Stack, Text, TextInput, Title} from '@mantine/core'
 import {useDebouncedValue} from '@mantine/hooks'
 import {IconBan, IconCircleCheck, IconHistory, IconPencil, IconPlus} from '@tabler/icons-react'
 import {useState} from 'react'
+import {useNavigate, useSearchParams} from 'react-router'
 import {PERSON_CATEGORY} from '../../api/resources/enums.js'
 import {isActivePerson, personRevisionsPath} from '../../api/resources/people.js'
-import {personLabel} from '../../api/resources/values.js'
+import {personLabel, unitLabel} from '../../api/resources/values.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import ConfirmModal from '../../ui/ConfirmModal.jsx'
@@ -13,9 +14,11 @@ import RevisionsModal from '../../ui/RevisionsModal.jsx'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import TriStateFilter from '../../ui/TriStateFilter.jsx'
+import {shortId} from '../maintenance/useMaintenanceNames.js'
 import PersonEditorModal from './PersonEditorModal.jsx'
+import {PEOPLE_PATH} from './resourcesRoutes.js'
 import {countText, describePerson, employerText, personState} from './resourcesTexts.js'
-import {RESOURCES_PAGE_SIZE, usePeopleList, usePersonAction} from './useResources.js'
+import {RESOURCES_PAGE_SIZE, usePeopleList, usePersonAction, useUnit} from './useResources.js'
 
 const SEARCH_DELAY_MS = 300
 
@@ -28,6 +31,9 @@ const SEARCH_DELAY_MS = 300
  *   sale de su equipo hoy salvo que lo dejara con menos de 2: lo dice el servicio (409 UNI-001).
  * - El doble clic abre el editor si se puede modificar; un clic no abre nada. La columna de acciones
  *   existe siempre: el historial es lectura.
+ * - Con ?unitId= (desde la ficha de una unidad) enseña solo quien la dirige y sus linemen de ahora; un
+ *   id que no es un UUID no filtra. El nombre de la unidad se pide a su servicio, y si no se puede
+ *   leer se enseña el id. «Quitar» vuelve a la lista entera.
  */
 export default function PeoplePage({title}) {
     const session = useSession()
@@ -39,13 +45,17 @@ export default function PeoplePage({title}) {
     const [categories, setCategories] = useState([])
     const [active, setActive] = useState(null)
     const [sort, setSort] = useState(null)
-    const filters = {search: debouncedSearch.trim(), categories, active}
+    const navigate = useNavigate()
+    const [params] = useSearchParams()
+    const unitId = uuidOrNull(params.get('unitId'))
+    const unit = useUnit(unitId, {notFound: false})
+    const filters = {search: debouncedSearch.trim(), categories, unitId, active}
     // La página vuelve a la primera en cuanto cambia lo que se pide.
     const listKey = JSON.stringify([filters, sort])
     const [paging, setPaging] = useState({key: listKey, page: 1})
     const page = paging.key === listKey ? paging.page : 1
     const list = usePeopleList({...filters, page, sort})
-    const filtering = filters.search !== '' || categories.length > 0 || active !== null
+    const filtering = filters.search !== '' || categories.length > 0 || unitId !== null || active !== null
 
     // null: cerrado; {person: null}: alta; {person}: modificación.
     const [editing, setEditing] = useState(null)
@@ -100,6 +110,12 @@ export default function PeoplePage({title}) {
                 <MultiSelect label="Categoría" placeholder={categories.length === 0 ? 'Todas' : undefined} w={320} clearable
                              data={PERSON_CATEGORY.selectable()} value={categories} onChange={setCategories}/>
                 <TriStateFilter label="Estado" labels={['Todas', 'Activas', 'Inactivas']} value={active} onChange={setActive}/>
+                {unitId && (
+                    <Group gap={4} align="center" pb={6}>
+                        <Badge aria-label="Filtro de unidad" variant="light">{`Unidad: ${unit.data ? unitLabel(unit.data) : shortId(unitId)}`}</Badge>
+                        <CloseButton size="sm" aria-label="Quitar el filtro de unidad" onClick={() => navigate(PEOPLE_PATH)}/>
+                    </Group>
+                )}
             </Group>
             <Group justify="space-between" align="flex-end">
                 <Text size="sm" c="dimmed" aria-live="polite">{list.data ? countText(list.data.totalElements, 'persona', 'personas') : ''}</Text>
@@ -124,6 +140,12 @@ export default function PeoplePage({title}) {
             )}
         </Stack>
     )
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function uuidOrNull(value) {
+    return value && UUID.test(value) ? value : null
 }
 
 function emptyText(list, filtering) {
