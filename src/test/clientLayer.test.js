@@ -158,6 +158,7 @@ import {
     unassignTaskFromShift,
     cancelShift,
     createShift,
+    crewText,
     listShiftProfiles,
     listShiftTasks,
     parkingRowError,
@@ -217,13 +218,17 @@ import {
     categoriesAtLeast,
     categoriesOf,
     categoryRank,
+    DRIVING_LICENCE,
     headCategories,
+    INSTRUMENT_KIND,
     LINEMAN_CATEGORIES,
     LOCATION_KIND,
     PERSON_CATEGORY,
+    QUALIFICATION_KIND,
     recordableKinds,
     UNIT_KIND,
     VEHICLE_CATEGORY,
+    VEHICLE_DOCUMENT_KIND,
 } from '../api/resources/enums.js'
 import {
     createParkingSite,
@@ -244,8 +249,20 @@ import {
     vehicleTypePatch,
 } from '../api/resources/fleet.js'
 import {
+    createInstrument,
+    getInstrument,
+    instrumentPatch,
+    instrumentRevisionsPath,
+    newInstrumentRequest,
+    patchInstrument,
+    reactivateInstrument,
+    retireInstrument,
+    searchInstruments,
+} from '../api/resources/instruments.js'
+import {
     createPerson,
     deactivatePerson,
+    getPerson,
     newPersonRequest,
     patchPerson,
     personPatch,
@@ -253,6 +270,25 @@ import {
     reactivatePerson,
     searchPeople,
 } from '../api/resources/people.js'
+import {
+    addPersonQualification,
+    createQualificationType,
+    getQualificationType,
+    listPersonQualifications,
+    newQualificationTypeRequest,
+    offeredQualificationTypes,
+    offerQualificationTypeAgain,
+    patchPersonQualification,
+    patchQualificationType,
+    personQualificationFormValues,
+    personQualificationPatch,
+    personQualificationRequest,
+    qualificationTypePatch,
+    removePersonQualification,
+    retireQualificationType,
+    searchQualificationTypes,
+    takesDrivingLicence,
+} from '../api/resources/qualifications.js'
 import {
     addMember,
     createUnit,
@@ -274,19 +310,27 @@ import {
     unitPatch,
     unitRevisionsPath,
 } from '../api/resources/units.js'
-import {personLabel, unitLabel} from '../api/resources/values.js'
+import {daysBetween, EXPIRY_WARNING_DAYS, expiryState, personLabel, unitLabel} from '../api/resources/values.js'
 import {
+    addVehicleDocument,
     createVehicle,
     fleetPositions,
     listLocations,
+    listVehicleDocuments,
     locationRequest,
     newVehicleRequest,
+    offeredDocumentKinds,
     patchVehicle,
+    patchVehicleDocument,
     reactivateVehicle,
     recordLocation,
+    removeVehicleDocument,
     retireVehicle,
     searchVehicles,
     shiftIdOf,
+    vehicleDocumentFormValues,
+    vehicleDocumentPatch,
+    vehicleDocumentRequest,
     vehiclePatch,
     whereOf,
 } from '../api/resources/vehicles.js'
@@ -771,6 +815,24 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
         expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'FLT-404', detail: 'Fleet vehicle not found'})})))
             .toBe('Ese vehículo aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'MSI-404', detail: 'Maintenance instrument not found'})})))
+            .toBe('Ese instrumento aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
+    })
+
+    it('mto-resources: las cualificaciones, los documentos y los instrumentos dicen lo suyo, y un código repetido o una cualificación que ya tiene no piden recargar', () => {
+        for (const code of ['QTY-409', 'INT-409']) {
+            expect(errorMessage(new ConflictError(409, {problem: problem({code, detail: 'Code LIC-D already exists'})}))).toBe('Ya existe otro con ese código.')
+        }
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'QUA-001', detail: 'PER-000003 already holds RAIL-DRIVER'})})))
+            .toBe('La persona ya tiene esa cualificación (renovarla es cambiar su caducidad), o el tipo está retirado. PER-000003 already holds RAIL-DRIVER')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'VDO-409', detail: 'DR-01 already has INSURANCE'})})))
+            .toBe('El vehículo ya tiene un documento de ese tipo: renovarlo es cambiar su caducidad. DR-01 already has INSURANCE')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'QUA-404'})})))
+            .toBe('Esa cualificación ya no existe: puede que otra persona la haya quitado.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'VDO-404'})})))
+            .toBe('Ese documento ya no existe: puede que otra persona lo haya quitado.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'QTY-404'})}))).toBe('Ese tipo de cualificación no existe.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'INT-404'})}))).toBe('Ese instrumento no existe.')
     })
 
     it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
@@ -2531,6 +2593,23 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(shiftPatch(read, {...values, linemanPersonIds: [], vehicleIds: [rail], supervisorPersonId: leader}, {readsResources: true}))
             .toEqual({linemanPersonIds: null, vehicleIds: [rail], supervisorPersonId: leader, version: 5})
         expect(shiftPatch(read, {...values, linemanPersonIds: []})).toBeNull()
+
+        // Los instrumentos: un conjunto, como los linemen y los vehículos; quitarlos todos viaja a null y sin resources-read no viajan.
+        const [pole, detector] = ['ab0c1d2e-0000-4000-8000-0000000000a1', 'ab0c1d2e-0000-4000-8000-0000000000a2']
+        const equipped = {...read, instruments: [{id: pole, code: 'PT-01', name: 'Pértiga 1', kind: 'EARTHING_POLE', calibrationExpiresOn: '2027-03-31'},
+            {id: detector, code: 'DT-02', name: 'Detector 2', kind: 'VOLTAGE_DETECTOR', calibrationExpiresOn: null}]}
+        const withInstruments = shiftFormValues(equipped)
+        expect(withInstruments.instrumentIds).toEqual([pole, detector])
+        expect(shiftRequest({...fresh, instrumentIds: [pole]}, {readsResources: true})).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL',
+            trackIds: [12], teamLeaderPersonId: leader, vehicleIds: [rail], instrumentIds: [pole]})
+        expect(shiftRequest({...fresh, instrumentIds: []}, {readsResources: true})).not.toHaveProperty('instrumentIds')
+        expect(shiftRequest({...fresh, instrumentIds: [pole]})).not.toHaveProperty('instrumentIds')
+        expect(shiftPatch(equipped, {...withInstruments, instrumentIds: [detector, pole]}, {readsResources: true})).toBeNull()
+        expect(shiftPatch(equipped, {...withInstruments, instrumentIds: [detector]}, {readsResources: true})).toEqual({instrumentIds: [detector], version: 5})
+        expect(shiftPatch(equipped, {...withInstruments, instrumentIds: []}, {readsResources: true})).toEqual({instrumentIds: null, version: 5})
+        expect(shiftPatch(equipped, {...withInstruments, instrumentIds: []})).toBeNull()
+        expect(crewText(equipped)).toContain('Instrumentos: PT-01 · Pértiga 1, DT-02 · Detector 2')
+        expect(crewText(read)).toContain('Instrumentos: -')
         expect(SHIFT_LEADER_CATEGORIES).not.toContain('WORKER')
         expect(SHIFT_SUPERVISOR_CATEGORIES).toEqual(['SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
 
@@ -3082,6 +3161,195 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
         expect(LOCATION_KIND.label(found.content[0].position.kind)).toBe('Desconocido')
         expect(LOCATION_KIND.label('UNKNOWN')).toBe('Desconocida')
         expect(recordableKinds('ROAD_ONLY')).toEqual(['PARKED', 'ON_ROAD', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN'])
+    })
+
+    it('la ficha de una persona se pide por su id', async () => {
+        useToken()
+        const reads = record('get', `${BASE}/people/:id`, () => HttpResponse.json(person()))
+        const read = await getPerson(PERSON)
+        expect(reads[0].url.pathname).toBe(`${BASE}/people/${PERSON}`)
+        expect(read.code).toBe('PER-000003')
+    })
+
+    const TYPE = '6a7b8c9d-0000-4000-8000-000000000001'
+    const qualificationType = (extra = {}) => ({id: TYPE, code: 'LIC-C', name: 'Driving licence C', kind: 'DRIVING_LICENCE', drivingLicence: 'C',
+        validityMonths: 120, description: null, active: true, version: 3, ...extra})
+
+    it('los tipos de cualificación: la búsqueda con su desempate, el alta con el permiso solo en un permiso de conducir, la modificación con lo vaciado, retirar y volver a ofrecer', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/qualification-types`, () => HttpResponse.json(page([qualificationType(),
+            qualificationType({id: 'medico', code: 'MED', kind: 'MEDICAL', drivingLicence: 'D'})])))
+        const reads = record('get', `${BASE}/qualification-types/:id`, () => HttpResponse.json(qualificationType()))
+        const posts = record('post', `${BASE}/qualification-types`, () => HttpResponse.json(qualificationType(), {status: 201}))
+        const patches = record('patch', `${BASE}/qualification-types/:id`, () => HttpResponse.json(qualificationType()))
+        const deletes = record('delete', `${BASE}/qualification-types/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchQualificationTypes({search: ' lic ', kind: 'DRIVING_LICENCE', active: true, page: 2, size: 20,
+            sort: {field: 'name', direction: 'desc'}})
+        await searchQualificationTypes()
+        await getQualificationType(TYPE)
+        await createQualificationType(newQualificationTypeRequest({code: ' LIC-D ', name: 'Driving licence D', kind: 'DRIVING_LICENCE',
+            drivingLicence: 'C_E', validityMonths: '120', description: ' '}))
+        await createQualificationType(newQualificationTypeRequest({code: 'ALTURA', name: 'Trabajos en altura', kind: 'SAFETY', drivingLicence: 'B',
+            validityMonths: '', description: 'Arnés'}))
+        await patchQualificationType(TYPE, qualificationTypePatch(qualificationType(), {name: 'Driving licence C', kind: 'VEHICLE_OPERATION',
+            drivingLicence: 'C', validityMonths: '', description: 'Nueva'}))
+        await retireQualificationType(TYPE)
+        await offerQualificationTypeAgain(qualificationType({active: false, version: 4}))
+
+        expect(searches[0].url.search).toBe('?search=lic&kind=DRIVING_LICENCE&active=true&page=1&size=20&sort=name%2Cdesc&sort=id%2Casc')
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(reads[0].url.pathname).toBe(`${BASE}/qualification-types/${TYPE}`)
+        expect(posts.map(json)).toEqual([
+            {code: 'LIC-D', name: 'Driving licence D', kind: 'DRIVING_LICENCE', drivingLicence: 'C_E', validityMonths: 120},
+            {code: 'ALTURA', name: 'Trabajos en altura', kind: 'SAFETY', description: 'Arnés'},
+        ])
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {kind: 'VEHICLE_OPERATION', drivingLicence: null, validityMonths: null, description: 'Nueva', version: 3}],
+            [MERGE_PATCH, {active: true, version: 4}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/qualification-types/${TYPE}`)
+        expect(qualificationTypePatch(qualificationType(), {name: ' Driving licence C ', kind: 'DRIVING_LICENCE', drivingLicence: 'C',
+            validityMonths: '120.0', description: ''})).toBeNull()
+        expect(QUALIFICATION_KIND.label(found.content[1].kind)).toBe('Desconocido')
+        expect(DRIVING_LICENCE.label(found.content[1].drivingLicence)).toBe('Desconocido')
+        expect(QUALIFICATION_KIND.selectable().map((option) => option.value)).not.toContain('UNKNOWN')
+        expect([takesDrivingLicence('DRIVING_LICENCE'), takesDrivingLicence('SAFETY'), takesDrivingLicence('UNKNOWN')]).toEqual([true, false, false])
+    })
+
+    it('las cualificaciones de una persona: la lista entera, el alta sin lo vacío, la modificación con lo vaciado y la versión, y quitar', async () => {
+        useToken()
+        const HELD = '7c8d9e0f-0000-4000-8000-000000000001'
+        const held = {id: HELD, personId: PERSON, qualificationType: {id: TYPE, code: 'LIC-C', name: 'Driving licence C', kind: 'DRIVING_LICENCE'},
+            reference: 'C-1234', issuedOn: '2016-01-01', expiresOn: '2026-12-31', notes: 'Renovar', expired: false, version: 2}
+        const lists = record('get', `${BASE}/people/:id/qualifications`, () => HttpResponse.json([held]))
+        const posts = record('post', `${BASE}/people/:id/qualifications`, () => HttpResponse.json(held, {status: 201}))
+        const patches = record('patch', `${BASE}/people/:id/qualifications/:qualificationId`, () => HttpResponse.json(held))
+        const deletes = record('delete', `${BASE}/people/:id/qualifications/:qualificationId`, () => new HttpResponse(null, {status: 204}))
+
+        const list = await listPersonQualifications(PERSON)
+        await addPersonQualification(PERSON, personQualificationRequest({qualificationTypeId: TYPE, reference: ' ', issuedOn: '2026-10-10',
+            expiresOn: null, notes: ''}))
+        const values = personQualificationFormValues(held)
+        await patchPersonQualification(PERSON, HELD, personQualificationPatch(held, {...values, reference: '', expiresOn: '2031-12-31', notes: ' Renovar '}))
+        await removePersonQualification(PERSON, HELD)
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/people/${PERSON}/qualifications`)
+        expect(lists[0].url.search).toBe('')
+        expect(list).toHaveLength(1)
+        expect(json(posts[0])).toEqual({qualificationTypeId: TYPE, issuedOn: '2026-10-10'})
+        expect(patches[0].url.pathname).toBe(`${BASE}/people/${PERSON}/qualifications/${HELD}`)
+        expect([patches[0].headers.get('content-type'), json(patches[0])]).toEqual([MERGE_PATCH, {reference: null, expiresOn: '2031-12-31', version: 2}])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/people/${PERSON}/qualifications/${HELD}`)
+        expect(personQualificationPatch(held, values)).toBeNull()
+        expect(values).toEqual({qualificationTypeId: TYPE, reference: 'C-1234', issuedOn: '2016-01-01', expiresOn: '2026-12-31', notes: 'Renovar'})
+        // El alta no ofrece lo que la persona ya tiene ni lo retirado: el servicio respondería 409 QUA-001.
+        expect(offeredQualificationTypes([{id: TYPE, active: true}, {id: 'otro', active: true}, {id: 'viejo', active: false}], [held])
+            .map((type) => type.id)).toEqual(['otro'])
+    })
+
+    it('cómo está una caducidad: caducada, que caduca en 30 días o menos, vigente o sin fecha; manda lo que diga el servicio', () => {
+        const today = '2026-10-17'
+        expect(EXPIRY_WARNING_DAYS).toBe(30)
+        expect(daysBetween('2026-10-17', '2026-11-16')).toBe(30)
+        expect(daysBetween('2026-10-17', '2026-10-14')).toBe(-3)
+        expect(daysBetween(null, '2026-10-14')).toBeNull()
+        expect(expiryState('2026-10-14', {today})).toEqual({state: 'EXPIRED', daysLeft: -3})
+        expect(expiryState('2026-10-17', {today})).toEqual({state: 'EXPIRING', daysLeft: 0})
+        expect(expiryState('2026-11-16', {today})).toEqual({state: 'EXPIRING', daysLeft: 30})
+        expect(expiryState('2026-11-17', {today})).toEqual({state: 'VALID', daysLeft: 31})
+        expect(expiryState(null, {today})).toEqual({state: 'NONE', daysLeft: null})
+        // En la zona del servicio puede ser otro día: si dice que no ha caducado, aún es el último día; si dice que sí, lo está.
+        expect(expiryState('2026-10-16', {today, expired: false})).toEqual({state: 'EXPIRING', daysLeft: 0})
+        expect(expiryState('2026-10-17', {today, expired: true})).toEqual({state: 'EXPIRED', daysLeft: 0})
+        expect(expiryState(null, {today, expired: true}).state).toBe('EXPIRED')
+    })
+
+    it('los documentos de un vehículo: la lista, el alta con su tipo, la modificación con la versión, y quitar; un tipo nuevo se lee como desconocido', async () => {
+        useToken()
+        const VEHICLE = '9d0e1f20-0000-4000-8000-000000000001'
+        const DOCUMENT = 'bc1d2e3f-0000-4000-8000-000000000001'
+        const document = {id: DOCUMENT, vehicleId: VEHICLE, kind: 'ROAD_INSPECTION', reference: 'ITV-2026-118', issuedOn: '2026-02-28',
+            expiresOn: '2027-02-28', notes: null, expired: false, version: 4}
+        const lists = record('get', `${BASE}/vehicles/:id/documents`, () => HttpResponse.json([document, {...document, id: 'x', kind: 'NOISE'}]))
+        const posts = record('post', `${BASE}/vehicles/:id/documents`, () => HttpResponse.json(document, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicles/:id/documents/:documentId`, () => HttpResponse.json(document))
+        const deletes = record('delete', `${BASE}/vehicles/:id/documents/:documentId`, () => new HttpResponse(null, {status: 204}))
+
+        const list = await listVehicleDocuments(VEHICLE)
+        await addVehicleDocument(VEHICLE, vehicleDocumentRequest({kind: 'INSURANCE', reference: ' POL-77 ', issuedOn: null, expiresOn: '2027-01-15',
+            notes: ''}))
+        const values = vehicleDocumentFormValues(document)
+        await patchVehicleDocument(VEHICLE, DOCUMENT, vehicleDocumentPatch(document, {...values, expiresOn: '2028-02-28', issuedOn: null}))
+        await removeVehicleDocument(VEHICLE, DOCUMENT)
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/vehicles/${VEHICLE}/documents`)
+        expect(json(posts[0])).toEqual({kind: 'INSURANCE', reference: 'POL-77', expiresOn: '2027-01-15'})
+        expect(patches[0].url.pathname).toBe(`${BASE}/vehicles/${VEHICLE}/documents/${DOCUMENT}`)
+        expect([patches[0].headers.get('content-type'), json(patches[0])]).toEqual([MERGE_PATCH, {issuedOn: null, expiresOn: '2028-02-28', version: 4}])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/vehicles/${VEHICLE}/documents/${DOCUMENT}`)
+        expect(vehicleDocumentPatch(document, values)).toBeNull()
+        expect(VEHICLE_DOCUMENT_KIND.label(list[1].kind)).toBe('Desconocido')
+        expect(offeredDocumentKinds(VEHICLE_DOCUMENT_KIND.selectable(), list).map((option) => option.value))
+            .toEqual(['RAIL_INSPECTION', 'INSURANCE', 'CRANE_CERTIFICATE', 'PLATFORM_CERTIFICATE', 'OTHER'])
+    })
+
+    it('los instrumentos: la búsqueda con «calibración caduca antes de», el alta, la modificación con lo vaciado, retirar, reactivar y su historial', async () => {
+        useToken()
+        const INSTRUMENT = 'ab0c1d2e-0000-4000-8000-000000000001'
+        const instrument = {id: INSTRUMENT, code: 'PT-01', name: 'Pértiga 1', kind: 'EARTHING_POLE', serialNumber: 'SN-1', calibratedOn: '2026-03-31',
+            calibrationExpiresOn: '2027-03-31', calibrationExpired: false, notes: null, active: true, version: 5}
+        const searches = record('get', `${BASE}/instruments`, () => HttpResponse.json(page([instrument, {...instrument, id: 'laser', kind: 'LASER'}])))
+        const reads = record('get', `${BASE}/instruments/:id`, () => HttpResponse.json(instrument))
+        const posts = record('post', `${BASE}/instruments`, () => HttpResponse.json(instrument, {status: 201}))
+        const patches = record('patch', `${BASE}/instruments/:id`, () => HttpResponse.json(instrument))
+        const deletes = record('delete', `${BASE}/instruments/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchInstruments({search: ' pt ', kind: 'EARTHING_POLE', active: true, calibrationExpiresBefore: '2026-12-31'})
+        await searchInstruments({sort: {field: 'calibrationExpiresOn', direction: 'asc'}})
+        await getInstrument(INSTRUMENT)
+        await createInstrument(newInstrumentRequest({code: ' PT-05 ', name: 'Pértiga 5', kind: 'EARTHING_POLE', serialNumber: ' ', calibratedOn: null,
+            calibrationExpiresOn: '', notes: ''}))
+        await patchInstrument(INSTRUMENT, instrumentPatch(instrument, {name: 'Pértiga 1', kind: 'EARTHING_POLE', serialNumber: '', calibratedOn: '2026-10-05',
+            calibrationExpiresOn: null, notes: 'Revisada'}))
+        await retireInstrument(INSTRUMENT)
+        await reactivateInstrument({...instrument, active: false, version: 6})
+
+        expect(searches[0].url.search).toBe('?search=pt&kind=EARTHING_POLE&active=true&calibrationExpiresBefore=2026-12-31'
+            + '&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=calibrationExpiresOn%2Casc&sort=id%2Casc')
+        expect(reads[0].url.pathname).toBe(`${BASE}/instruments/${INSTRUMENT}`)
+        expect(json(posts[0])).toEqual({code: 'PT-05', name: 'Pértiga 5', kind: 'EARTHING_POLE'})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {serialNumber: null, calibratedOn: '2026-10-05', calibrationExpiresOn: null, notes: 'Revisada', version: 5}],
+            [MERGE_PATCH, {active: true, version: 6}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/instruments/${INSTRUMENT}`)
+        expect(instrumentPatch(instrument, {...instrument, name: ' Pértiga 1 '})).toBeNull()
+        expect(instrumentRevisionsPath(INSTRUMENT)).toBe(`${BASE}/instruments/${INSTRUMENT}/revisions`)
+        expect(INSTRUMENT_KIND.label(found.content[1].kind)).toBe('Desconocido')
+        expect(INSTRUMENT_KIND.parse(found.content[1].kind)).toBe('UNKNOWN')
+    })
+
+    it('el modelo dice la habilitación de su conductor: en el alta solo si se elige, al modificar por su id, y vaciarla viaja a null', async () => {
+        useToken()
+        const MODEL = '7b8c9d0e-0000-4000-8000-000000000001'
+        const RR = '6a7b8c9d-0000-4000-8000-000000000004'
+        const model = {id: MODEL, code: 'UNIMOG-RR', name: 'Unimog bivial', mobility: 'ROAD_RAIL', category: 'ROAD_RAIL_TRUCK', selfPropelled: true,
+            portable: false, railGearType: 'RAIL_WHEEL_DRIVE', capabilities: [], version: 4,
+            requiredDriverQualification: {id: RR, code: 'RR-OPERATOR', name: 'Road-rail machine operator', kind: 'VEHICLE_OPERATION'}}
+        const posts = record('post', `${BASE}/vehicle-types`, () => HttpResponse.json(model, {status: 201}))
+        const base = {code: 'VAN-1', name: 'Furgoneta', mobility: 'ROAD_ONLY', category: 'VAN', selfPropelled: true, capabilities: []}
+
+        await createVehicleType(newVehicleTypeRequest({...base, requiredDriverQualificationTypeId: RR}))
+        await createVehicleType(newVehicleTypeRequest({...base, requiredDriverQualificationTypeId: null}))
+
+        expect(posts.map((request) => json(request).requiredDriverQualificationTypeId)).toEqual([RR, undefined])
+        const same = {...model, requiredDriverQualificationTypeId: RR}
+        expect(vehicleTypePatch(model, same)).toBeNull()
+        expect(vehicleTypePatch(model, {...same, requiredDriverQualificationTypeId: TYPE})).toEqual({requiredDriverQualificationTypeId: TYPE, version: 4})
+        expect(vehicleTypePatch(model, {...same, requiredDriverQualificationTypeId: null})).toEqual({requiredDriverQualificationTypeId: null, version: 4})
+        expect(vehicleTypePatch({...model, requiredDriverQualification: null}, {...same, requiredDriverQualificationTypeId: ''})).toBeNull()
     })
 
     it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {

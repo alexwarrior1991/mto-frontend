@@ -22,11 +22,13 @@ import {maintenancePath} from './values.js'
  *   (409 SHF-001 si no): asignar es una llamada por tarea, para que el servicio compruebe cada una.
  *   Un aislador o un seccionador que une dos vías está en las dos (`connectedTrackId`): vale un turno
  *   de cualquiera, y la búsqueda admite varias vías (`trackId` repetido) para pedirlos de una vez.
- * - La dotación (jefe, supervisor, linemen) y los vehículos son de mto-resources y viajan por sus ids;
- *   linemen y vehículos son conjuntos, y quitarlos todos viaja a null. En el alta, lo que no se dice lo
- *   copia el servicio de un equipo de mto-resources. Sin resources-read no viajan: no se pueden elegir.
- *   Las demás reglas (de 2 a 6 linemen para iniciar, las plazas, el remolque, una persona o un vehículo
- *   en otro turno del día) las dice el servicio con 409 SHF-001.
+ * - La dotación (jefe, supervisor, linemen), los vehículos y los instrumentos son de mto-resources y
+ *   viajan por sus ids; linemen, vehículos e instrumentos son conjuntos, y quitarlos todos viaja a null.
+ *   En el alta, lo que no se dice de la dotación y los vehículos lo copia el servicio de un equipo de
+ *   mto-resources. Sin resources-read no viajan: no se pueden elegir. Las demás reglas (de 2 a 6
+ *   linemen para iniciar, las plazas, el remolque, una persona o un vehículo en otro turno del día, nada
+ *   caducado a la fecha del turno, un conductor habilitado distinto por vehículo al iniciar) las dice el
+ *   servicio con 409 SHF-001; un instrumento que aún no ha llegado allí por evento es un 404 MSI-404.
  * - Al cerrar, cada vehículo dice dónde se deja (`parkings`): un sitio de mto-resources, una vía y su
  *   kp, o un texto. Solo viaja lo rellenado; sin nada, vale el estacionamiento del turno.
  */
@@ -141,16 +143,18 @@ export function shiftFormValues(shift, {today = null} = {}) {
         supervisorPersonId: shift?.supervisor?.id ?? null,
         linemanPersonIds: (shift?.linemen ?? []).map((person) => person.id),
         vehicleIds: (shift?.vehicles ?? []).map((vehicle) => vehicle.vehicleId),
+        instrumentIds: (shift?.instruments ?? []).map((instrument) => instrument.id),
     }
 }
 
-/** La dotación y los vehículos del formulario, por sus ids. */
+/** La dotación, los vehículos y los instrumentos del formulario, por sus ids. */
 function crewValues(values) {
     return {
         teamLeaderPersonId: values.teamLeaderPersonId || null,
         supervisorPersonId: values.supervisorPersonId || null,
         linemanPersonIds: values.linemanPersonIds ?? [],
         vehicleIds: values.vehicleIds ?? [],
+        instrumentIds: values.instrumentIds ?? [],
     }
 }
 
@@ -183,7 +187,8 @@ function requestValues(values) {
 
 /**
  * El alta: lo vacío no viaja. Sin base ni vehículo, el servicio pone los del equipo, y con un equipo de
- * mto-resources también la dotación y los vehículos que no se digan. Sin resources-read no viajan.
+ * mto-resources también la dotación y los vehículos que no se digan. Sin resources-read no viajan, ni
+ * los instrumentos.
  */
 export function shiftRequest(values, {readsResources = false} = {}) {
     const request = requestValues(values)
@@ -192,7 +197,8 @@ export function shiftRequest(values, {readsResources = false} = {}) {
         ...request,
         blockingDisconnectorIds: nonEmpty(request.blockingDisconnectorIds),
         ...(readsResources
-            ? {...crew, linemanPersonIds: nonEmpty(crew.linemanPersonIds), vehicleIds: nonEmpty(crew.vehicleIds)}
+            ? {...crew, linemanPersonIds: nonEmpty(crew.linemanPersonIds), vehicleIds: nonEmpty(crew.vehicleIds),
+                instrumentIds: nonEmpty(crew.instrumentIds)}
             : {}),
     })
 }
@@ -200,12 +206,12 @@ export function shiftRequest(values, {readsResources = false} = {}) {
 const PATCHABLE = Object.freeze(['shiftDate', 'teamId', 'baseName', 'vehicle', 'possessionType', 'plannedStart', 'plannedEnd',
     'blockingDisconnectorIds', 'earthingPoints', 'parkingPlace', 'executionPackageId', 'trackIds', 'startKp', 'endKp', 'personnel',
     'measurementEquipment', 'observations'])
-const CREW = Object.freeze(['teamLeaderPersonId', 'supervisorPersonId', 'linemanPersonIds', 'vehicleIds'])
+const CREW = Object.freeze(['teamLeaderPersonId', 'supervisorPersonId', 'linemanPersonIds', 'vehicleIds', 'instrumentIds'])
 
 /**
- * Lo que cambió de un turno, lo vaciado y su versión, o null si nada. Vías, seccionadores, linemen y
- * vehículos se comparan como conjunto, y los instantes como instantes: el servicio los devuelve sin
- * milisegundos. Sin resources-read la dotación y los vehículos no viajan.
+ * Lo que cambió de un turno, lo vaciado y su versión, o null si nada. Vías, seccionadores, linemen,
+ * vehículos e instrumentos se comparan como conjunto, y los instantes como instantes: el servicio los
+ * devuelve sin milisegundos. Sin resources-read la dotación, los vehículos y los instrumentos no viajan.
  */
 export function shiftPatch(original, values, {readsResources = false} = {}) {
     return buildMergePatch({
@@ -218,18 +224,19 @@ export function shiftPatch(original, values, {readsResources = false} = {}) {
     }, {...requestValues(values), ...crewValues(values)}, {
         fields: readsResources ? [...PATCHABLE, ...CREW] : PATCHABLE,
         numberFields: ['startKp', 'endKp', 'executionPackageId'],
-        setFields: ['blockingDisconnectorIds', 'trackIds', 'linemanPersonIds', 'vehicleIds'],
+        setFields: ['blockingDisconnectorIds', 'trackIds', 'linemanPersonIds', 'vehicleIds', 'instrumentIds'],
         version: original.version,
     })
 }
 
-/** La dotación y los vehículos de un turno en una línea, para quien no puede elegirlos. */
+/** La dotación, los vehículos y los instrumentos de un turno en una línea, para quien no puede elegirlos. */
 export function crewText(shift) {
-    const people = (list) => (list.length === 0 ? '-' : list.map(personLabel).join(', '))
+    const named = (list, label) => (list.length === 0 ? '-' : list.map(label).join(', '))
     return [`Jefe: ${shift?.teamLeader ? personLabel(shift.teamLeader) : '-'}`,
         `Supervisor: ${shift?.supervisor ? personLabel(shift.supervisor) : '-'}`,
-        `Linemen: ${people(shift?.linemen ?? [])}`,
-        `Vehículos: ${(shift?.vehicles ?? []).length === 0 ? '-' : shift.vehicles.map(unitLabel).join(', ')}`].join(' · ')
+        `Linemen: ${named(shift?.linemen ?? [], personLabel)}`,
+        `Vehículos: ${named(shift?.vehicles ?? [], unitLabel)}`,
+        `Instrumentos: ${named(shift?.instruments ?? [], unitLabel)}`].join(' · ')
 }
 
 /** Las filas de dónde se deja cada vehículo del turno al cerrarlo, vacías. */

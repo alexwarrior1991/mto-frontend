@@ -78,6 +78,18 @@ function notFoundMessage(error) {
             return 'Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'
         case 'FLT-404':
             return 'Ese vehículo aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'
+        case 'MSI-404':
+            return 'Ese instrumento aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'
+        // mto-resources: una cualificación o un documento que otra persona acaba de quitar, o un tipo o un
+        // instrumento que no existe. Recargar lo enseña como está.
+        case 'QUA-404':
+            return 'Esa cualificación ya no existe: puede que otra persona la haya quitado.'
+        case 'VDO-404':
+            return 'Ese documento ya no existe: puede que otra persona lo haya quitado.'
+        case 'QTY-404':
+            return 'Ese tipo de cualificación no existe.'
+        case 'INT-404':
+            return 'Ese instrumento no existe.'
         // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
         case 'NTF-404':
             return 'Esa notificación ya no existe o no va dirigida a ti.'
@@ -151,6 +163,16 @@ function conflictMessage(error) {
         case 'VTY-409':
         case 'PRK-409':
             return 'Ya existe otro con ese valor (código, usuario, número de empleado, matrícula o número ferroviario).' + detail(error)
+        // mto-resources: el código de un tipo de cualificación o de un instrumento. Recargar no lo arregla.
+        case 'QTY-409':
+        case 'INT-409':
+            return 'Ya existe otro con ese código.'
+        // mto-resources: una persona tiene cada tipo de cualificación una vez, y un vehículo cada tipo de
+        // documento: renovarlo es cambiar su caducidad. Recargar no lo arregla.
+        case 'QUA-001':
+            return 'La persona ya tiene esa cualificación (renovarla es cambiar su caducidad), o el tipo está retirado.' + detail(error)
+        case 'VDO-409':
+            return 'El vehículo ya tiene un documento de ese tipo: renovarlo es cambiar su caducidad.' + detail(error)
         // mto-resources: las reglas del organigrama (de 2 a 6 linemen, el nivel del padre, la categoria
         // del jefe, una persona en otro equipo) y las de la flota (donde puede estar un vehiculo segun su
         // movilidad, el remolque, un vehiculo retirado). El detalle dice cual.

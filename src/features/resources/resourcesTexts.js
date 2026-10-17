@@ -1,4 +1,5 @@
 import {
+    INSTRUMENT_KIND,
     LOCATION_KIND,
     LOCATION_SOURCE,
     PERSON_CATEGORY,
@@ -9,8 +10,8 @@ import {
     VEHICLE_STATUS,
     WORK_DISCIPLINE,
 } from '../../api/resources/enums.js'
-import {formatDateTime} from '../../ui/format.js'
-import {personLabel} from '../../api/resources/values.js'
+import {expiryState, personLabel} from '../../api/resources/values.js'
+import {formatDate, formatDateTime} from '../../ui/format.js'
 
 /**
  * Los textos del módulo de recursos: cómo se cuentan las filas, cómo se dicen el empleo y el estado de
@@ -33,6 +34,10 @@ export function employerText(person) {
 export function personState(person) {
     return person?.active === true ? 'Activa' : 'Inactiva'
 }
+
+/** Lo que dice la confirmación de desactivar una persona, en la lista y en su ficha. */
+export const DEACTIVATE_PERSON_TEXT = 'No se borra: deja de poder entrar en equipos y turnos nuevos. Si es lineman de un equipo, sale de él hoy, '
+    + 'salvo que lo dejara con menos de 2. Quien dirige una unidad necesita antes otro jefe. Se puede reactivar.'
 
 export function describePerson(person) {
     return join(person.fullName, PERSON_CATEGORY.label(person.category), employerText(person), person.username,
@@ -126,3 +131,52 @@ export function describeVehicle(vehicle) {
 /** Lo que dice la confirmación de retirar un vehículo, en la lista y en su ficha. */
 export const RETIRE_VEHICLE_TEXT = 'No se borra: sus ubicaciones y los turnos lo siguen nombrando, y deja de ofrecerse en los turnos nuevos. Si '
     + 'es el vehículo por defecto de un equipo, el servicio no lo deja: cámbialo antes en el organigrama. Se puede reactivar.'
+
+/**
+ * Cómo está una caducidad, en una palabra: «Caducada» (o «Caducado», un documento), «Caduca hoy»,
+ * «Caduca en N días» si faltan 30 o menos, o «Vigente»; sin fecha, lo que diga none («No caduca», «Sin
+ * calibración»). Si el servicio dice si está caducada (expired), manda él.
+ *
+ * @param {string|null} expiresOn YYYY-MM-DD
+ * @param {object} [options]
+ * @param {boolean|null} [options.expired] lo que dice el servicio
+ * @param {string} [options.today] YYYY-MM-DD; hoy si no se dice
+ * @param {string} [options.none] el texto sin fecha
+ * @param {string} [options.expiredLabel] el texto de lo caducado
+ */
+export function expiryText(expiresOn, {expired = null, today, none = 'No caduca', expiredLabel = 'Caducada'} = {}) {
+    const {state, daysLeft} = expiryState(expiresOn, {expired, today})
+    switch (state) {
+        case 'EXPIRED':
+            return expiredLabel
+        case 'EXPIRING':
+            return daysLeft === 0 ? 'Caduca hoy' : `Caduca en ${countText(daysLeft, 'día', 'días')}`
+        case 'VALID':
+            return 'Vigente'
+        default:
+            return none
+    }
+}
+
+/** El color de su estado: rojo lo caducado, naranja lo que caduca pronto, verde lo vigente. */
+export function expiryColor(expiresOn, {expired = null, today} = {}) {
+    const {state} = expiryState(expiresOn, {expired, today})
+    return {EXPIRED: 'red', EXPIRING: 'orange', VALID: 'green'}[state] ?? 'gray'
+}
+
+export function instrumentState(instrument) {
+    return instrument?.active === true ? 'Activo' : 'Retirado'
+}
+
+/** Cómo quedó un instrumento en una revisión. */
+export function describeInstrument(instrument) {
+    return join(instrument.name, INSTRUMENT_KIND.label(instrument.kind), instrument.serialNumber ? `n.º ${instrument.serialNumber}` : null,
+        instrument.calibrationExpiresOn ? `calibrado hasta el ${formatDate(instrument.calibrationExpiresOn)}` : 'sin calibración',
+        instrumentState(instrument).toLowerCase())
+}
+
+/** Un instrumento de un turno: «PT-01 · Pértiga 1 (calibración hasta 31/03/2027)». */
+export function shiftInstrumentText(instrument) {
+    const name = instrument.name?.trim() ? `${instrument.code} · ${instrument.name}` : instrument.code
+    return instrument.calibrationExpiresOn ? `${name} (calibración hasta ${formatDate(instrument.calibrationExpiresOn)})` : name
+}

@@ -36,6 +36,7 @@
     "mantenimiento/tipos-de-tarea",
     "mantenimiento/plantillas",
     "recursos/personal",
+    "recursos/personal/:personId",
     "recursos/organigrama",
     "recursos/organigrama/:unitId",
     "recursos/flota",
@@ -43,6 +44,8 @@
     "recursos/flota/tablero",
     "recursos/flota/modelos",
     "recursos/flota/aparcamientos",
+    "recursos/cualificaciones",
+    "recursos/instrumentos",
     "notificaciones",
     "actividad",
     "actividad/accesos"

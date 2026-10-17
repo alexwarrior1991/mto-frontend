@@ -54,9 +54,64 @@ function sorted(rows, url) {
     })
 }
 
-/** El mto-resources simulado: busca, filtra por categoría repetida y por estado, ordena y pagina. */
-function serveResources({people = []} = {}) {
+/** Una fecha a N días de hoy: como se escribe (DD/MM/AAAA) y como viaja (YYYY-MM-DD). */
+function daysFromToday(days) {
+    const date = new Date()
+    date.setDate(date.getDate() + days)
+    const pad = (value) => String(value).padStart(2, '0')
+    return {typed: `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`,
+        iso: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`}
+}
+
+/**
+ * El mto-resources simulado: busca, filtra por categoría repetida y por estado, ordena y pagina. También
+ * la ficha de cada persona con sus cualificaciones, el catálogo de tipos y los instrumentos, con sus
+ * filtros; qualifications y documents se pueden cambiar en mitad de un caso.
+ */
+function serveResources({people = [], qualificationTypes = [], qualifications = {}, instruments = []} = {}) {
     const requests = []
+    server.use(
+        http.get(`${BASE}/people/:id/qualifications`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(qualifications[params.id] ?? [])
+        }),
+        http.get(`${BASE}/people/:id`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            const found = people.find((row) => row.id === params.id)
+            return found ? HttpResponse.json(found) : resourcesError(404, 'PER-404', 'Person not found')
+        }),
+        http.get(`${BASE}/qualification-types`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            const search = url.searchParams.get('search')?.toLowerCase()
+            const kind = url.searchParams.get('kind')
+            const active = url.searchParams.get('active')
+            const rows = qualificationTypes.filter((row) => (!search || `${row.code} ${row.name}`.toLowerCase().includes(search))
+                && (!kind || row.kind === kind) && (active === null || String(row.active) === active))
+            return HttpResponse.json(pageOf(sorted(rows, url), url))
+        }),
+        http.get(`${BASE}/instruments/:id/revisions`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            const found = instruments.find((row) => row.id === params.id)
+            return HttpResponse.json(pageOf([{
+                revision: {revision: 2, revisionAt: '2026-10-16T06:00:00Z', operation: 'UPDATED', author: 'recursos.gestor', source: 'HTTP',
+                    correlationId: 'c-2'},
+                entity: found,
+            }], new URL(request.url)))
+        }),
+        http.get(`${BASE}/instruments`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            const search = url.searchParams.get('search')?.toLowerCase()
+            const kind = url.searchParams.get('kind')
+            const active = url.searchParams.get('active')
+            const before = url.searchParams.get('calibrationExpiresBefore')
+            const rows = instruments.filter((row) => (!search || `${row.code} ${row.name}`.toLowerCase().includes(search))
+                && (!kind || row.kind === kind) && (active === null || String(row.active) === active)
+                && (!before || (row.calibrationExpiresOn !== null && row.calibrationExpiresOn < before)))
+            return HttpResponse.json(pageOf(sorted(rows, url), url))
+        }),
+    )
     server.use(
         http.get(`${BASE}/people`, ({request}) => {
             const url = new URL(request.url)
@@ -156,7 +211,8 @@ describe('el menú y las rutas', () => {
         expect(resources.children.map((child) => [child.label, child.path])).toEqual([['Personal', '/recursos/personal'],
             ['Organigrama', '/recursos/organigrama'], ['Vehículos', '/recursos/flota'], ['Tablero de la flota', '/recursos/flota/tablero'],
             ['Modelos de vehículo', '/recursos/flota/modelos'],
-            ['Sitios de aparcamiento', '/recursos/flota/aparcamientos']])
+            ['Sitios de aparcamiento', '/recursos/flota/aparcamientos'], ['Tipos de cualificación', '/recursos/cualificaciones'],
+            ['Instrumentos', '/recursos/instrumentos']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
     })
@@ -197,7 +253,7 @@ describe('el personal', () => {
         await waitFor(() => expect(firstColumn('Personal')).toEqual(['PER-000003']))
 
         expect(screen.queryByRole('button', {name: 'Nueva persona'})).not.toBeInTheDocument()
-        expect(actionsOf(rowOf('Personal', 'PER-000003'))).toEqual(['Historial de PER-000003'])
+        expect(actionsOf(rowOf('Personal', 'PER-000003'))).toEqual(['Abrir PER-000003', 'Historial de PER-000003'])
     })
 
     it('el alta exige la empresa de una subcontrata antes de llamar, y un error del servicio cae en su campo con el diálogo abierto', async () => {
@@ -251,7 +307,7 @@ describe('el personal', () => {
         expect(writes.map((write) => [write.contentType, write.body])).toEqual([1, 2].map(() => [MERGE_PATCH,
             {category: 'SUPERVISOR', phone: null, version: 2}]))
 
-        await user.dblClick(within(rowOf('Personal', 'PER-000003')).getAllByRole('cell')[1])
+        await user.click(within(rowOf('Personal', 'PER-000003')).getByRole('button', {name: 'Modificar PER-000003'}))
         dialog = await screen.findByRole('dialog', {name: 'Modificar PER-000003 · Yossi Cohen'})
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -266,8 +322,10 @@ describe('el personal', () => {
         const patches = recordWrites('patch', `${BASE}/people/:id`, () => HttpResponse.json({...DANA, active: true}))
         const {user} = await open('/recursos/personal', loginAs('recursos.responsable'), 'Personal', 2)
 
-        expect(actionsOf(rowOf('Personal', 'PER-000003'))).toEqual(['Historial de PER-000003', 'Modificar PER-000003', 'Desactivar PER-000003'])
-        expect(actionsOf(rowOf('Personal', 'PER-000004'))).toEqual(['Historial de PER-000004', 'Modificar PER-000004', 'Reactivar PER-000004'])
+        expect(actionsOf(rowOf('Personal', 'PER-000003'))).toEqual(['Abrir PER-000003', 'Historial de PER-000003', 'Modificar PER-000003',
+            'Desactivar PER-000003'])
+        expect(actionsOf(rowOf('Personal', 'PER-000004'))).toEqual(['Abrir PER-000004', 'Historial de PER-000004', 'Modificar PER-000004',
+            'Reactivar PER-000004'])
 
         await user.click(within(rowOf('Personal', 'PER-000003')).getByRole('button', {name: 'Desactivar PER-000003'}))
         let confirm = await screen.findByRole('dialog', {name: 'Desactivar PER-000003 · Yossi Cohen'})
@@ -289,6 +347,197 @@ describe('el personal', () => {
         const history = await screen.findByRole('dialog', {name: /Historial de PER-000003/})
         expect(await within(history).findByText('Yossi Cohen · Supervisor · Propio · activa')).toBeInTheDocument()
         expect(requests.some((url) => url.pathname === `${BASE}/people/${PERSON1}/revisions`)).toBe(true)
+    })
+})
+
+const QTYPE_RAIL = '6a7b8c9d-0000-4000-8000-000000000001'
+const QTYPE_LIC_C = '6a7b8c9d-0000-4000-8000-000000000002'
+const QTYPE_HEIGHT = '6a7b8c9d-0000-4000-8000-000000000003'
+const QTYPE_RR = '6a7b8c9d-0000-4000-8000-000000000004'
+const QTYPE_OLD = '6a7b8c9d-0000-4000-8000-000000000005'
+
+function qualificationType(id, code, name, kind, extra = {}) {
+    return {id, code, name, kind, drivingLicence: null, validityMonths: null, description: null, active: true, version: 1, audit: null, ...extra}
+}
+
+const RAIL_DRIVER = qualificationType(QTYPE_RAIL, 'RAIL-DRIVER', 'Rail auxiliary vehicle driver', 'VEHICLE_OPERATION', {validityMonths: 60})
+const LIC_C = qualificationType(QTYPE_LIC_C, 'LIC-C', 'Driving licence C', 'DRIVING_LICENCE', {drivingLicence: 'C', validityMonths: 120, version: 3})
+const AT_HEIGHT = qualificationType(QTYPE_HEIGHT, 'ALTURA', 'Trabajos en altura', 'SAFETY')
+const RR_OPERATOR = qualificationType(QTYPE_RR, 'RR-OPERATOR', 'Road-rail machine operator', 'VEHICLE_OPERATION')
+const RETIRED_TYPE = qualificationType(QTYPE_OLD, 'OLD', 'Antigua', 'MEDICAL', {active: false})
+
+/** Una cualificación de Yossi, con el resumen de su tipo y lo que dice el servicio de su caducidad. */
+function heldQualification(n, type, {issuedOn = '2016-01-01', expiresOn = null, reference = null} = {}) {
+    return {
+        id: `7c8d9e0f-0000-4000-8000-00000000000${n}`, personId: PERSON1,
+        qualificationType: {id: type.id, code: type.code, name: type.name, kind: type.kind}, reference, issuedOn, expiresOn, notes: null,
+        expired: expiresOn !== null && expiresOn < daysFromToday(0).iso, version: 1, audit: null,
+    }
+}
+
+async function openPerson(session, heading = 'PER-000003 · Yossi Cohen', personId = PERSON1) {
+    const view = renderRoute(`/recursos/personal/${personId}`, {session})
+    expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument()
+    return view
+}
+
+describe('la ficha de una persona y sus cualificaciones', () => {
+    it('Personal la abre con su botón o con doble clic, y cada cualificación dice cómo está; quien solo lee no ve controles', async () => {
+        const expired = daysFromToday(-3)
+        const soon = daysFromToday(12)
+        const later = daysFromToday(400)
+        const requests = serveResources({people: [YOSSI, DANA], qualifications: {[PERSON1]: [
+            heldQualification(1, AT_HEIGHT, {expiresOn: null}),
+            heldQualification(2, LIC_C, {expiresOn: expired.iso, reference: 'C-1234'}),
+            heldQualification(3, RAIL_DRIVER, {issuedOn: '2026-03-31', expiresOn: later.iso}),
+            heldQualification(4, RR_OPERATOR, {issuedOn: '2026-03-31', expiresOn: soon.iso}),
+        ]}})
+        const {user} = await open('/recursos/personal', loginAs('recursos.lector'), 'Personal', 2)
+
+        await user.click(within(rowOf('Personal', 'PER-000003')).getByRole('button', {name: 'Abrir PER-000003'}))
+        expect(await screen.findByRole('heading', {name: 'PER-000003 · Yossi Cohen'})).toBeInTheDocument()
+        expect(screen.getByLabelText('Estado de la persona')).toHaveTextContent('Activa')
+        expect(screen.getByLabelText('Resumen de la persona')).toHaveTextContent('Empresa: Propio · Usuario: - · N.º empleado E-000003')
+        await waitFor(() => expect(firstColumn('Cualificaciones de PER-000003')).toHaveLength(4))
+        expect(dataRows('Cualificaciones de PER-000003').map(textsOf)).toEqual([
+            ['ALTURA · Trabajos en altura', 'Seguridad', '', '01/01/2016', '', 'No caduca'],
+            ['LIC-C · Driving licence C', 'Permiso de conducir', 'C-1234', '01/01/2016', expired.typed, 'Caducada'],
+            ['RAIL-DRIVER · Rail auxiliary vehicle driver', 'Habilitación de vehículo', '', '31/03/2026', later.typed, 'Vigente'],
+            ['RR-OPERATOR · Road-rail machine operator', 'Habilitación de vehículo', '', '31/03/2026', soon.typed, 'Caduca en 12 días'],
+        ])
+        expect(requests.some((url) => url.pathname === `${BASE}/people/${PERSON1}/qualifications`)).toBe(true)
+        for (const name of ['Añadir cualificación', 'Modificar', 'Desactivar', 'Reactivar']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+
+        await user.click(screen.getByRole('button', {name: 'Volver al personal'}))
+        await waitFor(() => expect(firstColumn('Personal')).toHaveLength(2))
+        await user.dblClick(within(rowOf('Personal', 'PER-000004')).getAllByRole('cell')[1])
+        expect(await screen.findByRole('heading', {name: 'PER-000004 · Dana Levi'})).toBeInTheDocument()
+        expect(await screen.findByText('No tiene cualificaciones.')).toBeInTheDocument()
+    })
+
+    it('añadir ofrece los tipos activos que aún no tiene, comprueba las fechas antes de llamar y deja el diálogo abierto con lo que dice el servicio', async () => {
+        const requests = serveResources({people: [YOSSI], qualificationTypes: [RAIL_DRIVER, LIC_C, AT_HEIGHT, RETIRED_TYPE],
+            qualifications: {[PERSON1]: [heldQualification(2, LIC_C, {expiresOn: daysFromToday(100).iso})]}})
+        const writes = recordWrites('post', `${BASE}/people/:id/qualifications`, (body, call) => {
+            if (call === 1) {
+                return resourcesError(409, 'QUA-001', 'PER-000003 already holds RAIL-DRIVER')
+            }
+            return call === 2
+                ? resourcesError(400, 'VAL-001', 'Validation failed', [{field: 'expiresOn', message: 'expiresOn must not be before issuedOn'}])
+                : HttpResponse.json(heldQualification(3, RAIL_DRIVER, {issuedOn: '2026-10-10', expiresOn: '2031-03-31'}), {status: 201})
+        })
+        const {user} = await openPerson(loginAs('recursos.gestor'))
+        await waitFor(() => expect(firstColumn('Cualificaciones de PER-000003')).toHaveLength(1))
+        // Quitar pide resources-delete, que el gestor no tiene.
+        expect(actionsOf(rowOf('Cualificaciones de PER-000003', 'Permiso de conducir'))).toEqual(['Modificar LIC-C'])
+
+        await user.click(screen.getByRole('button', {name: 'Añadir cualificación'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva cualificación de PER-000003 · Yossi Cohen'})
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El tipo es obligatorio')).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('combobox', {name: 'Tipo'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['ALTURA · Trabajos en altura', 'RAIL-DRIVER · Rail auxiliary vehicle driver'])
+        await user.click(screen.getByRole('option', {name: 'RAIL-DRIVER · Rail auxiliary vehicle driver'}))
+        expect(within(dialog).getByText('Vacía: no caduca. Vigencia habitual: 60 meses')).toBeInTheDocument()
+        await typeInto(user, dialog, 'Expedida', '10/10/2026')
+        await typeInto(user, dialog, 'Caduca', '01/10/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('La caducidad no puede ser anterior a la expedición')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Caduca', '31/03/2031')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('La persona ya tiene esa cualificación (renovarla es cambiar su caducidad), o el tipo está retirado. '
+            + 'PER-000003 already holds RAIL-DRIVER')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nueva cualificación de PER-000003 · Yossi Cohen'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('expiresOn must not be before issuedOn')).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2, 3].map(() => ({qualificationTypeId: QTYPE_RAIL, issuedOn: '2026-10-10',
+            expiresOn: '2031-03-31'})))
+        expect(requests.filter((url) => url.pathname === `${BASE}/people/${PERSON1}/qualifications`).length).toBeGreaterThan(1)
+    })
+
+    it('modificar manda lo cambiado y lo vaciado con la versión leída, y quitar pide resources-delete y confirmación', async () => {
+        serveResources({people: [YOSSI], qualifications: {[PERSON1]: [
+            heldQualification(2, LIC_C, {expiresOn: daysFromToday(100).iso}),
+            heldQualification(3, RAIL_DRIVER, {issuedOn: '2026-03-31', expiresOn: '2031-03-31', reference: 'RD-77'}),
+        ]}})
+        const patches = recordWrites('patch', `${BASE}/people/:id/qualifications/:qualificationId`, (body, call) => (call === 1
+            ? resourcesError(409, 'CON-001', 'Person qualification was changed by someone else')
+            : HttpResponse.json(heldQualification(3, RAIL_DRIVER))))
+        const deletes = recordWrites('delete', `${BASE}/people/:id/qualifications/:qualificationId`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await openPerson(loginAs('recursos.responsable'))
+        await waitFor(() => expect(firstColumn('Cualificaciones de PER-000003')).toHaveLength(2))
+        expect(actionsOf(rowOf('Cualificaciones de PER-000003', 'RD-77'))).toEqual(['Modificar RAIL-DRIVER', 'Quitar RAIL-DRIVER'])
+
+        await user.click(screen.getByRole('button', {name: 'Modificar RAIL-DRIVER'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar RAIL-DRIVER de PER-000003 · Yossi Cohen'})
+        const type = within(dialog).getByRole('textbox', {name: 'Tipo'})
+        expect(type).toHaveValue('RAIL-DRIVER · Rail auxiliary vehicle driver')
+        expect(type).toHaveAttribute('readonly')
+        await typeInto(user, dialog, 'Referencia', '')
+        await typeInto(user, dialog, 'Caduca', '31/03/2032')
+        await user.click(within(dialog).getByRole('textbox', {name: 'Notas'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Conflicto con otro cambio: recarga y vuelve a intentarlo.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar RAIL-DRIVER de PER-000003 · Yossi Cohen'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(patches.map((write) => [write.contentType, write.params.qualificationId, write.body])).toEqual([1, 2].map(() => [MERGE_PATCH,
+            '7c8d9e0f-0000-4000-8000-000000000003', {reference: null, expiresOn: '2032-03-31', version: 1}]))
+
+        await user.click(screen.getByRole('button', {name: 'Quitar LIC-C'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Quitar LIC-C de PER-000003 · Yossi Cohen'})
+        expect(confirm).toHaveTextContent('renovarla es cambiar su caducidad')
+        expect(deletes).toHaveLength(0)
+        await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
+        expect(await screen.findByText('Quitada LIC-C de PER-000003')).toBeInTheDocument()
+        expect(deletes.map((write) => [write.params.id, write.params.qualificationId])).toEqual([[PERSON1, '7c8d9e0f-0000-4000-8000-000000000002']])
+    })
+
+    it('la ficha modifica y desactiva como la lista, y reactiva una persona inactiva', async () => {
+        serveResources({people: [YOSSI, DANA]})
+        const patches = recordWrites('patch', `${BASE}/people/:id`, () => HttpResponse.json(YOSSI))
+        const deletes = recordWrites('delete', `${BASE}/people/:id`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await openPerson(loginAs('recursos.responsable'))
+        expect(screen.queryByRole('button', {name: 'Reactivar'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar PER-000003 · Yossi Cohen'})
+        await typeInto(user, dialog, 'Teléfono', '+972 50 111 1111')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{phone: '+972 50 111 1111', version: 2}]))
+
+        await user.click(screen.getByRole('button', {name: 'Desactivar'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Desactivar PER-000003 · Yossi Cohen'})
+        expect(confirm).toHaveTextContent('Quien dirige una unidad necesita antes otro jefe.')
+        await user.click(within(confirm).getByRole('button', {name: 'Desactivar'}))
+        expect(await screen.findByText('Desactivada PER-000003 · Yossi Cohen')).toBeInTheDocument()
+        expect(deletes.map((write) => write.params.id)).toEqual([PERSON1])
+    })
+
+    it('una persona inactiva se reactiva desde su ficha con la versión leída', async () => {
+        serveResources({people: [YOSSI, DANA]})
+        const patches = recordWrites('patch', `${BASE}/people/:id`, () => HttpResponse.json({...DANA, active: true}))
+        const {user} = await openPerson(loginAs('recursos.responsable'), 'PER-000004 · Dana Levi', PERSON2)
+        expect(screen.getByLabelText('Estado de la persona')).toHaveTextContent('Inactiva')
+        expect(screen.queryByRole('button', {name: 'Desactivar'})).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Reactivar'}))
+        expect(await screen.findByText('Reactivada PER-000004 · Dana Levi')).toBeInTheDocument()
+        expect(patches.map((write) => [write.params.id, write.body])).toEqual([[PERSON2, {active: true, version: 2}]])
+    })
+
+    it('una persona que no existe se dice y vuelve al personal', async () => {
+        serveResources({people: [YOSSI]})
+        const missing = '3c4d5e6f-0000-4000-8000-0000000000ff'
+        renderRoute(`/recursos/personal/${missing}`, {session: loginAs('recursos.lector')})
+        expect(await screen.findByText(`No existe la persona ${missing}`)).toBeInTheDocument()
+        expect(await screen.findByRole('table', {name: 'Personal'})).toBeInTheDocument()
     })
 })
 
@@ -716,9 +965,9 @@ function siding(extra = {}) {
     }
 }
 
-/** Los catálogos de la flota simulados, y los nombres de mto-configuration (EP, vías y estaciones). */
-function serveFleetCatalogues({types = [], sites = []} = {}) {
-    const requests = serveResources()
+/** Los catálogos de la flota simulados, con los tipos de cualificación, y los nombres de mto-configuration (EP, vías y estaciones). */
+function serveFleetCatalogues({types = [], sites = [], qualificationTypes = []} = {}) {
+    const requests = serveResources({qualificationTypes})
     server.use(
         http.get(`${BASE}/vehicle-types`, ({request}) => {
             const url = new URL(request.url)
@@ -856,6 +1105,49 @@ describe('los modelos de vehículo', () => {
         await user.click(within(rowOf('Modelos de vehículo', 'UNIMOG-RR')).getByRole('button', {name: 'Volver a ofrecer UNIMOG-RR'}))
         await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{active: true, version: 4}]))
     })
+
+    it('la habilitación del conductor se elige entre los tipos activos y viaja por su id; vaciarla viaja a null, y en el alta vacía no viaja', async () => {
+        const requests = serveFleetCatalogues({types: [unimog({requiredDriverQualification: {id: QTYPE_OLD, code: 'OLD', name: 'Antigua',
+            kind: 'VEHICLE_OPERATION'}})], qualificationTypes: [RAIL_DRIVER, RR_OPERATOR, RETIRED_TYPE]})
+        const patches = recordWrites('patch', `${BASE}/vehicle-types/:id`, () => HttpResponse.json(unimog()))
+        const posts = recordWrites('post', `${BASE}/vehicle-types`, () => HttpResponse.json(dresina(), {status: 201}))
+        const {user} = await open('/recursos/flota/modelos', loginAs('recursos.gestor'), 'Modelos de vehículo', 1)
+
+        await user.click(within(rowOf('Modelos de vehículo', 'UNIMOG-RR')).getByRole('button', {name: 'Modificar UNIMOG-RR'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Modificar UNIMOG-RR · Unimog bivial'})
+        const driver = within(dialog).getByRole('combobox', {name: 'Habilitación del conductor'})
+        // La leída se ve aunque ya no esté entre las activas: si no, el campo la leería vacía.
+        await waitFor(() => expect(driver).toHaveValue('OLD · Antigua'))
+        const search = requests.filter((url) => url.pathname === `${BASE}/qualification-types`).at(-1)
+        expect(search.search).toBe('?active=true&page=0&size=200&sort=code%2Casc&sort=id%2Casc')
+        await user.click(driver)
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['OLD · Antigua',
+            'RAIL-DRIVER · Rail auxiliary vehicle driver', 'RR-OPERATOR · Road-rail machine operator'])
+        await user.click(screen.getByRole('option', {name: 'RR-OPERATOR · Road-rail machine operator'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(within(rowOf('Modelos de vehículo', 'UNIMOG-RR')).getByRole('button', {name: 'Modificar UNIMOG-RR'}))
+        dialog = await screen.findByRole('dialog', {name: 'Modificar UNIMOG-RR · Unimog bivial'})
+        expect(within(dialog).getByText('Vacía: no exige ninguna')).toBeInTheDocument()
+        await waitFor(() => expect(within(dialog).getByRole('combobox', {name: 'Habilitación del conductor'})).toHaveValue('OLD · Antigua'))
+        await user.click(within(dialog).getByLabelText('Quitar la habilitación del conductor'))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(2))
+        expect(patches.map((write) => write.body)).toEqual([{requiredDriverQualificationTypeId: QTYPE_RR, version: 4},
+            {requiredDriverQualificationTypeId: null, version: 4}])
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo modelo'}))
+        dialog = await screen.findByRole('dialog', {name: 'Nuevo modelo de vehículo'})
+        expect(within(dialog).getByText('Vacía: la de su movilidad y su permiso')).toBeInTheDocument()
+        await typeInto(user, dialog, 'Código', 'DIC-30')
+        await typeInto(user, dialog, 'Nombre', 'Plasser DIC-30')
+        await choose(user, dialog, 'Movilidad', 'Solo vía')
+        await choose(user, dialog, 'Categoría', 'Dresina de catenaria')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts).toHaveLength(1))
+        expect(posts[0].body).not.toHaveProperty('requiredDriverQualificationTypeId')
+    })
 })
 
 describe('los sitios de aparcamiento', () => {
@@ -940,9 +1232,15 @@ function vehicle(id, code, type, position, active = true, extra = {}) {
     }
 }
 
-/** La flota simulada: los vehículos, cada uno por su id, sus ubicaciones y los sitios, con los catálogos y los nombres. */
-function serveVehicles({vehicles = [], locations = [], types = [], sites = []} = {}) {
+/** La flota simulada: los vehículos, cada uno por su id, sus ubicaciones, sus documentos y los sitios, con los catálogos y los nombres. */
+function serveVehicles({vehicles = [], locations = [], types = [], sites = [], documents = {}} = {}) {
     const requests = serveFleetCatalogues({types, sites})
+    server.use(
+        http.get(`${BASE}/vehicles/:id/documents`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(documents[params.id] ?? [])
+        }),
+    )
     server.use(
         http.get(`${BASE}/vehicles/:id/locations`, ({request}) => {
             const url = new URL(request.url)
@@ -1212,5 +1510,288 @@ describe('el vehículo por defecto de un equipo', () => {
         await user.click(screen.getByRole('button', {name: 'Modificar'}))
         const dialog = await screen.findByRole('dialog', {name: 'Modificar SUP-N · Supervisión norte'})
         expect(within(dialog).queryByRole('combobox', {name: 'Vehículo por defecto'})).not.toBeInTheDocument()
+    })
+})
+
+describe('los tipos de cualificación', () => {
+    it('se filtran en el servicio, la clase desconocida se dice «Desconocido», y quien solo lee no ve controles', async () => {
+        const requests = serveResources({qualificationTypes: [RAIL_DRIVER, LIC_C, AT_HEIGHT, RETIRED_TYPE]})
+        const {user} = await open('/recursos/cualificaciones', loginAs('recursos.lector'), 'Tipos de cualificación', 4)
+        const lists = () => requests.filter((url) => url.pathname === `${BASE}/qualification-types`)
+
+        expect(dataRows('Tipos de cualificación').map(textsOf)).toEqual([
+            ['ALTURA', 'Trabajos en altura', 'Seguridad', '', '', 'Activo', ''],
+            ['LIC-C', 'Driving licence C', 'Permiso de conducir', 'C', '120 meses', 'Activo', ''],
+            ['OLD', 'Antigua', 'Desconocido', '', '', 'Retirado', ''],
+            ['RAIL-DRIVER', 'Rail auxiliary vehicle driver', 'Habilitación de vehículo', '', '60 meses', 'Activo', ''],
+        ])
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+
+        await typeInto(user, document.body, 'Buscar', 'licence')
+        await choose(user, document.body, 'Clase', 'Permiso de conducir')
+        await choose(user, document.body, 'Estado', 'Activos')
+        await waitFor(() => expect([lists().at(-1).searchParams.get('search'), lists().at(-1).searchParams.get('kind'),
+            lists().at(-1).searchParams.get('active')]).toEqual(['licence', 'DRIVING_LICENCE', 'true']))
+        await waitFor(() => expect(firstColumn('Tipos de cualificación')).toEqual(['LIC-C']))
+        expect(screen.queryByRole('button', {name: 'Nuevo tipo'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Tipos de cualificación', 'LIC-C'))).toEqual([])
+    })
+
+    it('el alta pide el permiso solo en un permiso de conducir, comprueba la vigencia antes de llamar, y un código repetido deja el diálogo abierto', async () => {
+        serveResources()
+        const writes = recordWrites('post', `${BASE}/qualification-types`, (body, call) => (call === 1
+            ? resourcesError(409, 'QTY-409', 'Qualification type LIC-D already exists')
+            : HttpResponse.json(qualificationType('nuevo', 'LIC-D', 'Driving licence D', 'DRIVING_LICENCE'), {status: 201})))
+        const {user} = await open('/recursos/cualificaciones', loginAs('recursos.gestor'), 'Tipos de cualificación', 0)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo tipo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo tipo de cualificación'})
+        await typeInto(user, dialog, 'Código', 'LIC-D')
+        await typeInto(user, dialog, 'Nombre', 'Driving licence D')
+        await choose(user, dialog, 'Clase', 'Seguridad')
+        expect(within(dialog).queryByRole('combobox', {name: 'Permiso de conducir'})).not.toBeInTheDocument()
+        await choose(user, dialog, 'Clase', 'Permiso de conducir')
+        await typeInto(user, dialog, 'Vigencia habitual (meses)', '0')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Un permiso de conducir dice cuál')).toBeInTheDocument()
+        expect(within(dialog).getByText('Como mínimo 1')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await choose(user, dialog, 'Permiso de conducir', 'C+E')
+        await typeInto(user, dialog, 'Vigencia habitual (meses)', '120')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Ya existe otro con ese código.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nuevo tipo de cualificación'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({code: 'LIC-D', name: 'Driving licence D', kind: 'DRIVING_LICENCE',
+            drivingLicence: 'C_E', validityMonths: 120})))
+    })
+
+    it('modificar a otra clase vacía el permiso, y la vigencia vaciada viaja a null con la versión; retirar pide confirmación y volver a ofrecerlo es un PATCH', async () => {
+        serveResources({qualificationTypes: [LIC_C, RETIRED_TYPE]})
+        const patches = recordWrites('patch', `${BASE}/qualification-types/:id`, () => HttpResponse.json(LIC_C))
+        const deletes = recordWrites('delete', `${BASE}/qualification-types/:id`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await open('/recursos/cualificaciones', loginAs('recursos.responsable'), 'Tipos de cualificación', 2)
+
+        expect(actionsOf(rowOf('Tipos de cualificación', 'LIC-C'))).toEqual(['Modificar LIC-C', 'Retirar LIC-C'])
+        expect(actionsOf(rowOf('Tipos de cualificación', 'OLD'))).toEqual(['Modificar OLD', 'Volver a ofrecer OLD'])
+        await user.dblClick(within(rowOf('Tipos de cualificación', 'LIC-C')).getAllByRole('cell')[1])
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar LIC-C · Driving licence C'})
+        expect(within(dialog).getByRole('textbox', {name: 'Código'})).toHaveAttribute('readonly')
+        expect(within(dialog).getByRole('combobox', {name: 'Permiso de conducir'})).toHaveValue('C')
+        await choose(user, dialog, 'Clase', 'Habilitación de vehículo')
+        expect(within(dialog).queryByRole('combobox', {name: 'Permiso de conducir'})).not.toBeInTheDocument()
+        await typeInto(user, dialog, 'Vigencia habitual (meses)', '')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH,
+            body: {kind: 'VEHICLE_OPERATION', drivingLicence: null, validityMonths: null, version: 3}})
+
+        await user.click(within(rowOf('Tipos de cualificación', 'LIC-C')).getByRole('button', {name: 'Retirar LIC-C'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Retirar LIC-C · Driving licence C'})
+        expect(confirm).toHaveTextContent('quien ya lo tiene lo conserva')
+        await user.click(within(confirm).getByRole('button', {name: 'Retirar'}))
+        await waitFor(() => expect(deletes.map((write) => write.params.id)).toEqual([QTYPE_LIC_C]))
+
+        await user.click(within(rowOf('Tipos de cualificación', 'OLD')).getByRole('button', {name: 'Volver a ofrecer OLD'}))
+        await waitFor(() => expect(patches.map((write) => write.body).at(-1)).toEqual({active: true, version: 1}))
+    })
+})
+
+const INSTRUMENT1 = 'ab0c1d2e-0000-4000-8000-000000000001'
+const INSTRUMENT2 = 'ab0c1d2e-0000-4000-8000-000000000002'
+const INSTRUMENT3 = 'ab0c1d2e-0000-4000-8000-000000000003'
+const INSTRUMENT4 = 'ab0c1d2e-0000-4000-8000-000000000004'
+
+function instrument(id, code, name, kind, calibrationExpiresOn, extra = {}) {
+    return {
+        id, code, name, kind, serialNumber: `SN-${code}`, calibratedOn: calibrationExpiresOn ? '2025-10-01' : null, calibrationExpiresOn,
+        calibrationExpired: calibrationExpiresOn !== null && calibrationExpiresOn < daysFromToday(0).iso, notes: null, active: true, version: 2,
+        audit: null, ...extra,
+    }
+}
+
+describe('los instrumentos', () => {
+    const expired = daysFromToday(-3)
+    const soon = daysFromToday(12)
+    const later = daysFromToday(200)
+    const instruments = () => [
+        instrument(INSTRUMENT1, 'PT-01', 'Pértiga 1', 'EARTHING_POLE', expired.iso),
+        instrument(INSTRUMENT2, 'DT-02', 'Detector 2', 'VOLTAGE_DETECTOR', soon.iso),
+        instrument(INSTRUMENT3, 'MED-03', 'Telurómetro', 'MEASURING', later.iso),
+        instrument(INSTRUMENT4, 'X-04', 'Láser', 'LASER', null, {active: false}),
+    ]
+
+    it('la lista dice cómo está cada calibración y se filtra en el servicio, también por «calibración caduca antes de»; quien solo lee ve el historial', async () => {
+        const requests = serveResources({instruments: instruments()})
+        const {user} = await open('/recursos/instrumentos', loginAs('recursos.lector'), 'Instrumentos', 4)
+        const lists = () => requests.filter((url) => url.pathname === `${BASE}/instruments`)
+
+        expect(dataRows('Instrumentos').map(textsOf)).toEqual([
+            ['DT-02', 'Detector 2', 'Detector de tensión', 'SN-DT-02', '01/10/2025', soon.typed, 'Caduca en 12 días', 'Activo', ''],
+            ['MED-03', 'Telurómetro', 'Equipo de medida', 'SN-MED-03', '01/10/2025', later.typed, 'Vigente', 'Activo', ''],
+            ['PT-01', 'Pértiga 1', 'Pértiga de puesta a tierra', 'SN-PT-01', '01/10/2025', expired.typed, 'Caducada', 'Activo', ''],
+            ['X-04', 'Láser', 'Desconocido', 'SN-X-04', '', '', 'Sin calibración', 'Retirado', ''],
+        ])
+        expect(lists()[0].search).toBe('?page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(screen.queryByRole('button', {name: 'Nuevo instrumento'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Instrumentos', 'PT-01'))).toEqual(['Historial de PT-01'])
+        await user.click(screen.getByRole('button', {name: 'Historial de PT-01'}))
+        const history = await screen.findByRole('dialog', {name: /Historial de PT-01/})
+        expect(await within(history).findByText(`Pértiga 1 · Pértiga de puesta a tierra · n.º SN-PT-01 · calibrado hasta el ${expired.typed} · activo`))
+            .toBeInTheDocument()
+        expect(requests.some((url) => url.pathname === `${BASE}/instruments/${INSTRUMENT1}/revisions`)).toBe(true)
+        // La X de la cabecera y el botón del pie se llaman igual: vale el último.
+        await user.click(within(history).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.type(screen.getByRole('textbox', {name: 'Calibración caduca antes de'}), soon.typed)
+        await user.keyboard('{Escape}')
+        await waitFor(() => expect(lists().at(-1).searchParams.get('calibrationExpiresBefore')).toBe(soon.iso))
+        await waitFor(() => expect(firstColumn('Instrumentos')).toEqual(['PT-01']))
+        await choose(user, document.body, 'Tipo', 'Detector de tensión')
+        await waitFor(() => expect(lists().at(-1).searchParams.get('kind')).toBe('VOLTAGE_DETECTOR'))
+        expect(await screen.findByText('Ningún instrumento coincide con los filtros.')).toBeInTheDocument()
+    })
+
+    it('el alta comprueba la calibración antes de llamar, y un código repetido deja el diálogo abierto', async () => {
+        serveResources()
+        const writes = recordWrites('post', `${BASE}/instruments`, (body, call) => (call === 1
+            ? resourcesError(409, 'INT-409', 'Instrument PT-05 already exists')
+            : HttpResponse.json(instrument('nuevo', 'PT-05', 'Pértiga 5', 'EARTHING_POLE', '2027-10-01'), {status: 201})))
+        const {user} = await open('/recursos/instrumentos', loginAs('recursos.gestor'), 'Instrumentos', 0)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo instrumento'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo instrumento'})
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El código es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('El tipo es obligatorio')).toBeInTheDocument()
+        await typeInto(user, dialog, 'Código', 'PT-05')
+        await typeInto(user, dialog, 'Nombre', 'Pértiga 5')
+        await choose(user, dialog, 'Tipo', 'Pértiga de puesta a tierra')
+        await typeInto(user, dialog, 'Número de serie', ' SN-555 ')
+        await typeInto(user, dialog, 'Calibrado', '01/10/2026')
+        await typeInto(user, dialog, 'Calibración hasta', '01/09/2026')
+        await user.click(within(dialog).getByRole('textbox', {name: 'Notas'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('La calibración no puede caducar antes de hacerse')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Calibración hasta', '01/10/2027')
+        await user.click(within(dialog).getByRole('textbox', {name: 'Notas'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Ya existe otro con ese código.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nuevo instrumento'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({code: 'PT-05', name: 'Pértiga 5', kind: 'EARTHING_POLE',
+            serialNumber: 'SN-555', calibratedOn: '2026-10-01', calibrationExpiresOn: '2027-10-01'})))
+    })
+
+    it('modificar manda la calibración nueva y lo vaciado con la versión; retirar pide resources-delete y confirmación, y reactivar es un PATCH', async () => {
+        serveResources({instruments: instruments()})
+        const patches = recordWrites('patch', `${BASE}/instruments/:id`, () => HttpResponse.json(instruments()[0]))
+        const deletes = recordWrites('delete', `${BASE}/instruments/:id`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await open('/recursos/instrumentos', loginAs('recursos.responsable'), 'Instrumentos', 4)
+
+        expect(actionsOf(rowOf('Instrumentos', 'PT-01'))).toEqual(['Historial de PT-01', 'Modificar PT-01', 'Retirar PT-01'])
+        expect(actionsOf(rowOf('Instrumentos', 'X-04'))).toEqual(['Historial de X-04', 'Modificar X-04', 'Reactivar X-04'])
+        await user.dblClick(within(rowOf('Instrumentos', 'PT-01')).getAllByRole('cell')[1])
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar PT-01 · Pértiga 1'})
+        expect(within(dialog).getByRole('textbox', {name: 'Código'})).toHaveAttribute('readonly')
+        await typeInto(user, dialog, 'Calibrado', '05/10/2026')
+        await typeInto(user, dialog, 'Calibración hasta', '05/10/2027')
+        await typeInto(user, dialog, 'Número de serie', '')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH,
+            body: {serialNumber: null, calibratedOn: '2026-10-05', calibrationExpiresOn: '2027-10-05', version: 2}})
+
+        await user.click(within(rowOf('Instrumentos', 'PT-01')).getByRole('button', {name: 'Retirar PT-01'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Retirar PT-01 · Pértiga 1'})
+        await user.click(within(confirm).getByRole('button', {name: 'Retirar'}))
+        await waitFor(() => expect(deletes.map((write) => write.params.id)).toEqual([INSTRUMENT1]))
+
+        await user.click(within(rowOf('Instrumentos', 'X-04')).getByRole('button', {name: 'Reactivar X-04'}))
+        await waitFor(() => expect(patches.map((write) => [write.params.id, write.body]).at(-1)).toEqual([INSTRUMENT4, {active: true, version: 2}]))
+    })
+})
+
+describe('los documentos de un vehículo', () => {
+    function vehicleDocument(n, kind, expiresOn, extra = {}) {
+        return {id: `bc1d2e3f-0000-4000-8000-00000000000${n}`, vehicleId: VEHICLE1, kind, reference: `REF-${n}`, issuedOn: '2026-01-15', expiresOn,
+            notes: null, expired: expiresOn < daysFromToday(0).iso, version: 1, audit: null, ...extra}
+    }
+
+    it('la pestaña se pide al abrirla y dice cómo está cada uno; quien solo lee no los toca', async () => {
+        const expired = daysFromToday(-1)
+        const soon = daysFromToday(20)
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], documents: {[VEHICLE1]: [
+            vehicleDocument(1, 'INSURANCE', expired.iso), vehicleDocument(2, 'RAIL_INSPECTION', soon.iso), vehicleDocument(3, 'NOISE', '2030-01-01'),
+        ]}})
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.lector')})
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+        expect(requests.some((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}/documents`)).toBe(false)
+
+        await user.click(screen.getByRole('tab', {name: 'Documentos'}))
+        await waitFor(() => expect(firstColumn('Documentos de DR-01')).toHaveLength(3))
+        expect(dataRows('Documentos de DR-01').map(textsOf)).toEqual([
+            ['Seguro', 'REF-1', '15/01/2026', expired.typed, 'Caducado'],
+            ['Inspección ferroviaria', 'REF-2', '15/01/2026', soon.typed, 'Caduca en 20 días'],
+            ['Desconocido', 'REF-3', '15/01/2026', '01/01/2030', 'Vigente'],
+        ])
+        expect(screen.queryByRole('button', {name: 'Añadir documento'})).not.toBeInTheDocument()
+    })
+
+    it('añadir ofrece los tipos que aún no tiene y exige su caducidad; modificar va con la versión y quitar, con confirmación', async () => {
+        serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], documents: {[VEHICLE1]: [
+            vehicleDocument(1, 'INSURANCE', '2027-01-15'), vehicleDocument(2, 'ROAD_INSPECTION', '2027-02-28'), vehicleDocument(3, 'NOISE', '2030-01-01'),
+        ]}})
+        const posts = recordWrites('post', `${BASE}/vehicles/:id/documents`, (body, call) => (call === 1
+            ? resourcesError(409, 'VDO-409', 'DR-01 already has a RAIL_INSPECTION document')
+            : HttpResponse.json(vehicleDocument(4, 'RAIL_INSPECTION', '2027-06-30'), {status: 201})))
+        const patches = recordWrites('patch', `${BASE}/vehicles/:id/documents/:documentId`, () => HttpResponse.json(vehicleDocument(1, 'INSURANCE', '2028-01-15')))
+        const deletes = recordWrites('delete', `${BASE}/vehicles/:id/documents/:documentId`, () => new HttpResponse(null, {status: 204}))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.responsable')})
+        await user.click(await screen.findByRole('tab', {name: 'Documentos'}))
+        await waitFor(() => expect(firstColumn('Documentos de DR-01')).toHaveLength(3))
+        expect(actionsOf(rowOf('Documentos de DR-01', 'Seguro'))).toEqual(['Modificar Seguro', 'Quitar Seguro'])
+        // Uno de un tipo que esta aplicación no conoce no se toca aquí.
+        expect(actionsOf(rowOf('Documentos de DR-01', 'Desconocido'))).toEqual([])
+
+        await user.click(screen.getByRole('button', {name: 'Añadir documento'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo documento de DR-01 · Vehículo DR-01'})
+        await user.click(within(dialog).getByRole('combobox', {name: 'Tipo'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['Inspección ferroviaria', 'Certificado de la grúa',
+            'Certificado de la plataforma', 'Otro'])
+        await user.click(screen.getByRole('option', {name: 'Inspección ferroviaria'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('La caducidad es obligatoria')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+        await typeInto(user, dialog, 'Caduca', '30/06/2027')
+        await typeInto(user, dialog, 'Referencia', 'IF-2026-7')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('El vehículo ya tiene un documento de ese tipo: renovarlo es cambiar su caducidad. '
+            + 'DR-01 already has a RAIL_INSPECTION document')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nuevo documento de DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(posts.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'RAIL_INSPECTION', reference: 'IF-2026-7', expiresOn: '2027-06-30'})))
+
+        await user.click(screen.getByRole('button', {name: 'Modificar Seguro'}))
+        const editor = await screen.findByRole('dialog', {name: 'Modificar Seguro de DR-01 · Vehículo DR-01'})
+        expect(within(editor).getByRole('textbox', {name: 'Tipo'})).toHaveValue('Seguro')
+        await typeInto(user, editor, 'Caduca', '15/01/2028')
+        await typeInto(user, editor, 'Expedido', '')
+        await user.click(within(editor).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH, params: {documentId: 'bc1d2e3f-0000-4000-8000-000000000001'},
+            body: {issuedOn: null, expiresOn: '2028-01-15', version: 1}})
+
+        await user.click(screen.getByRole('button', {name: 'Quitar Inspección técnica (ITV)'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Quitar Inspección técnica (ITV) de DR-01 · Vehículo DR-01'})
+        await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
+        await waitFor(() => expect(deletes.map((write) => write.params.documentId)).toEqual(['bc1d2e3f-0000-4000-8000-000000000002']))
     })
 })

@@ -24,6 +24,9 @@
     "/almacen/movimientos",
     "/recursos/organigrama/#{event.subjectId}",
     "/recursos/flota/#{event.subjectId}",
+    "/recursos/personal/#{payload.personId}",
+    "/recursos/flota/#{payload.vehicleId}",
+    "/recursos/instrumentos",
     "/actividad?category=SYSTEM"
   ]
 }

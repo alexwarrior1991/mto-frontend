@@ -13,6 +13,11 @@ import {resourcesPath} from './values.js'
  *   en uno de solo carretera, las de bivial fuera de una bivial ni las de carretera en uno de solo vía;
  *   las de una capacidad, sin ella. El código y la movilidad no cambian. Un modelo incoherente es un 400
  *   con el motivo.
+ * - La habilitación que exige a su conductor (requiredDriverQualificationTypeId, un tipo de
+ *   cualificación; vacía no exige ninguna). En el alta, sin decirla, el servicio pone la de su
+ *   movilidad y su permiso (RAIL-DRIVER, RR-OPERATOR, LIC-B…); al modificar, vaciarla viaja a null.
+ *   mto-maintenance pide, al iniciar un turno, una persona distinta habilitada por cada vehículo
+ *   autopropulsado que la exige.
  * - Un sitio de aparcamiento (resources-write): se llega por vía, por carretera o por las dos; con
  *   acceso por vía dice su vía; las coordenadas van juntas.
  * - Ninguno se borra: DELETE retira (resources-delete) y un PATCH active=true lo vuelve a ofrecer. No
@@ -127,6 +132,7 @@ function vehicleTypeValues(values) {
         needsPreparedAccess: roadRail ? values.needsPreparedAccess === true : null,
         requiredLicence: road ? values.requiredLicence ?? null : null,
         capabilities,
+        requiredDriverQualificationTypeId: values.requiredDriverQualificationTypeId || null,
         notes: textOrNull(values.notes),
     }
 }
@@ -148,7 +154,8 @@ const VEHICLE_TYPE_FLAGS = Object.freeze({selfPropelled: true, portable: false, 
  */
 export function vehicleTypePatch(original, values) {
     const after = vehicleTypeValues(values)
-    const before = {...original, capabilities: [...(original.capabilities ?? [])].sort()}
+    const before = {...original, capabilities: [...(original.capabilities ?? [])].sort(),
+        requiredDriverQualificationTypeId: original.requiredDriverQualification?.id ?? null}
     // Una casilla igual a lo que el servicio entiende sin dato no es un cambio, y la de una sección que
     // no se ofrece no viaja: nunca vacía.
     for (const [flag, whenMissing] of Object.entries(VEHICLE_TYPE_FLAGS)) {
@@ -158,7 +165,8 @@ export function vehicleTypePatch(original, values) {
     }
     const numberFields = VEHICLE_TYPE_FIGURES.map((figure) => figure.field)
     return buildMergePatch(before, after, {
-        fields: [...VEHICLE_TYPE_TEXTS, ...VEHICLE_TYPE_ENUMS, ...Object.keys(VEHICLE_TYPE_FLAGS), ...numberFields, 'capabilities'],
+        fields: [...VEHICLE_TYPE_TEXTS, ...VEHICLE_TYPE_ENUMS, ...Object.keys(VEHICLE_TYPE_FLAGS), ...numberFields, 'capabilities',
+            'requiredDriverQualificationTypeId'],
         numberFields, setFields: ['capabilities'], version: original.version,
     })
 }

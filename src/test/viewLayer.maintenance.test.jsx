@@ -1616,10 +1616,30 @@ function withCrew({parking = null} = {}) {
     }
 }
 
-/** mto-resources para los turnos: las personas, los vehículos disponibles y los sitios, con la URL de cada petición. */
+const INSTRUMENT_PT = 'ab0c1d2e-0000-4000-8000-0000000000a1'
+const INSTRUMENT_DT = 'ab0c1d2e-0000-4000-8000-0000000000a2'
+const INSTRUMENT_OLD = 'ab0c1d2e-0000-4000-8000-0000000000a3'
+
+/** Un instrumento de un turno, como lo trae mto-maintenance. */
+function shiftInstrument(id, code, name, kind, calibrationExpiresOn) {
+    return {id, code, name, kind, calibrationExpiresOn}
+}
+
+const PERTIGA = shiftInstrument(INSTRUMENT_PT, 'PT-01', 'Pértiga 1', 'EARTHING_POLE', '2027-03-31')
+const DETECTOR = shiftInstrument(INSTRUMENT_DT, 'DT-02', 'Detector 2', 'VOLTAGE_DETECTOR', '2027-01-15')
+
+/** mto-resources para los turnos: las personas, los vehículos disponibles, los instrumentos activos y los sitios, con la URL de cada petición. */
 function serveCrew() {
     const requests = []
     const page = (rows) => ({content: rows, page: {number: 0, size: 20, totalElements: rows.length, totalPages: 1}})
+    server.use(
+        http.get('/api/resources/instruments', ({request}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(page([{...PERTIGA, serialNumber: 'SN-1', calibrationExpired: false, active: true},
+                {...DETECTOR, serialNumber: 'SN-2', calibrationExpired: false, active: true},
+                shiftInstrument(INSTRUMENT_OLD, 'PT-09', 'Pértiga 9', 'EARTHING_POLE', '2026-01-01')]))
+        }),
+    )
     server.use(
         http.get('/api/resources/people', ({request}) => {
             requests.push(new URL(request.url))
@@ -1866,7 +1886,7 @@ describe('los turnos', () => {
     })
 
     it('sin resources-read la dotación de un turno se lee como está, no se pide nada a mto-resources y no viaja', async () => {
-        const current = shift('PLANNED', withCrew())
+        const current = shift('PLANNED', {...withCrew(), instruments: [PERTIGA]})
         const patches = recordWrites('patch', `${BASE}/shifts/${SHIFT1}`, () => HttpResponse.json(current))
         const {user, requests} = await openShift(sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE, P.CONFIG_READ]), current)
 
@@ -1874,11 +1894,69 @@ describe('los turnos', () => {
         const dialog = await screen.findByRole('dialog', {name: 'Modificar SH-000001'})
         expect(within(dialog).queryByRole('combobox', {name: 'Linemen'})).not.toBeInTheDocument()
         expect(within(dialog).getByLabelText('Dotación del turno')).toHaveTextContent('Jefe: PER-000003 · Yossi Cohen · Supervisor: - · '
-            + 'Linemen: PER-000011 · Lineman Uno, PER-000012 · Lineman Dos · Vehículos: DR-01 · Dresina 1, VAN-01 · Furgoneta')
+            + 'Linemen: PER-000011 · Lineman Uno, PER-000012 · Lineman Dos · Vehículos: DR-01 · Dresina 1, VAN-01 · Furgoneta · '
+            + 'Instrumentos: PT-01 · Pértiga 1')
+        expect(within(dialog).queryByRole('combobox', {name: 'Instrumentos'})).not.toBeInTheDocument()
         await user.type(within(dialog).getByRole('textbox', {name: 'Observaciones'}), 'Con lluvia')
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
         await waitFor(() => expect(patches.map((write) => write.body)).toEqual([{observations: 'Con lluvia', version: 3}]))
         expect(requests.some((url) => url.pathname.startsWith('/api/resources'))).toBe(false)
+    })
+
+    it('un turno elige sus instrumentos activos en mto-resources, con la calibración caducada marcada, y la ficha y el parte los enseñan', async () => {
+        const created = shift('PLANNED', {instruments: [PERTIGA]})
+        const posts = recordWrites('post', `${BASE}/shifts`, () => HttpResponse.json(created, {status: 201}))
+        serveMaintenance({teams: TEAMS, shifts: [created], assets: [DISCONNECTOR], shiftReports: {[SHIFT1]: {shift: created, tasksCompleted: 0,
+            tasksPending: 0, profilesReviewed: 0, defectsFound: 0, defectsResolved: 0, rows: [], inspectionsRecorded: 0, inspections: []}}})
+        const resources = serveCrew()
+        const {user} = await open('/mantenimiento/turnos', loginAs('mantenimiento.tecnico'), 'Turnos', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo turno'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nuevo turno'})
+        await typeInto(user, dialog, 'Fecha', '05/10/2026')
+        await choose(user, dialog, 'Vías', 'VIA 1 (PAQ NORTE)')
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Instrumentos'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['PT-01 · Pértiga 1', 'DT-02 · Detector 2',
+            'PT-09 · Pértiga 9 · calibración caducada'])
+        expect(param(resources.filter((url) => url.pathname === '/api/resources/instruments').at(-1), 'active')).toBe('true')
+        await user.click(screen.getByRole('option', {name: 'PT-01 · Pértiga 1'}))
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(posts.map((write) => write.body)).toEqual([{shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12],
+            instrumentIds: [INSTRUMENT_PT]}]))
+        expect(await screen.findByLabelText('Instrumentos del turno')).toHaveTextContent('Instrumentos: PT-01 · Pértiga 1 (calibración hasta 31/03/2027)')
+        await user.click(screen.getByRole('tab', {name: 'Parte'}))
+        await waitFor(() => expect(dataRows('Instrumentos de SH-000001')).toHaveLength(1))
+        expect(textsOf(dataRows('Instrumentos de SH-000001')[0])).toEqual(['PT-01', 'Pértiga 1', 'Pértiga de puesta a tierra', '31/03/2027'])
+    })
+
+    it('los instrumentos de un turno cambian como conjunto: un MSI-404 deja el diálogo abierto, y quitarlos todos viaja a null', async () => {
+        const current = shift('PLANNED', {...withCrew(), instruments: [PERTIGA]})
+        const patches = recordWrites('patch', `${BASE}/shifts/${SHIFT1}`, (body, call) => (call === 1
+            ? maintenanceError(404, 'MSI-404', 'Maintenance instrument DT-02 not found')
+            : HttpResponse.json(current)))
+        serveCrew()
+        const {user} = await openShift(loginAs('mantenimiento.tecnico'), current)
+        expect(screen.getByLabelText('Instrumentos del turno')).toHaveTextContent('PT-01 · Pértiga 1 (calibración hasta 31/03/2027)')
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar SH-000001'})
+        await user.click(within(dialog).getByRole('combobox', {name: 'Instrumentos'}))
+        await user.click(await screen.findByRole('option', {name: 'DT-02 · Detector 2'}))
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Ese instrumento aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar SH-000001'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('combobox', {name: 'Instrumentos'}))
+        await user.keyboard('{Backspace}{Backspace}{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(2))
+        expect(patches.map((write) => write.body)).toEqual([{instrumentIds: [INSTRUMENT_PT, INSTRUMENT_DT], version: 3},
+            {instrumentIds: null, version: 3}])
     })
 
     it('al cerrar, cada vehículo dice dónde se deja; lo evidente se dice en su fila, solo viaja lo rellenado y un SHF-001 deja el diálogo abierto', async () => {
