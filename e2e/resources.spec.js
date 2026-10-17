@@ -149,7 +149,9 @@ test('un equipo nace con su jefe y 2 linemen, nadie sale con 2, y entra y sale u
     await page.goto('/recursos/organigrama')
     await signIn(page, 'recursos.responsable')
     const tree = page.getByRole('treegrid', {name: 'Organigrama'})
-    await expect(tree.getByRole('row', {name: /^MNT · /})).toBeVisible()
+    // La fila de MNT por su botón: su nombre empieza por «Plegar MNT …» en cuanto tiene hijos (el equipo del
+    // beforeAll), así que un /^MNT · / no la encuentra.
+    await expect(tree.getByRole('button', {name: 'Abrir MNT', exact: true})).toBeVisible()
 
     await tree.getByRole('button', {name: 'Nueva unidad debajo de MNT'}).click()
     const editor = page.getByRole('dialog', {name: 'Nueva unidad'})

@@ -47,7 +47,8 @@ test('el organigrama en las dos aplicaciones, en la misma ruta y sin volver a en
     await page.goto('/recursos/organigrama')
     await signIn(page, 'recursos.lector')
     await expect(page.getByRole('heading', {name: 'Organigrama', level: 2})).toBeVisible()
-    await expect(page.getByRole('treegrid', {name: 'Organigrama'}).getByRole('row', {name: /^MNT · /})).toBeVisible()
+    // Por su botón y no por el nombre de la fila, que empieza por «Plegar MNT …» si MNT ya tiene hijos.
+    await expect(page.getByRole('treegrid', {name: 'Organigrama'}).getByRole('button', {name: 'Abrir MNT', exact: true})).toBeVisible()
 
     const [backoffice] = await Promise.all([
         context.waitForEvent('page'),
