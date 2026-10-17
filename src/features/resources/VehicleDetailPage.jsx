@@ -4,7 +4,7 @@ import {useState} from 'react'
 import {Navigate, useNavigate, useParams} from 'react-router'
 import {NotFoundError} from '../../api/errors.js'
 import {VEHICLE_MOBILITY} from '../../api/resources/enums.js'
-import {isActiveVehicle, vehicleRevisionsPath} from '../../api/resources/vehicles.js'
+import {accessPointText, isActiveVehicle, vehicleRevisionsPath} from '../../api/resources/vehicles.js'
 import {unitLabel} from '../../api/resources/values.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
@@ -27,6 +27,7 @@ import {
     vehicleState,
 } from './resourcesTexts.js'
 import {useVehicle, useVehicleAction} from './useResources.js'
+import VehicleDocumentsPanel from './VehicleDocumentsPanel.jsx'
 import VehicleEditorModal from './VehicleEditorModal.jsx'
 import VehicleLocationsPanel from './VehicleLocationsPanel.jsx'
 
@@ -38,8 +39,10 @@ export default function VehicleDetailPage() {
 
 /**
  * Su modelo, sus datos, «Dónde está» (el tipo, el sitio, la vía y el kp, el acceso, el origen y la hora;
- * uno que va con otro dice con quién y dónde está su portador) y la pestaña «Ubicaciones». Registrar
- * dónde está pide resources-location-write; modificar, resources-fleet-write; retirar, resources-delete.
+ * uno que va con otro dice con quién y dónde está su portador) y las pestañas «Ubicaciones» y
+ * «Documentos» (con su caducidad: es la ficha a la que lleva el aviso de uno que caduca). Registrar
+ * dónde está pide resources-location-write; modificar y escribir sus documentos, resources-fleet-write;
+ * retirar y quitar un documento, resources-delete.
  */
 function VehicleDetail({vehicleId}) {
     const session = useSession()
@@ -79,7 +82,7 @@ function VehicleDetail({vehicleId}) {
     const current = vehicle.data
     const active = isActiveVehicle(current)
     const details = position ? join(position.executionPackageId == null ? null : `EP ${names.packageName(position.executionPackageId)}`,
-        position.accessPoint ? `Acceso: ${position.accessPoint}` : null,
+        accessPointText(position) ? `Acceso: ${accessPointText(position)}` : null,
         position.latitude == null ? null : `${position.latitude}, ${position.longitude}`) : ''
     const retire = () => acting.mutate({action: 'retire', vehicle: current}, {
         onSuccess: () => notifySuccess(`Retirado ${unitLabel(current)}`),
@@ -132,8 +135,12 @@ function VehicleDetail({vehicleId}) {
                     <Button leftSection={<IconCircleCheck size={16}/>} loading={acting.isPending} onClick={reactivate}>Reactivar</Button>
                 )}
             </Group>
-            <LazyTabs tabs={[{value: 'locations', label: 'Ubicaciones',
-                render: () => <VehicleLocationsPanel vehicle={current} names={names} readsMaintenance={readsMaintenance}/>}]}/>
+            <LazyTabs tabs={[
+                {value: 'locations', label: 'Ubicaciones',
+                    render: () => <VehicleLocationsPanel vehicle={current} names={names} readsMaintenance={readsMaintenance}/>},
+                {value: 'documents', label: 'Documentos',
+                    render: () => <VehicleDocumentsPanel vehicle={current} canWrite={canWrite} canDelete={canDelete}/>},
+            ]}/>
             {dialog === 'edit' && <VehicleEditorModal vehicle={current} onClose={close}/>}
             {dialog === 'locate' && <LocationModal vehicle={current} names={names} onClose={close}/>}
             {dialog === 'history' && (

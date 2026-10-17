@@ -1,5 +1,5 @@
 import {idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
-import {localDateTimeToInstant, startOfDayInstant, startOfNextDayInstant} from '../dates.js'
+import {localDateTimeToInstant, startOfDayInstant, startOfNextDayInstant, toLocalDateParam} from '../dates.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {sortWithTieBreak, toPage, toPageParams} from '../paging.js'
@@ -17,6 +17,11 @@ import {resourcesPath} from './values.js'
  *   historial, la más reciente primero, sin sort.
  * - El tablero: los vehículos activos con posición conocida, por vía y kp, con el vehículo para
  *   desempatar.
+ * - Sus documentos con caducidad (ITV, inspección ferroviaria, seguro, certificados de la grúa y de la
+ *   plataforma): uno de cada tipo (409 VDO-409; renovarlo es cambiar su caducidad), siempre con su
+ *   caducidad, que no se vacía. Escribir pide resources-fleet-write y quitar (un borrado físico que el
+ *   historial guarda), resources-delete. Uno caducado deja el vehículo fuera de los turnos (409 SHF-001
+ *   de mto-maintenance).
  */
 
 export const BY_CODE = Object.freeze(['code,asc'])
@@ -143,6 +148,19 @@ export function whereOf(row) {
     return row?.effective ?? row?.position ?? null
 }
 
+/**
+ * El punto de acceso de una ubicación, como se enseña (en su historial, en la posición de un vehículo y
+ * en el tablero): el punto de acceso a la vía, trackAccessPoint {id, name, kind}, por su nombre (#id si no
+ * lo trae); sin él, el texto libre de accessPoint tal cual. Sin ninguno, ''.
+ */
+export function accessPointText(location) {
+    const point = location?.trackAccessPoint
+    if (point) {
+        return point.name ? point.name : `#${point.id}`
+    }
+    return location?.accessPoint ?? ''
+}
+
 /** El turno de mto-maintenance que dejó una ubicación, si fue uno. */
 export function shiftIdOf(location) {
     const reference = location?.sourceReference
@@ -153,7 +171,11 @@ export function shiftIdOf(location) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null
 }
 
-/** Qué campos lleva cada tipo de ubicación; lo que no se ve no viaja. */
+/**
+ * Qué campos lleva cada tipo de ubicación; lo que no se ve no viaja. accessPointId, el punto de acceso a
+ * la vía (el maestro de mto-configuration que guarda mto-resources), va donde va la vía, y solo con una
+ * elegida; accessPoint es el texto libre de dónde encarriló una bivial.
+ */
 export function locationFields(kind, mobility, {readsConfiguration = true} = {}) {
     const parked = kind === 'PARKED'
     const onTrack = kind === 'ON_TRACK'
@@ -164,27 +186,90 @@ export function locationFields(kind, mobility, {readsConfiguration = true} = {})
         executionPackageId: readsConfiguration && (parked || onTrack || onRoad),
         trackId: track,
         kp: track,
+        accessPointId: track,
         accessPoint: mobility === 'ROAD_RAIL' && (onTrack || onRoad),
         coordinates: parked || onRoad,
         carrier: kind === 'ATTACHED',
     }
 }
 
-/** La petición con lo que se ve; lo vacío no viaja. */
+/**
+ * La petición con lo que se ve; lo vacío no viaja. El punto de acceso solo viaja con su vía: es uno de
+ * los de esa vía (si no, 409 VEH-001; si mto-resources no lo conoce, 404 TAP-404).
+ */
 export function locationRequest(values, mobility, options = {}) {
     const shown = locationFields(values.kind, mobility, options)
+    const trackId = shown.trackId ? idOrNull(values.trackId) : null
     return withoutNulls({
         kind: values.kind,
         parkingSiteId: shown.site ? values.parkingSiteId ?? null : null,
         executionPackageId: shown.executionPackageId ? idOrNull(values.executionPackageId) : null,
-        trackId: shown.trackId ? idOrNull(values.trackId) : null,
+        trackId,
         kp: shown.kp ? numberOrNull(values.kp) : null,
         latitude: shown.coordinates ? numberOrNull(values.latitude) : null,
         longitude: shown.coordinates ? numberOrNull(values.longitude) : null,
+        accessPointId: shown.accessPointId && trackId !== null ? idOrNull(values.accessPointId) : null,
         accessPoint: shown.accessPoint ? textOrNull(values.accessPoint) : null,
         description: textOrNull(values.description),
         carrierVehicleId: shown.carrier ? values.carrierVehicleId ?? null : null,
         attachment: shown.carrier ? values.attachment ?? null : null,
         observedAt: values.observedAt ? localDateTimeToInstant(values.observedAt) : null,
     })
+}
+
+/** Los documentos de un vehículo, enteros, por su tipo. */
+export function listVehicleDocuments(vehicleId, {signal} = {}) {
+    return apiFetch(resourcesPath('vehicles', vehicleId, 'documents'), {signal})
+}
+
+/** 201; 409 VDO-409 si ya tiene uno de ese tipo. */
+export function addVehicleDocument(vehicleId, body) {
+    return apiFetch(resourcesPath('vehicles', vehicleId, 'documents'), {method: 'POST', json: body})
+}
+
+export function patchVehicleDocument(vehicleId, documentId, patch) {
+    return apiFetch(resourcesPath('vehicles', vehicleId, 'documents', documentId), {method: 'PATCH', json: patch, contentType: MERGE_PATCH})
+}
+
+/** 204: se borra; el historial del servicio lo guarda. */
+export function removeVehicleDocument(vehicleId, documentId) {
+    return apiFetch(resourcesPath('vehicles', vehicleId, 'documents', documentId), {method: 'DELETE', responseType: 'none'})
+}
+
+/** Lo que el formulario guarda de un documento leído, o de uno nuevo. */
+export function vehicleDocumentFormValues(document) {
+    return {
+        kind: document?.kind ?? null,
+        reference: document?.reference ?? '',
+        issuedOn: document?.issuedOn ?? null,
+        expiresOn: document?.expiresOn ?? null,
+        notes: document?.notes ?? '',
+    }
+}
+
+function vehicleDocumentValues(values) {
+    return {
+        reference: textOrNull(values.reference),
+        issuedOn: toLocalDateParam(values.issuedOn) ?? null,
+        expiresOn: toLocalDateParam(values.expiresOn) ?? null,
+        notes: textOrNull(values.notes),
+    }
+}
+
+/** El alta: su tipo y lo escrito; lo vacío no viaja. */
+export function vehicleDocumentRequest(values) {
+    return withoutNulls({kind: values.kind ?? null, ...vehicleDocumentValues(values)})
+}
+
+const VEHICLE_DOCUMENT_FIELDS = Object.freeze(['reference', 'issuedOn', 'expiresOn', 'notes'])
+
+/** La modificación (el tipo no cambia): lo cambiado, lo vaciado a null y la versión; null si nada. */
+export function vehicleDocumentPatch(original, values) {
+    return buildMergePatch(original, vehicleDocumentValues(values), {fields: VEHICLE_DOCUMENT_FIELDS, version: original.version})
+}
+
+/** Los tipos que se ofrecen en el alta: los que el vehículo no tiene ya (409 VDO-409 si no). */
+export function offeredDocumentKinds(kinds, documents) {
+    const taken = new Set((documents ?? []).map((document) => document.kind))
+    return (kinds ?? []).filter((option) => !taken.has(option.value))
 }

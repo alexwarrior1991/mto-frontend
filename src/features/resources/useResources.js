@@ -2,6 +2,7 @@ import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack
 import {
     createParkingSite,
     createVehicleType,
+    listTrackAccessPoints,
     offerParkingSiteAgain,
     offerVehicleTypeAgain,
     patchParkingSite,
@@ -11,15 +12,38 @@ import {
     searchParkingSites,
     searchVehicleTypes,
 } from '../../api/resources/fleet.js'
-import {createPerson, deactivatePerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
 import {
+    createInstrument,
+    patchInstrument,
+    reactivateInstrument,
+    retireInstrument,
+    searchInstruments,
+} from '../../api/resources/instruments.js'
+import {createPerson, deactivatePerson, getPerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
+import {
+    addPersonQualification,
+    ALL_TYPES,
+    createQualificationType,
+    listPersonQualifications,
+    offerQualificationTypeAgain,
+    patchPersonQualification,
+    patchQualificationType,
+    removePersonQualification,
+    retireQualificationType,
+    searchQualificationTypes,
+} from '../../api/resources/qualifications.js'
+import {
+    addVehicleDocument,
     createVehicle,
     fleetPositions,
     getVehicle,
     listLocations,
+    listVehicleDocuments,
     patchVehicle,
+    patchVehicleDocument,
     reactivateVehicle,
     recordLocation,
+    removeVehicleDocument,
     retireVehicle,
     searchVehicles,
 } from '../../api/resources/vehicles.js'
@@ -81,6 +105,114 @@ export function usePersonAction() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: ({action, person}) => (action === 'deactivate' ? deactivatePerson(person.id) : reactivatePerson(person)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** La ficha de una persona; si no existe, se dice una vez. */
+export function usePerson(personId) {
+    return useQuery({
+        queryKey: resourcesKey('people', 'person', personId),
+        queryFn: ({signal}) => getPerson(personId, {signal}),
+        enabled: Boolean(personId),
+        retry: false,
+        staleTime: NOT_FRESH,
+        meta: {notFoundMessage: `No existe la persona ${personId}`},
+    })
+}
+
+/** Las cualificaciones de una persona, enteras. */
+export function usePersonQualifications(personId) {
+    return useQuery({
+        queryKey: resourcesKey('people', 'qualifications', personId),
+        queryFn: ({signal}) => listPersonQualifications(personId, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * El alta o la modificación de una cualificación, desde su diálogo, que trata él mismo sus errores.
+ * Cambia la persona (su versión y lo que publica): se relee todo el módulo.
+ */
+export function useSavePersonQualification(personId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? addPersonQualification(personId, body) : patchPersonQualification(personId, id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Quitar una cualificación (DELETE); haya ido bien o no, se relee. */
+export function useRemovePersonQualification(personId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (qualification) => removePersonQualification(personId, qualification.id),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useQualificationTypeList(params) {
+    return useQuery({
+        queryKey: resourcesKey('qualification-types', params),
+        queryFn: ({signal}) => searchQualificationTypes({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** Los tipos de cualificación activos, para elegir uno: caben en una petición. */
+export function useActiveQualificationTypes({enabled = true} = {}) {
+    return useQuery({
+        queryKey: resourcesKey('qualification-types', 'active'),
+        queryFn: ({signal}) => searchQualificationTypes({active: true, size: ALL_TYPES}, {signal}),
+        staleTime: NOT_FRESH,
+        enabled,
+    })
+}
+
+/** El alta o la modificación de un tipo, desde su editor; un tipo sale en las personas y en los modelos: se relee todo el módulo. */
+export function useSaveQualificationType() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createQualificationType(body) : patchQualificationType(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Retirar (DELETE) o volver a ofrecer (PATCH active=true) un tipo; haya ido bien o no, se relee. */
+export function useQualificationTypeAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, type}) => (action === 'retire' ? retireQualificationType(type.id) : offerQualificationTypeAgain(type)),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+export function useInstrumentList(params) {
+    return useQuery({
+        queryKey: resourcesKey('instruments', params),
+        queryFn: ({signal}) => searchInstruments({...params, size: RESOURCES_PAGE_SIZE}, {signal}),
+        placeholderData: keepPreviousData,
+        staleTime: NOT_FRESH,
+    })
+}
+
+export function useSaveInstrument() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createInstrument(body) : patchInstrument(id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Retirar (DELETE) o reactivar (PATCH active=true) un instrumento; haya ido bien o no, se relee. */
+export function useInstrumentAction() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({action, instrument}) => (action === 'retire' ? retireInstrument(instrument.id) : reactivateInstrument(instrument)),
         onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
     })
 }
@@ -263,6 +395,34 @@ export function useVehicleLocations(vehicleId, params) {
     })
 }
 
+/** Los documentos de un vehículo, enteros. */
+export function useVehicleDocuments(vehicleId) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', 'documents', vehicleId),
+        queryFn: ({signal}) => listVehicleDocuments(vehicleId, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/** El alta o la modificación de un documento, desde su diálogo; cambia el vehículo: se relee todo el módulo. */
+export function useSaveVehicleDocument(vehicleId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? addVehicleDocument(vehicleId, body) : patchVehicleDocument(vehicleId, id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Quitar un documento (DELETE); haya ido bien o no, se relee. */
+export function useRemoveVehicleDocument(vehicleId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (document) => removeVehicleDocument(vehicleId, document.id),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
 /** Los sitios activos del catálogo a los que puede llegar un vehículo de esta movilidad: caben en una petición. */
 export function useReachableSites(mobility) {
     const railAccess = mobility === 'RAIL_ONLY' ? true : null
@@ -303,13 +463,34 @@ export function useVehicleAction() {
     })
 }
 
-/** Registrar dónde está un vehículo; mueve su posición, su ficha, la lista y el tablero: se relee todo el módulo. */
+/**
+ * Registrar dónde está un vehículo; mueve su posición, su ficha, la lista y el tablero: se relee todo el
+ * módulo. Un 404 TAP-404 (el punto de acceso ya no está, o aún no ha llegado a mto-resources) relee los
+ * puntos de acceso, para que el desplegable enseñe los que hay.
+ */
 export function useRecordLocation(vehicleId) {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (body) => recordLocation(vehicleId, body),
         meta: {notifyError: false},
         onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+        onError: (error) => (error?.code === 'TAP-404'
+            ? queryClient.invalidateQueries({queryKey: resourcesKey('track-access-points')})
+            : undefined),
+    })
+}
+
+/**
+ * Los puntos de acceso activos de una vía, para «Registrar dónde está»: sin vía no se pide. Un fallo no
+ * se avisa, lo dice el desplegable: el punto es opcional y la ubicación se registra igual sin él.
+ */
+export function useTrackAccessPoints(trackId) {
+    return useQuery({
+        queryKey: resourcesKey('track-access-points', trackId),
+        queryFn: ({signal}) => listTrackAccessPoints({trackId, enabled: true}, {signal}),
+        enabled: trackId !== null && trackId !== undefined,
+        staleTime: NOT_FRESH,
+        meta: {notifyError: false},
     })
 }
 

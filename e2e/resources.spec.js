@@ -8,10 +8,14 @@ import {signIn} from './keycloak.js'
  *
  * - el organigrama: un equipo nace en pantalla con su jefe y 2 linemen, ninguno puede salir con 2, entra
  *   un tercero y sale otra vez;
- * - la flota: un modelo bivial 9A y un vehículo suyo, puesto en vía en una vía de usar y tirar, que se ve
- *   en el tablero y en sus ubicaciones;
+ * - la flota: un modelo bivial 9A y un vehículo suyo, puesto en vía en una vía de usar y tirar por un punto
+ *   de acceso de esa vía (el maestro de mto-configuration, que llega a mto-resources por evento), que se
+ *   ve en el tablero, y el punto en dónde está y en sus ubicaciones;
  * - mantenimiento: un equipo de mto-resources llega sincronizado, su turno copia jefe, linemen y vehículo,
- *   se inicia y se cierra diciendo dónde queda el vehículo, y mto-resources lo apunta como del turno.
+ *   se inicia (su jefe está habilitado para conducir la bivial) y se cierra diciendo dónde queda el
+ *   vehículo, y mto-resources lo apunta como del turno;
+ * - las cualificaciones: la ficha de una persona enseña las suyas con cómo está cada una, y una nueva se
+ *   da de alta en pantalla.
  *
  * Las personas, la vía y lo que no recorre la pantalla se ponen por la API antes y se quitan al acabar:
  * en mto-resources nada se borra, se desactiva o se retira.
@@ -29,6 +33,7 @@ const SHIFT_TEAM = {code: `E2E-S${SUFFIX}`, name: `Turno e2e ${SUFFIX}`}
 const MODEL = {code: `E2E-M${SUFFIX}`, name: `Bivial e2e ${SUFFIX}`}
 const VEHICLE = {code: `E2E-V${SUFFIX}`, name: `Camión e2e ${SUFFIX}`}
 const SHIFT_VEHICLE = {code: `E2E-W${SUFFIX}`, name: `Dresina e2e ${SUFFIX}`}
+const ACCESS_POINT = `E2E-AP-${SUFFIX}`
 
 /** Por el menú y no con goto: recargar la página es volver a entrar por el SSO. */
 async function openFromMenu(page, group, name) {
@@ -91,6 +96,12 @@ test.beforeAll(async ({playwright}) => {
         created.linemen = [await person('Uno', 'WORKER'), await person('Dos', 'WORKER'), await person('Tres', 'WORKER')]
         created.shiftLeader = await person('Jefe', 'TEAM_LEADER')
         created.shiftLinemen = [await person('Cuatro', 'WORKER'), await person('Cinco', 'WORKER')]
+        // El jefe del turno conduce su vehículo: un modelo bivial autopropulsado exige RR-OPERATOR (la semilla de
+        // V8) y, sin nadie habilitado en la dotación, mantenimiento no deja iniciar el turno (409 SHF-001).
+        const operator = (await resources.get('/api/resources/qualification-types?search=RR-OPERATOR&size=5')).content
+            .find((type) => type.code === 'RR-OPERATOR')
+        await resources.post(`/api/resources/people/${created.shiftLeader.id}/qualifications`, {qualificationTypeId: operator.id,
+            reference: `E2E-${SUFFIX}`})
 
         // El equipo del turno, con su vehículo por defecto: lo que mantenimiento copia al turno.
         const type = await resources.post('/api/resources/vehicle-types', {
@@ -135,7 +146,8 @@ test.afterAll(async ({playwright}) => {
     }
     const configuration = await apiAs(playwright, 'config.responsable')
     try {
-        for (const [path, entry] of [['tracks', created.track], ['stations', created.station], ['execution-packages', created.package]]) {
+        for (const [path, entry] of [['track-access-points', created.accessPoint], ['tracks', created.track], ['stations', created.station],
+            ['execution-packages', created.package]]) {
             if (entry) {
                 await configuration.delete(`/api/configuration/${path}/${entry.id}`)
             }
@@ -191,7 +203,30 @@ test('un equipo nace con su jefe y 2 linemen, nadie sale con 2, y entra y sale u
     await expect(linemen.getByRole('row')).toHaveCount(3)
 })
 
-test('un modelo bivial 9A y un vehículo suyo, puesto en vía, en el tablero y en sus ubicaciones', async ({page}) => {
+test('un modelo bivial 9A y un vehículo suyo, puesto en vía por un punto de acceso, en el tablero y en sus ubicaciones', async ({page, playwright}) => {
+    // Con la espera del evento del punto de acceso, más margen.
+    test.setTimeout(180_000)
+    // Un punto de acceso de la vía, para encarrilar la bivial. Se pone aquí y no en beforeAll, para que sin él
+    // solo falle esta prueba; llega a mto-resources por evento, así que se espera a que lo ofrezca.
+    const configuration = await apiAs(playwright, 'config.responsable')
+    try {
+        created.accessPoint = await configuration.post('/api/configuration/track-access-points', {
+            name: ACCESS_POINT, trackId: created.track.id, stationId: created.station.id, kp: 900.1, kind: 'PREPARED_ACCESS', side: 'LEFT',
+            roadRailAccess: true, enabled: true,
+        })
+    } finally {
+        await configuration.dispose()
+    }
+    const resources = await apiAs(playwright, 'recursos.responsable')
+    try {
+        await expect.poll(async () => {
+            const points = await resources.get(`/api/resources/track-access-points?trackId=${created.track.id}&enabled=true`)
+            return points.map((point) => point.name)
+        }, {timeout: 60_000}).toContain(ACCESS_POINT)
+    } finally {
+        await resources.dispose()
+    }
+
     await page.goto('/recursos/flota/modelos')
     await signIn(page, 'recursos.responsable')
     await expect(page.getByRole('heading', {name: 'Modelos de vehículo', level: 2})).toBeVisible()
@@ -222,6 +257,9 @@ test('un modelo bivial 9A y un vehículo suyo, puesto en vía, en el tablero y e
     await chooseOption(page, locating, 'Dónde está', 'En vía')
     await chooseOption(page, locating, 'Vía', TRACK)
     await locating.getByRole('textbox', {name: 'KP'}).fill('900.15')
+    // Su opción dice además el tipo y el kp, tal como los guarda mto-resources.
+    await locating.getByRole('combobox', {name: 'Punto de acceso', exact: true}).click()
+    await page.getByRole('option', {name: new RegExp(`^${ACCESS_POINT} · Acceso preparado`)}).click()
     await locating.getByRole('button', {name: 'Registrar'}).click()
     await expect(page.getByText(`Registrado dónde está ${VEHICLE.code}`)).toBeVisible()
 
@@ -235,8 +273,10 @@ test('un modelo bivial 9A y un vehículo suyo, puesto en vía, en el tablero y e
     await row.getByRole('button', {name: `Abrir ${VEHICLE.code}`}).click()
     await expect(page.getByRole('heading', {name: `${VEHICLE.code} · ${VEHICLE.name}`, level: 2})).toBeVisible()
     created.vehicles.push({id: page.url().split('/').at(-1)})
+    await expect(page.getByLabel('Dónde está', {exact: true})).toContainText(`Acceso: ${ACCESS_POINT}`)
     await page.getByRole('tab', {name: 'Ubicaciones'}).click()
-    await expect(page.getByRole('table', {name: `Ubicaciones de ${VEHICLE.code}`}).getByRole('row').filter({hasText: 'En vía'})).toBeVisible()
+    await expect(page.getByRole('table', {name: `Ubicaciones de ${VEHICLE.code}`}).getByRole('row').filter({hasText: 'En vía'}))
+        .toContainText(ACCESS_POINT)
 })
 
 test('un equipo de mto-resources trabaja un turno de mantenimiento y su vehículo queda donde dice el cierre', async ({page, playwright}) => {
@@ -290,4 +330,25 @@ test('un equipo de mto-resources trabaja un turno de mantenimiento y su vehícul
     } finally {
         await resources.dispose()
     }
+})
+
+test('la ficha de una persona enseña sus cualificaciones con cómo está cada una, y una nueva se da de alta en pantalla', async ({page}) => {
+    const leader = created.shiftLeader
+    await page.goto('/recursos/personal')
+    await signIn(page, 'recursos.responsable')
+    await expect(page.getByRole('heading', {name: 'Personal', level: 2})).toBeVisible()
+    await page.getByRole('textbox', {name: 'Buscar'}).fill(leader.code)
+    await page.getByRole('button', {name: `Abrir ${leader.code}`}).click()
+    await expect(page.getByRole('heading', {name: personLabel(leader), level: 2})).toBeVisible()
+
+    const qualifications = page.getByRole('table', {name: `Cualificaciones de ${leader.code}`})
+    await expect(qualifications.getByRole('row').filter({hasText: 'RR-OPERATOR'})).toContainText('No caduca')
+
+    await page.getByRole('button', {name: 'Añadir cualificación'}).click()
+    const adding = page.getByRole('dialog', {name: `Nueva cualificación de ${personLabel(leader)}`})
+    await chooseOption(page, adding, 'Tipo', 'LIC-B · Driving licence B')
+    await adding.getByRole('textbox', {name: 'Caduca'}).fill('31/12/2035')
+    await adding.getByRole('button', {name: 'Guardar'}).click()
+    await expect(page.getByText(`Guardada LIC-B de ${leader.code}`)).toBeVisible()
+    await expect(qualifications.getByRole('row').filter({hasText: 'LIC-B'})).toContainText('Vigente')
 })

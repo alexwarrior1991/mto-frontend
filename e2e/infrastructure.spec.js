@@ -17,6 +17,10 @@ import {signIn} from './keycloak.js'
  * El perfil se borra al acabar. Su estado y su tipo de ménsula son entradas fijas de sus catálogos
  * (E2E-OK y E2E-PT): se crean la primera vez y se reutilizan después, porque el servicio no borra una
  * entrada que usa un perfil, aunque el perfil esté borrado.
+ *
+ * Aparte, un punto de acceso a la vía (el maestro de V28 de mto-configuration) se da de alta en pantalla
+ * en una vía de usar y tirar que se pone por la API, sale en su lista en la SPA y en el backoffice, y se
+ * borra; la vía y su paquete se quitan al acabar.
  */
 
 const SUFFIX = Date.now().toString(36).toUpperCase()
@@ -185,4 +189,65 @@ test('un paquete, una estación y una vía de usar y tirar: alta, esquema vacío
     await deleteNamed(page, stationName, 'estación', 'Borrada')
     await openMaster(page, 'Paquetes de ejecución')
     await deleteNamed(page, packageName, 'paquete de ejecución', 'Borrado')
+})
+
+test('un punto de acceso de usar y tirar: alta en pantalla en su vía, en la lista de las dos aplicaciones, y borrado', async ({page, context, playwright}) => {
+    test.setTimeout(180_000)
+    const packageName = `E2E-AEP-${SUFFIX}`
+    const trackName = `E2E-ATR-${SUFFIX}`
+    const accessName = `E2E-AP-${SUFFIX}`
+    const api = await apiAs(playwright, 'config.responsable')
+    const created = {}
+    try {
+        const [company] = await api.get('/api/configuration/business-entities')
+        created.package = await api.post('/api/configuration/execution-packages', {
+            name: packageName, companyId: company.id, length: 1000, startDate: '2026-01-01', endDate: '2026-12-31', initialPackage: false,
+            enabled: true, tracks: null, stations: null,
+        })
+        created.track = await api.post('/api/configuration/tracks', {
+            name: trackName, executionPackageId: created.package.id, stationIds: [], enabled: true, profiles: null,
+        })
+
+        await page.goto('/infraestructura/accesos')
+        await signIn(page, 'config.responsable')
+        await expect(page.getByRole('heading', {name: 'Accesos a vía'})).toBeVisible()
+        await page.getByRole('button', {name: 'Nuevo'}).click()
+        const editor = page.getByRole('dialog', {name: 'Alta de acceso a vía'})
+        await editor.getByRole('textbox', {name: 'Nombre'}).fill(accessName)
+        await choose(page, editor, 'Vía', `${trackName} (${packageName})`)
+        // Tipo y lado no se escriben: se elige su opción.
+        await editor.getByRole('combobox', {name: 'Tipo'}).click()
+        await page.getByRole('option', {name: 'Acceso preparado', exact: true}).click()
+        await editor.getByRole('combobox', {name: 'Lado'}).click()
+        await page.getByRole('option', {name: 'Izquierda', exact: true}).click()
+        await editor.getByRole('textbox', {name: 'KP (m)'}).fill('900.1')
+        await editor.getByRole('button', {name: 'Guardar'}).click()
+        await expect(editor).toBeHidden()
+
+        await page.getByRole('textbox', {name: 'Buscar'}).fill(accessName)
+        const row = page.getByRole('row').filter({hasText: accessName})
+        await expect(row).toContainText(`${trackName} (${packageName})`)
+        await expect(row).toContainText('Acceso preparado')
+
+        // El mismo punto en la lista del backoffice, a la que lleva «Abrir en el backoffice».
+        const [backoffice] = await Promise.all([
+            context.waitForEvent('page'),
+            page.getByRole('link', {name: 'Abrir en el backoffice'}).click(),
+        ])
+        const search = backoffice.locator('input[placeholder="Buscar"]')
+        await expect(search).toBeVisible(FIRST_VISIT)
+        expect(backoffice.url().startsWith(BACKOFFICE_URL)).toBe(true)
+        await search.fill(accessName)
+        await expect(backoffice.getByText(accessName, {exact: true})).toBeVisible()
+        await backoffice.close()
+
+        await deleteNamed(page, accessName, 'acceso a vía', 'Borrado')
+    } finally {
+        for (const [path, entry] of [['tracks', created.track], ['execution-packages', created.package]]) {
+            if (entry) {
+                await api.delete(`/api/configuration/${path}/${entry.id}`).catch(() => undefined)
+            }
+        }
+        await api.dispose()
+    }
 })

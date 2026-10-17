@@ -1,17 +1,20 @@
+import {searchInstruments} from '../../api/resources/instruments.js'
 import {searchPeople} from '../../api/resources/people.js'
-import {personLabel, unitLabel} from '../../api/resources/values.js'
+import {expiryState, personLabel, unitLabel} from '../../api/resources/values.js'
 import {searchVehicles} from '../../api/resources/vehicles.js'
 import ServerSearchMultiSelect from '../../ui/ServerSearchMultiSelect.jsx'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {resourcesKey} from './useResources.js'
 
 /**
- * Los desplegables de personas y vehículos de mto-resources (el port de ResourcesPickers), buscados en
- * el servidor mientras se escribe: solo las personas activas y de las categorías que admite lo que se
- * elige (el jefe de una unidad según su nivel, los linemen operarios o jefes de equipo, el jefe de un
- * turno cualquiera menos un operario), y solo los vehículos activos y disponibles, para no ofrecer lo
- * que el servicio va a rechazar. Quien decide sigue siendo el servicio (409 UNI-001, o SHF-001 en un
- * turno). Los usan el organigrama y los turnos de mantenimiento.
+ * Los desplegables de personas, vehículos e instrumentos de mto-resources (el port de ResourcesPickers),
+ * buscados en el servidor mientras se escribe: solo las personas activas y de las categorías que admite
+ * lo que se elige (el jefe de una unidad según su nivel, los linemen operarios o jefes de equipo, el
+ * jefe de un turno cualquiera menos un operario), solo los vehículos activos y disponibles y solo los
+ * instrumentos activos, para no ofrecer lo que el servicio va a rechazar. Un instrumento con la
+ * calibración caducada se ofrece marcado, porque lo que cuenta es la fecha del turno. Quien decide
+ * sigue siendo el servicio (409 UNI-001, o SHF-001 en un turno). Los usan el organigrama y los turnos de
+ * mantenimiento.
  */
 
 /** Una persona como opción de un desplegable, con su resumen (para saber si es el jefe, su categoría…). */
@@ -62,5 +65,24 @@ export function VehiclesMultiSelect({current = [], ...props}) {
     return (
         <ServerSearchMultiSelect queryKey={resourcesKey('vehicle-picker')} search={searchAvailableVehicles} searchWhenEmpty clearable
                                  current={current.map(vehicleOption)} placeholder="Escribe su código" {...props}/>
+    )
+}
+
+/** Un instrumento como opción: «PT-01 · Pértiga 1», y «· calibración caducada» si lo está hoy. */
+function instrumentOption(instrument) {
+    const expired = expiryState(instrument.calibrationExpiresOn, {expired: instrument.calibrationExpired ?? null}).state === 'EXPIRED'
+    return {value: instrument.id, label: expired ? `${unitLabel(instrument)} · calibración caducada` : unitLabel(instrument)}
+}
+
+async function searchActiveInstruments(text, {signal}) {
+    const page = await searchInstruments({search: text, active: true, size: 20}, {signal})
+    return page.content.map(instrumentOption)
+}
+
+/** Varios instrumentos activos; current son los que ya tiene el campo (los de un turno). */
+export function InstrumentsMultiSelect({current = [], ...props}) {
+    return (
+        <ServerSearchMultiSelect queryKey={resourcesKey('instrument-picker')} search={searchActiveInstruments} searchWhenEmpty clearable
+                                 current={current.map(instrumentOption)} placeholder="Escribe su código" {...props}/>
     )
 }

@@ -13,10 +13,17 @@ import {resourcesPath} from './values.js'
  *   en uno de solo carretera, las de bivial fuera de una bivial ni las de carretera en uno de solo vía;
  *   las de una capacidad, sin ella. El código y la movilidad no cambian. Un modelo incoherente es un 400
  *   con el motivo.
+ * - La habilitación que exige a su conductor (requiredDriverQualificationTypeId, un tipo de
+ *   cualificación; vacía no exige ninguna). En el alta, sin decirla, el servicio pone la de su
+ *   movilidad y su permiso (RAIL-DRIVER, RR-OPERATOR, LIC-B…); al modificar, vaciarla viaja a null.
+ *   mto-maintenance pide, al iniciar un turno, una persona distinta habilitada por cada vehículo
+ *   autopropulsado que la exige.
  * - Un sitio de aparcamiento (resources-write): se llega por vía, por carretera o por las dos; con
  *   acceso por vía dice su vía; las coordenadas van juntas.
  * - Ninguno se borra: DELETE retira (resources-delete) y un PATCH active=true lo vuelve a ofrecer. No
  *   tienen historial: son catálogos.
+ * - Los puntos de acceso a la vía no se escriben aquí: son el maestro de mto-configuration, que
+ *   mto-resources guarda de sus eventos (resources-read para leerlos). Se leen enteros, una vía cada vez.
  */
 
 export const BY_CODE = Object.freeze(['code,asc'])
@@ -127,6 +134,7 @@ function vehicleTypeValues(values) {
         needsPreparedAccess: roadRail ? values.needsPreparedAccess === true : null,
         requiredLicence: road ? values.requiredLicence ?? null : null,
         capabilities,
+        requiredDriverQualificationTypeId: values.requiredDriverQualificationTypeId || null,
         notes: textOrNull(values.notes),
     }
 }
@@ -148,7 +156,8 @@ const VEHICLE_TYPE_FLAGS = Object.freeze({selfPropelled: true, portable: false, 
  */
 export function vehicleTypePatch(original, values) {
     const after = vehicleTypeValues(values)
-    const before = {...original, capabilities: [...(original.capabilities ?? [])].sort()}
+    const before = {...original, capabilities: [...(original.capabilities ?? [])].sort(),
+        requiredDriverQualificationTypeId: original.requiredDriverQualification?.id ?? null}
     // Una casilla igual a lo que el servicio entiende sin dato no es un cambio, y la de una sección que
     // no se ofrece no viaja: nunca vacía.
     for (const [flag, whenMissing] of Object.entries(VEHICLE_TYPE_FLAGS)) {
@@ -158,7 +167,8 @@ export function vehicleTypePatch(original, values) {
     }
     const numberFields = VEHICLE_TYPE_FIGURES.map((figure) => figure.field)
     return buildMergePatch(before, after, {
-        fields: [...VEHICLE_TYPE_TEXTS, ...VEHICLE_TYPE_ENUMS, ...Object.keys(VEHICLE_TYPE_FLAGS), ...numberFields, 'capabilities'],
+        fields: [...VEHICLE_TYPE_TEXTS, ...VEHICLE_TYPE_ENUMS, ...Object.keys(VEHICLE_TYPE_FLAGS), ...numberFields, 'capabilities',
+            'requiredDriverQualificationTypeId'],
         numberFields, setFields: ['capabilities'], version: original.version,
     })
 }
@@ -219,4 +229,14 @@ export function parkingSitePatch(original, values, {readsConfiguration = true} =
         'longitude', 'notes']
     return buildMergePatch({...original, railAccess: original.railAccess === true, roadAccess: original.roadAccess === true},
         parkingSiteValues(values, readsConfiguration), {fields, numberFields: ['kp', 'latitude', 'longitude'], version: original.version})
+}
+
+/**
+ * Los puntos de acceso a la vía que conoce mto-resources (la copia que guarda de los eventos de
+ * mto-configuration): lo que ofrece «Registrar dónde está» entre los de la vía elegida. Una lista entera,
+ * sin paginar; lo ausente no filtra. Cada uno trae id, name, trackId, executionPackageId, stationId, kp,
+ * kind, side, roadRailAccess, maxAxleLoadT, maxGrossWeightT, latitude, longitude y enabled.
+ */
+export function listTrackAccessPoints({trackId = null, executionPackageId = null, enabled = null} = {}, {signal} = {}) {
+    return apiFetch(resourcesPath('track-access-points'), {query: {trackId, executionPackageId, enabled}, signal})
 }

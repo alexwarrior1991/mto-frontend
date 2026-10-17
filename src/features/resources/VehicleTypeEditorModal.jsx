@@ -22,7 +22,8 @@ import {unitLabel} from '../../api/resources/values.js'
 import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {maxLength, optionalFigure, requiredText, VEHICLE_TYPE_LENGTHS} from './resourcesForms.js'
-import {useSaveVehicleType} from './useResources.js'
+import {join} from './resourcesTexts.js'
+import {useActiveQualificationTypes, useSaveVehicleType} from './useResources.js'
 
 const SECTION_TITLES = Object.freeze({
     [SECTION.GENERAL]: 'Dimensiones y pesos',
@@ -39,6 +40,11 @@ const SECTION_TITLES = Object.freeze({
  * acceso preparado, solo en una bivial; la categoría, solo las de su movilidad. Cada capacidad enseña
  * sus cifras y quitarla las vacía. El código y la movilidad no cambian después del alta. Que el modelo
  * sea coherente lo dice el servicio (400 con el motivo), con el diálogo abierto.
+ *
+ * «Habilitación del conductor» es el tipo de cualificación que exige a quien lo conduce, entre los
+ * activos (el leído se ve aunque se haya retirado). En el alta, vacía, el servicio pone la que toca por
+ * su movilidad y su permiso; al modificar, vaciarla viaja a null y no exige ninguna. mto-maintenance
+ * pide, al iniciar un turno, una persona distinta habilitada por cada vehículo autopropulsado.
  *
  * @param {object|null} type el modelo que se modifica, o null para el alta
  */
@@ -61,6 +67,7 @@ export default function VehicleTypeEditorModal({type, onClose}) {
             needsPreparedAccess: type?.needsPreparedAccess === true,
             requiredLicence: type?.requiredLicence ?? null,
             capabilities: [...(type?.capabilities ?? [])],
+            requiredDriverQualificationTypeId: type?.requiredDriverQualification?.id ?? null,
             notes: type?.notes ?? '',
             ...Object.fromEntries(VEHICLE_TYPE_FIGURES.map((figure) => [figure.field, type?.[figure.field] == null ? '' : String(type[figure.field])])),
         },
@@ -77,7 +84,10 @@ export default function VehicleTypeEditorModal({type, onClose}) {
         },
     })
     const saving = useSaveVehicleType()
+    const qualificationTypes = useActiveQualificationTypes()
     const {mobility, capabilities} = form.values
+    const driverOptions = withCurrentQualification((qualificationTypes.data?.content ?? []).map(qualificationOption),
+        type?.requiredDriverQualification)
     const categories = withCurrent(categoriesOf(mobility), type?.category)
     const capabilityOptions = [...Object.entries(VEHICLE_CAPABILITIES).map(([value, label]) => ({value, label})),
         ...(type?.capabilities ?? []).filter((code) => !VEHICLE_CAPABILITIES[code]).map((code) => ({value: code, label: capabilityLabel(code)}))]
@@ -135,6 +145,10 @@ export default function VehicleTypeEditorModal({type, onClose}) {
                         <Select label="Propulsión" clearable data={VEHICLE_POWER.selectable()} {...form.getInputProps('power')}/>
                         <Checkbox label="Autopropulsado" mt="lg" {...form.getInputProps('selfPropelled', {type: 'checkbox'})}/>
                         <Checkbox label="Portátil (se pone a mano)" mt="lg" {...form.getInputProps('portable', {type: 'checkbox'})}/>
+                        <Select label="Habilitación del conductor" clearable searchable data={driverOptions} nothingFoundMessage="Ninguna"
+                                clearButtonProps={{'aria-label': 'Quitar la habilitación del conductor'}}
+                                description={creating ? 'Vacía: la de su movilidad y su permiso' : 'Vacía: no exige ninguna'}
+                                {...form.getInputProps('requiredDriverQualificationTypeId')}/>
                     </SimpleGrid>
                     {section(SECTION.GENERAL, figuresOf(SECTION.GENERAL))}
                     {section(SECTION.TRACK, [
@@ -176,4 +190,16 @@ function withCurrent(options, current) {
         return options
     }
     return [{value: current, label: VEHICLE_CATEGORY.label(current)}, ...options]
+}
+
+function qualificationOption(type) {
+    return {value: type.id, label: join(type.code, type.name)}
+}
+
+/** La habilitación leída se ve aunque ya no esté entre las activas: si no, el campo la leería vacía y la mandaría a vaciar. */
+function withCurrentQualification(options, current) {
+    if (!current || options.some((option) => option.value === current.id)) {
+        return options
+    }
+    return [qualificationOption(current), ...options]
 }

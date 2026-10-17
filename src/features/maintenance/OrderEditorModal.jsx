@@ -11,6 +11,7 @@ import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
 import StockPicker from '../stock/StockPicker.jsx'
 import {maxLength, required, requiredText} from './maintenanceForms.js'
 import {saveErrors} from './maintenanceErrors.js'
+import {LEADER_HINT} from './maintenanceTexts.js'
 import {AssetPicker, TeamSelect} from './MaintenancePickers.jsx'
 import {useStockNames} from './useMaintenanceNames.js'
 import {useOrderMaterials, useSaveOrder, useTeams} from './useMaintenance.js'
@@ -119,7 +120,7 @@ function OrderEditorForm({order, full, readsStock, project, projectLocked, onClo
                             <DateInput label="Prevista" clearable valueFormat={DATE_FORMAT} dateParser={parseTypedDate} placeholder="DD/MM/AAAA"
                                        {...form.getInputProps('plannedDate')}/>
                             <TeamSelect label="Equipo" teams={teams.data} current={order?.team ?? null} {...form.getInputProps('teamId')}/>
-                            <TextInput label="Asignada a" maxLength={USER_LENGTH} {...form.getInputProps('assignedUser')}/>
+                            <TextInput label="Asignada a" description={LEADER_HINT} maxLength={USER_LENGTH} {...form.getInputProps('assignedUser')}/>
                             {readsStock && (
                                 <StockPicker catalogue="projects" label="Proyecto de almacén" readOnly={projectLocked}
                                              description={projectLocked
