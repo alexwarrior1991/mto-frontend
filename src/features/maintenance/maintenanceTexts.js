@@ -95,3 +95,6 @@ function labelOf(value, label) {
 function join(...parts) {
     return parts.filter((part) => typeof part === 'string' ? part.trim() !== '' : part !== null && part !== undefined).join(' · ')
 }
+
+/** Lo que se dice al cerrar el diálogo de generar con la generación en marcha: no se pierde, sigue en el servicio. */
+export const GENERATION_STILL_RUNNING = 'La generación sigue en el servicio: sus tareas aparecerán en la orden al terminar.'

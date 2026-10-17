@@ -33,6 +33,8 @@ export function configureHttp(next) {
  * @param {BodyInit} [options.body] cuerpo tal cual (FormData para un multipart)
  * @param {string} [options.contentType] Content-Type del cuerpo JSON (application/merge-patch+json)
  * @param {'json'|'blob'|'text'|'none'} [options.responseType] json por defecto; blob devuelve {blob, headers}
+ * @param {string} [options.prefer] la cabecera Prefer (respond-async, wait=5)
+ * @param {boolean} [options.withStatus] devuelve {status, body}: un 202 y un 200 traen cuerpos distintos
  * @param {AbortSignal} [options.signal]
  */
 export async function apiFetch(path, options = {}) {
@@ -66,7 +68,9 @@ export async function apiFetch(path, options = {}) {
     if (!attempt.response.ok) {
         throw await decodeErrorResponse(attempt.response, {correlationId: attempt.correlationId, operation})
     }
-    return readBody(attempt.response, options.responseType ?? 'json', operation)
+    const body = await readBody(attempt.response, options.responseType ?? 'json', operation)
+    // Quien manda Prefer: respond-async necesita saber si le contestaron lo de siempre (200) o la operación (202).
+    return options.withStatus ? {status: attempt.response.status, body} : body
 }
 
 /** La URL de una llamada: solo rutas /api/ del mismo origen, con la query ya codificada. */
@@ -96,6 +100,10 @@ async function send(url, method, token, options) {
         [CORRELATION_HEADER]: correlationId,
         Accept: acceptFor(options.responseType ?? 'json'),
     })
+    if (options.prefer) {
+        // RFC 7240: respond-async y wait=N, que mto-maintenance atiende al generar tareas. El gateway lo reenvía.
+        headers.set('Prefer', options.prefer)
+    }
     let body = options.body
     if (options.json !== undefined) {
         headers.set('Content-Type', options.contentType ?? 'application/json')

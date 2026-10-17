@@ -160,8 +160,12 @@ import {
     createShift,
     listShiftProfiles,
     listShiftTasks,
+    parkingRowError,
+    parkingsRequest,
     patchShift,
     searchShifts,
+    SHIFT_LEADER_CATEGORIES,
+    SHIFT_SUPERVISOR_CATEGORIES,
     shiftFormValues,
     shiftPatch,
     shiftRequest,
@@ -179,6 +183,7 @@ import {
     GENERATION_SCOPE,
     generateRequest,
     generateTasks,
+    startTaskGeneration,
     generationRow,
     isOrderSectionOnly,
     listOrderTasks,
@@ -189,6 +194,7 @@ import {
     taskPatch,
     taskRequest,
 } from '../api/maintenance/tasks.js'
+import {getOperation, GENERATION_PREFER, isFinishedOperation, OPERATION_STATUS, operationError} from '../api/maintenance/operations.js'
 import {assetLabel, materialLabel, teamLabel} from '../api/maintenance/values.js'
 import {buildMergePatch, MERGE_PATCH} from '../api/mergePatch.js'
 import {
@@ -205,6 +211,85 @@ import {actorText, subjectText} from '../api/notification/values.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
+import {
+    canHangFrom,
+    capabilityLabel,
+    categoriesAtLeast,
+    categoriesOf,
+    categoryRank,
+    headCategories,
+    LINEMAN_CATEGORIES,
+    LOCATION_KIND,
+    PERSON_CATEGORY,
+    recordableKinds,
+    UNIT_KIND,
+    VEHICLE_CATEGORY,
+} from '../api/resources/enums.js'
+import {
+    createParkingSite,
+    createVehicleType,
+    figureTravels,
+    newParkingSiteRequest,
+    newVehicleTypeRequest,
+    offerParkingSiteAgain,
+    offerVehicleTypeAgain,
+    parkingSitePatch,
+    patchParkingSite,
+    patchVehicleType,
+    retireParkingSite,
+    retireVehicleType,
+    searchParkingSites,
+    searchVehicleTypes,
+    VEHICLE_TYPE_FIGURES,
+    vehicleTypePatch,
+} from '../api/resources/fleet.js'
+import {
+    createPerson,
+    deactivatePerson,
+    newPersonRequest,
+    patchPerson,
+    personPatch,
+    personRevisionsPath,
+    reactivatePerson,
+    searchPeople,
+} from '../api/resources/people.js'
+import {
+    addMember,
+    createUnit,
+    currentMembers,
+    deactivateUnit,
+    disciplineUnder,
+    flattenTree,
+    getUnit,
+    getUnitTree,
+    leaveTeam,
+    listMembers,
+    newUnitRequest,
+    parentsFor,
+    patchUnit,
+    reactivateTeam,
+    reactivateUnit,
+    replaceMembers,
+    unitChildren,
+    unitPatch,
+    unitRevisionsPath,
+} from '../api/resources/units.js'
+import {personLabel, unitLabel} from '../api/resources/values.js'
+import {
+    createVehicle,
+    fleetPositions,
+    listLocations,
+    locationRequest,
+    newVehicleRequest,
+    patchVehicle,
+    reactivateVehicle,
+    recordLocation,
+    retireVehicle,
+    searchVehicles,
+    shiftIdOf,
+    vehiclePatch,
+    whereOf,
+} from '../api/resources/vehicles.js'
 import {EXPECTED_AUDIENCES, prefixOf, SERVICES} from '../api/services.js'
 import {
     assemblyBody,
@@ -665,6 +750,29 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde.')
     })
 
+    it('mto-resources: una regla del organigrama o de la flota lleva el detalle, un valor repetido no pide recargar, y el OPS-429 dice cuándo reintentar', () => {
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'UNI-001', detail: 'Team EQ-NORTE would have 1 linemen'})})))
+            .toBe('El organigrama no admite ese cambio. Team EQ-NORTE would have 1 linemen')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'VEH-001', detail: 'A rail-only vehicle is never on the road'})})))
+            .toBe('La flota no admite ese cambio. A rail-only vehicle is never on the road')
+        for (const code of ['PER-409', 'UNI-409', 'VEH-409', 'VTY-409', 'PRK-409']) {
+            expect(errorMessage(new ConflictError(409, {problem: problem({code, detail: 'Username equipo.jefe is already in use'})})))
+                .toBe('Ya existe otro con ese valor (código, usuario, número de empleado, matrícula o número ferroviario). Username equipo.jefe is already in use')
+        }
+        expect(errorMessage(new TooManyRequestsError(429, {problem: problem({code: 'OPS-429'}), retryAfterSeconds: 3})))
+            .toBe('Hay demasiadas operaciones en marcha. Inténtalo en 3 s.')
+        expect(errorMessage(new TooManyRequestsError(429, {problem: problem({code: 'OPS-429'})})))
+            .toBe('Hay demasiadas operaciones en marcha. Inténtalo más tarde.')
+        // Lo que mantenimiento dice de lo que es de mto-resources: un equipo sincronizado, y una persona o un
+        // vehículo que aún no ha llegado por evento.
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'TEA-001', detail: 'Team A is synchronized from mto-resources'})})))
+            .toBe('El equipo es de mto-resources: se cambia en Recursos > Organigrama.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'CRW-404', detail: 'Crew person not found'})})))
+            .toBe('Esa persona aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'FLT-404', detail: 'Fleet vehicle not found'})})))
+            .toBe('Ese vehículo aún no ha llegado a mantenimiento desde mto-resources: inténtalo en un momento.')
+    })
+
     it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
         expect(errorMessage(new ConflictError(409, {problem: problem({code: 'USR-409', detail: 'User exists with same username'})})))
             .toBe('Ya existe un usuario con ese nombre de usuario o ese email. User exists with same username')
@@ -937,9 +1045,9 @@ describe('format.js: cifras y fechas', () => {
 })
 
 describe('services.js y probes.js: los servicios del dominio en un solo sitio', () => {
-    it('las seis audiencias que un token tiene que llevar: las cinco APIs y el gateway', () => {
+    it('las ocho audiencias que un token tiene que llevar: las seis APIs con pantallas, mto-field y el gateway', () => {
         expect(EXPECTED_AUDIENCES).toEqual(['mto-configuration-api', 'mto-users-api', 'mto-stock-api', 'mto-maintenance-api',
-            'mto-notification-api', 'mto-gateway-api'])
+            'mto-notification-api', 'mto-resources-api', 'mto-field-api', 'mto-gateway-api'])
         expect(SERVICE_PROBES.map((probe) => probe.service)).toEqual(SERVICES.map((service) => service.name))
         for (const probe of SERVICE_PROBES) {
             expect(SERVICES.find((service) => service.name === probe.service).roles).toContain(probe.permission)
@@ -949,6 +1057,8 @@ describe('services.js y probes.js: los servicios del dominio en un solo sitio', 
     it('el prefijo de cada servicio sale de aqui, y uno que no existe no se inventa', () => {
         expect(prefixOf('mto-configuration')).toBe('/api/configuration')
         expect(SERVICES.map((service) => prefixOf(service.name))).toEqual(SERVICES.map((service) => service.prefix))
+        expect(prefixOf('mto-resources')).toBe('/api/resources')
+        // mto-field es gRPC: el token lleva su audiencia, pero aqui no tiene prefijo ni pantallas.
         expect(() => prefixOf('mto-field')).toThrow('Servicio desconocido: mto-field')
     })
 
@@ -2254,6 +2364,35 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(json(cancels[0])).toEqual({reason: 'Perfil desmontado'})
     })
 
+    it('generar de verdad va con Prefer: un 202 trae la operación, que se pregunta por su id y no por su Location; un 200 el resultado', async () => {
+        useToken()
+        const operation = '3c3c3c3c-0000-4000-8000-0000000000c1'
+        const posts = record('post', `${BASE}/orders/${ORDER}/tasks/generate`, (request, call) => (call === 1
+            ? HttpResponse.json({id: operation, kind: 'GENERATE_TASKS', status: 'QUEUED'},
+                {status: 202, headers: {Location: `/api/v1/maintenance/operations/${operation}`}})
+            : HttpResponse.json({createdTasks: 14, skippedProfiles: 0, totalTasks: 14, estimatedMinutes: 600, estimatedShifts: 1})))
+        const reads = record('get', `${BASE}/operations/:id`, () => HttpResponse.json({id: operation, status: 'PAUSED',
+            error: {status: 500, errorCode: 'OPS-410', message: 'Abandoned'}}))
+
+        expect(await startTaskGeneration(ORDER, {})).toEqual({operation: {id: operation, kind: 'GENERATE_TASKS', status: 'QUEUED'}})
+        expect((await startTaskGeneration(ORDER, {})).result.createdTasks).toBe(14)
+        expect(posts.map((request) => request.headers.get('prefer'))).toEqual([GENERATION_PREFER, GENERATION_PREFER])
+        const unknown = await getOperation(operation)
+        expect(reads[0].url.pathname).toBe(`${BASE}/operations/${operation}`)
+        expect(OPERATION_STATUS.parse(unknown.status)).toBe('UNKNOWN')
+        expect(isFinishedOperation(unknown)).toBe(true)
+        expect(isFinishedOperation({status: 'RUNNING'})).toBe(false)
+        const failure = operationError(unknown)
+        expect([failure.status, failure.code]).toEqual([500, 'OPS-410'])
+        expect(errorMessage(failure)).toBe('La operación se interrumpió en el servicio (se paró la instancia que la llevaba): vuelve a lanzarla.')
+        expect(errorMessage(operationError({id: operation, error: {status: 409, errorCode: 'TRN-001', message: 'Order is COMPLETED'}})))
+            .toBe('El estado actual no permite esta operación. Order is COMPLETED')
+        // La previsualización sigue siendo síncrona: sin Prefer.
+        const previews = record('post', `${BASE}/orders/${ORDER}/tasks/generate`, () => HttpResponse.json({createdTasks: 0, dryRun: true}))
+        await generateTasks(ORDER, {dryRun: true})
+        expect(previews[0].headers.get('prefer')).toBeNull()
+    })
+
     it('generar el tramo de la orden es la petición de siempre: vacía, o assetTypes con los tipos para todo', async () => {
         useToken()
         const generates = record('post', `${BASE}/orders/:id/tasks/generate`, () => HttpResponse.json({createdTasks: 3, skippedProfiles: 1,
@@ -2371,6 +2510,41 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(unassigns[0].body).toBe('')
         expect(unassigned.shiftId).toBeNull()
         expect(() => transitionShift(SHIFT, 'reopen', {})).toThrow(/desconocida/)
+    })
+
+    it('la dotación y los vehículos de un turno viajan por sus ids, como conjuntos y solo con resources-read; cerrar dice dónde queda cada vehículo', () => {
+        const leader = '3c4d5e6f-0000-4000-8000-0000000000a1'
+        const [first, second] = ['3c4d5e6f-0000-4000-8000-0000000000a2', '3c4d5e6f-0000-4000-8000-0000000000a3']
+        const [rail, road] = ['9d0e1f20-0000-4000-8000-0000000000a1', '9d0e1f20-0000-4000-8000-0000000000a2']
+        const read = shift('PLANNED', {teamLeader: {id: leader, code: 'PER-000003'}, supervisor: null,
+            linemen: [{id: first, code: 'PER-000011'}, {id: second, code: 'PER-000012'}],
+            vehicles: [{vehicleId: rail, code: 'DR-01', mobility: 'RAIL_ONLY', parking: null}, {vehicleId: road, code: 'VAN-01', mobility: 'ROAD_ONLY'}]})
+        const values = shiftFormValues(read)
+        expect([values.teamLeaderPersonId, values.linemanPersonIds, values.vehicleIds]).toEqual([leader, [first, second], [rail, road]])
+
+        const fresh = {shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: ['12'], teamLeaderPersonId: leader, supervisorPersonId: null,
+            linemanPersonIds: [], vehicleIds: [rail]}
+        expect(shiftRequest(fresh, {readsResources: true})).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12],
+            teamLeaderPersonId: leader, vehicleIds: [rail]})
+        expect(shiftRequest(fresh)).toEqual({shiftDate: '2026-10-05', possessionType: 'PARTIAL', trackIds: [12]})
+        expect(shiftPatch(read, {...values, linemanPersonIds: [second, first], vehicleIds: [road, rail]}, {readsResources: true})).toBeNull()
+        expect(shiftPatch(read, {...values, linemanPersonIds: [], vehicleIds: [rail], supervisorPersonId: leader}, {readsResources: true}))
+            .toEqual({linemanPersonIds: null, vehicleIds: [rail], supervisorPersonId: leader, version: 5})
+        expect(shiftPatch(read, {...values, linemanPersonIds: []})).toBeNull()
+        expect(SHIFT_LEADER_CATEGORIES).not.toContain('WORKER')
+        expect(SHIFT_SUPERVISOR_CATEGORIES).toEqual(['SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
+
+        const rows = [{vehicleId: rail, parkingSiteId: null, trackId: '12', kp: '4.250', description: ' '},
+            {vehicleId: road, parkingSiteId: null, trackId: null, kp: '', description: ''}]
+        expect(parkingsRequest(rows)).toEqual({parkings: [{vehicleId: rail, trackId: 12, kp: 4.25}], rowOf: [0]})
+        expect(parkingsRequest([rows[1]]).parkings).toBeNull()
+        expect(shiftTransitionRequest('close', {when: null, voltageCutoffAt: null, netWorkMinutes: '', observations: '', parkings: rows}))
+            .toEqual({parkings: [{vehicleId: rail, trackId: 12, kp: 4.25}]})
+        expect(parkingRowError({vehicleId: rail, kp: '4', trackId: null}, 'RAIL_ONLY')).toEqual({field: 'trackId', message: 'Un KP va con su vía'})
+        expect(parkingRowError({vehicleId: rail, description: 'Playa de vías'}, 'RAIL_ONLY')).toEqual({field: 'description',
+            message: 'Uno de solo vía se deja sobre una vía: un sitio o una vía'})
+        expect(parkingRowError({vehicleId: road, description: 'Puerta 3'}, 'ROAD_ONLY')).toBeNull()
+        expect(parkingRowError({vehicleId: rail}, 'RAIL_ONLY')).toBeNull()
     })
 
     it('trabajar una tarea: iniciarla en un turno, contestar un punto y completarla con sus defectos y materiales', async () => {
@@ -2605,6 +2779,323 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         ])
         expect(orders.content[0].entity.code).toBe('MO-000001')
         expect(none).toBeInstanceOf(NotFoundError)
+    })
+})
+
+describe('resources/*.js: el personal, el organigrama y la flota de mto-resources', () => {
+    const BASE = '/api/resources'
+    const PERSON = '3c4d5e6f-0000-4000-8000-000000000001'
+    const UNIT = '4d5e6f70-0000-4000-8000-000000000002'
+    const json = (request) => JSON.parse(request.body)
+    const page = (content, {number = 0, size = 50, totalElements = content.length} = {}) => ({
+        content, page: {number, size, totalElements, totalPages: Math.ceil(totalElements / size), first: number === 0, last: true},
+    })
+    const person = (extra = {}) => ({
+        id: PERSON, code: 'PER-000003', employeeNumber: 'E-1042', firstName: 'Yossi', lastName: 'Cohen', fullName: 'Yossi Cohen',
+        username: 'equipo.jefe', category: 'TEAM_LEADER', employer: 'SUBCONTRACTOR', company: 'Catenarias del Norte',
+        phone: '+972 50 000 0000', active: true, version: 3, ...extra,
+    })
+
+    it('las personas: la búsqueda con la categoría repetida, el alta sin lo vacío, la modificación con lo cambiado, desactivar y reactivar', async () => {
+        useToken()
+        const searches = record('get', `${BASE}/people`, () => HttpResponse.json(page([person(), person({id: 'otra', category: 'SAFETY_OFFICER'})])))
+        const posts = record('post', `${BASE}/people`, () => HttpResponse.json(person({category: 'WORKER'}), {status: 201}))
+        const patches = record('patch', `${BASE}/people/:id`, () => HttpResponse.json(person()))
+        const deletes = record('delete', `${BASE}/people/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchPeople({search: ' cohen ', categories: ['TEAM_LEADER', 'WORKER'], unitId: UNIT, active: true})
+        await createPerson(newPersonRequest({firstName: ' Yossi ', lastName: 'Cohen', category: 'WORKER', employer: 'OWN',
+            company: 'no viaja', employeeNumber: ' ', username: '', phone: null}))
+        await patchPerson(PERSON, personPatch(person(), {...person(), category: 'SUPERVISOR', phone: '  ', employer: 'OWN'}))
+        await deactivatePerson(PERSON)
+        await reactivatePerson(person({active: false, version: 4}))
+        await searchPeople()
+
+        expect(searches[0].url.search).toBe(`?search=cohen&category=WORKER&category=TEAM_LEADER&unitId=${UNIT}&active=true`
+            + '&page=0&size=50&sort=lastName%2Casc&sort=firstName%2Casc&sort=id%2Casc')
+        expect(searches[1].url.search).toBe('?page=0&size=50&sort=lastName%2Casc&sort=firstName%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({firstName: 'Yossi', lastName: 'Cohen', category: 'WORKER', employer: 'OWN'})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {category: 'SUPERVISOR', employer: 'OWN', company: null, phone: null, version: 3}],
+            [MERGE_PATCH, {active: true, version: 4}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/people/${PERSON}`)
+        expect(PERSON_CATEGORY.parse(found.content[1].category)).toBe('UNKNOWN')
+        expect(PERSON_CATEGORY.label(found.content[1].category)).toBe('Desconocido')
+        expect(personLabel(found.content[0])).toBe('PER-000003 · Yossi Cohen')
+        expect(personPatch(person(), person())).toBeNull()
+        expect(personRevisionsPath(PERSON)).toBe(`${BASE}/people/${PERSON}/revisions`)
+        expect(categoriesAtLeast(2)).toEqual(['TEAM_LEADER', 'SUPERVISOR', 'CHIEF_SUPERVISOR', 'CHIEF_MAINTENANCE', 'CHIEF_CONSTRUCTION',
+            'PROJECT_MANAGER'])
+        expect(categoryRank('SAFETY_OFFICER')).toBe(0)
+    })
+
+    const TEAM = '5e6f7081-0000-4000-8000-000000000001'
+    const SUPERVISION = '5e6f7081-0000-4000-8000-000000000002'
+    const A = '3c4d5e6f-0000-4000-8000-00000000000a'
+    const B = '3c4d5e6f-0000-4000-8000-00000000000b'
+    const tree = () => [{
+        id: 'prj', code: 'PRJ', name: 'Proyecto', kind: 'PROJECT', discipline: null, head: null, executionPackageIds: [], linemen: null,
+        active: true, children: [
+            {id: SUPERVISION, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION', discipline: 'MAINTENANCE', head: null,
+                executionPackageIds: [4], linemen: null, active: true, children: [
+                    {id: TEAM, code: 'A', name: 'Equipo A', kind: 'TEAM', discipline: 'MAINTENANCE', head: null, executionPackageIds: [4, 5],
+                        linemen: 4, active: false, children: []},
+                ]},
+            {id: 'zona', code: 'ZONA', name: 'Zona', kind: 'ZONE', discipline: null, head: null, executionPackageIds: null, linemen: null,
+                active: true, children: null},
+            {id: 'old', code: 'OLD', name: 'OLD', kind: 'DEPARTMENT', discipline: 'CONSTRUCTION', head: null, executionPackageIds: [],
+                linemen: null, active: false, children: []},
+        ],
+    }]
+    const unit = (extra = {}) => ({
+        id: SUPERVISION, code: 'SUP-N', name: 'Supervisión norte', kind: 'SUPERVISION', discipline: 'MAINTENANCE',
+        parent: {id: 'prj', code: 'PRJ', name: 'Proyecto', kind: 'PROJECT'}, head: {id: PERSON, code: 'PER-000003', fullName: 'Yossi Cohen'},
+        executionPackageIds: [5, 4], members: [], active: true, version: 2, ...extra,
+    })
+
+    it('el organigrama: el árbol, una unidad, sus hijas por código con el id para desempatar, el alta de un equipo completo y la modificación con los EP como conjunto', async () => {
+        useToken()
+        // MSW da prioridad a lo último que se registra: el árbol, después de la unidad por id.
+        record('get', `${BASE}/units/:id`, () => HttpResponse.json(unit()))
+        const trees = record('get', `${BASE}/units/tree`, () => HttpResponse.json(tree()))
+        const lists = record('get', `${BASE}/units`, () => HttpResponse.json(page([unit()])))
+        const posts = record('post', `${BASE}/units`, () => HttpResponse.json(unit(), {status: 201}))
+        const patches = record('patch', `${BASE}/units/:id`, () => HttpResponse.json(unit()))
+        const deletes = record('delete', `${BASE}/units/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const roots = await getUnitTree({includeInactive: true})
+        const read = await getUnit(SUPERVISION)
+        await unitChildren(SUPERVISION)
+        await createUnit(newUnitRequest({code: ' B ', name: 'Equipo B', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION,
+            headPersonId: PERSON, executionPackageIds: ['11', '9'], memberPersonIds: [A, B], joinedOn: '2026-10-16'}))
+        await createUnit(newUnitRequest({code: 'PRJ2', name: 'Otro proyecto', kind: 'PROJECT', discipline: 'MAINTENANCE', parentId: SUPERVISION,
+            headPersonId: null, executionPackageIds: [], memberPersonIds: [A], joinedOn: '2026-10-16'}))
+        await patchUnit(SUPERVISION, unitPatch(read, {name: 'Supervisión norte', parentId: 'prj', headPersonId: null,
+            executionPackageIds: ['6', '4']}))
+        await patchUnit(SUPERVISION, unitPatch(read, {name: 'Supervisión del norte', parentId: 'prj', headPersonId: PERSON,
+            executionPackageIds: []}, {readsPackages: false}))
+        await deactivateUnit(SUPERVISION)
+        await reactivateUnit(unit({active: false, version: 3}))
+
+        expect(trees[0].url.search).toBe('?includeInactive=true')
+        expect(lists[0].url.search).toBe(`?parentId=${SUPERVISION}&page=0&size=200&sort=code%2Casc&sort=id%2Casc`)
+        expect(posts.map(json)).toEqual([
+            {code: 'B', name: 'Equipo B', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION, headPersonId: PERSON,
+                executionPackageIds: [9, 11], memberPersonIds: [A, B], joinedOn: '2026-10-16'},
+            {code: 'PRJ2', name: 'Otro proyecto', kind: 'PROJECT'},
+        ])
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {headPersonId: null, executionPackageIds: [4, 6], version: 2}],
+            [MERGE_PATCH, {name: 'Supervisión del norte', version: 2}],
+            [MERGE_PATCH, {active: true, version: 3}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/units/${SUPERVISION}`)
+        expect(unitPatch(read, {name: ' Supervisión norte ', parentId: 'prj', headPersonId: PERSON, executionPackageIds: ['4', '5']})).toBeNull()
+        expect(unitRevisionsPath(SUPERVISION)).toBe(`${BASE}/units/${SUPERVISION}/revisions`)
+
+        // El vehículo por defecto es de un equipo: nace con él, se cambia y se vacía; otra unidad no lo manda nunca.
+        const vehicleId = '9d0e1f20-0000-4000-8000-000000000001'
+        const team = {...read, kind: 'TEAM', head: {id: PERSON}, defaultVehicle: {id: vehicleId, code: 'DR-01'}}
+        const same = {name: read.name, parentId: read.parent.id, headPersonId: PERSON, executionPackageIds: read.executionPackageIds}
+        expect(newUnitRequest({code: 'C', name: 'Equipo C', kind: 'TEAM', discipline: 'MAINTENANCE', parentId: SUPERVISION, headPersonId: PERSON,
+            executionPackageIds: [], memberPersonIds: [A, B], joinedOn: null, defaultVehicleId: vehicleId}).defaultVehicleId).toBe(vehicleId)
+        expect(newUnitRequest({code: 'P', name: 'P', kind: 'PROJECT', discipline: null, parentId: null, headPersonId: null, executionPackageIds: [],
+            memberPersonIds: [], defaultVehicleId: vehicleId})).not.toHaveProperty('defaultVehicleId')
+        expect(unitPatch(team, {...same, defaultVehicleId: vehicleId})).toBeNull()
+        expect(unitPatch(team, {...same, defaultVehicleId: null})).toEqual({defaultVehicleId: null, version: 2})
+        expect(unitPatch({...team, defaultVehicle: null}, {...same, defaultVehicleId: vehicleId})).toEqual({defaultVehicleId: vehicleId, version: 2})
+        expect(unitPatch(read, {...same, headPersonId: read.head?.id ?? null, defaultVehicleId: vehicleId})).toBeNull()
+
+        expect(flattenTree(roots).map((node) => node.code)).toEqual(['PRJ', 'SUP-N', 'A', 'ZONA', 'OLD'])
+        expect(UNIT_KIND.parse(roots[0].children[1].kind)).toBe('UNKNOWN')
+        expect(unitLabel(roots[0].children[2])).toBe('OLD')
+        expect(unitLabel(read)).toBe('SUP-N · Supervisión norte')
+        expect(parentsFor(roots, 'TEAM').map((node) => node.code)).toEqual(['PRJ', 'SUP-N'])
+        expect(parentsFor(roots, 'SUPERVISION', {selfId: SUPERVISION}).map((node) => node.code)).toEqual(['PRJ'])
+        expect(parentsFor(roots, null).map((node) => node.code)).toEqual(['PRJ', 'SUP-N'])
+        expect(parentsFor(roots, 'TEAM', {discipline: 'CONSTRUCTION'}).map((node) => node.code)).toEqual(['PRJ'])
+        expect(disciplineUnder(roots, SUPERVISION)).toBe('MAINTENANCE')
+        expect(disciplineUnder(roots, 'prj')).toBeNull()
+    })
+
+    it('los linemen de un equipo: los de ahora y los que salieron, la lista entera, uno que entra, uno que sale y la reactivación con sus linemen', async () => {
+        useToken()
+        const reads = record('get', `${BASE}/units/:id/members`, () => HttpResponse.json([
+            {id: 'm1', person: {id: A, code: 'PER-00000A'}, joinedOn: '2026-10-01', leftOn: null},
+            {id: 'm2', person: {id: B, code: 'PER-00000B'}, joinedOn: '2026-10-01', leftOn: '2026-10-21'},
+        ]))
+        const puts = record('put', `${BASE}/units/:id/members`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const posts = record('post', `${BASE}/units/:id/members`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const leaves = record('post', `${BASE}/units/:id/members/:personId/leave`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+        const patches = record('patch', `${BASE}/units/:id`, () => HttpResponse.json(unit({kind: 'TEAM'})))
+
+        const members = await listMembers(TEAM, {includeFormer: true})
+        await replaceMembers(TEAM, [A, B], '2026-10-20')
+        await addMember(TEAM, A)
+        await leaveTeam(TEAM, A, '2026-10-21')
+        await reactivateTeam({id: TEAM, version: 8}, [A, B])
+
+        expect(reads[0].url.search).toBe('?includeFormer=true')
+        expect(currentMembers(members).map((member) => member.person.code)).toEqual(['PER-00000A'])
+        expect(json(puts[0])).toEqual({memberPersonIds: [A, B], effectiveOn: '2026-10-20'})
+        expect(json(posts[0])).toEqual({personId: A})
+        expect(leaves[0].url.pathname).toBe(`${BASE}/units/${TEAM}/members/${A}/leave`)
+        expect(json(leaves[0])).toEqual({leftOn: '2026-10-21'})
+        expect(json(patches[0])).toEqual({active: true, memberPersonIds: [A, B], version: 8})
+    })
+
+    it('las reglas copiadas del servicio para no ofrecer lo que va a fallar: de quién cuelga cada nivel y quién lo dirige', () => {
+        expect(canHangFrom('TEAM', 'SUPERVISION')).toBe(true)
+        expect(canHangFrom('TEAM', 'DEPARTMENT')).toBe(true)
+        expect(canHangFrom('TEAM', 'TEAM')).toBe(false)
+        expect(canHangFrom('SUPERVISION', 'SUPERVISION')).toBe(false)
+        expect(canHangFrom('PROJECT', 'PROJECT')).toBe(false)
+        expect(canHangFrom('TEAM', 'ZONE')).toBe(false)
+        expect(headCategories('DEPARTMENT', 'MAINTENANCE')).toEqual(['CHIEF_MAINTENANCE', 'PROJECT_MANAGER'])
+        expect(headCategories('DEPARTMENT', 'CONSTRUCTION')).toEqual(['CHIEF_CONSTRUCTION', 'PROJECT_MANAGER'])
+        expect(headCategories('TEAM', 'MAINTENANCE')).toEqual(categoriesAtLeast(2))
+        expect(headCategories('PROJECT', null)).toEqual(['PROJECT_MANAGER'])
+        expect(headCategories('ZONE', null)).toEqual([])
+        expect(LINEMAN_CATEGORIES).toEqual(['WORKER', 'TEAM_LEADER'])
+    })
+
+    it('los modelos: la búsqueda con sus filtros, el alta por secciones de su movilidad y la modificación con las capacidades como conjunto', async () => {
+        useToken()
+        const TYPE = '7b8c9d0e-0000-4000-8000-000000000001'
+        const type = {id: TYPE, code: 'UNIMOG-RR', name: 'Unimog bivial', mobility: 'ROAD_RAIL', category: 'HOVERCRAFT', selfPropelled: true,
+            portable: null, trackGaugeMm: 1435, railGearType: 'RAIL_WHEEL_DRIVE', needsPreparedAccess: null, seats: 3, craneCapacityT: 5,
+            capabilities: ['LASER_SCANNER', 'CRANE'], active: true, version: 4}
+        const searches = record('get', `${BASE}/vehicle-types`, () => HttpResponse.json(page([type])))
+        const posts = record('post', `${BASE}/vehicle-types`, () => HttpResponse.json(type, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicle-types/:id`, () => HttpResponse.json(type))
+        const deletes = record('delete', `${BASE}/vehicle-types/:id`, () => new HttpResponse(null, {status: 204}))
+
+        const found = await searchVehicleTypes({search: ' unimog ', mobility: 'ROAD_RAIL', category: 'ROAD_RAIL_TRUCK', capability: 'CRANE', active: true})
+        await createVehicleType(newVehicleTypeRequest({code: 'VAN-1', name: 'Furgoneta', mobility: 'ROAD_ONLY', category: 'VAN', selfPropelled: true,
+            seats: '3', trackGaugeMm: '1435', railGearType: 'RAIL_WHEEL_DRIVE', transportModeAuthorised: true, craneCapacityT: '4',
+            capabilities: ['EARTHING', 'CREW_CABIN'], maxSpeedRoadKmh: '120'}))
+        await patchVehicleType(TYPE, vehicleTypePatch(type, {...type, seats: '3', trackGaugeMm: '1435', craneCapacityT: '5',
+            capabilities: ['LASER_SCANNER', 'TOWING'], needsPreparedAccess: false, portable: false}))
+        await retireVehicleType(TYPE)
+        await offerVehicleTypeAgain({...type, active: false, version: 5})
+
+        expect(searches[0].url.search).toBe('?search=unimog&mobility=ROAD_RAIL&category=ROAD_RAIL_TRUCK&capability=CRANE&active=true'
+            + '&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'VAN-1', mobility: 'ROAD_ONLY', name: 'Furgoneta', category: 'VAN', selfPropelled: true, portable: false,
+            seats: 3, maxSpeedRoadKmh: 120, capabilities: ['CREW_CABIN', 'EARTHING']})
+        expect(patches.map((request) => [request.headers.get('content-type'), json(request)])).toEqual([
+            [MERGE_PATCH, {craneCapacityT: null, capabilities: ['LASER_SCANNER', 'TOWING'], version: 4}],
+            [MERGE_PATCH, {active: true, version: 5}],
+        ])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/vehicle-types/${TYPE}`)
+        expect(vehicleTypePatch(type, {...type, seats: 3, trackGaugeMm: 1435, craneCapacityT: 5.0})).toBeNull()
+        expect(VEHICLE_CATEGORY.label(found.content[0].category)).toBe('Desconocido')
+        expect(capabilityLabel('LASER_SCANNER')).toBe('LASER_SCANNER')
+        expect(capabilityLabel('CRANE')).toBe('Grúa')
+        expect(categoriesOf('ROAD_ONLY').map((option) => option.value)).toEqual(['VAN', 'PICKUP', 'CREW_BUS', 'CRANE_TRUCK', 'TRUCK', 'LOW_LOADER', 'CAR'])
+        const crane = VEHICLE_TYPE_FIGURES.find((figure) => figure.field === 'craneCapacityT')
+        const gauge = VEHICLE_TYPE_FIGURES.find((figure) => figure.field === 'trackGaugeMm')
+        expect([figureTravels(crane, 'ROAD_RAIL', ['CRANE']), figureTravels(crane, 'ROAD_RAIL', []), figureTravels(gauge, 'ROAD_ONLY', [])])
+            .toEqual([true, false, false])
+    })
+
+    it('los sitios de aparcamiento: la búsqueda, el alta sin lo vacío y la modificación, que sin config-read no toca EP, estación ni vía', async () => {
+        useToken()
+        const SITE = '8c9d0e1f-0000-4000-8000-000000000001'
+        const site = {id: SITE, code: 'APT-RSH', name: 'Apartadero', kind: 'SIDING', executionPackageId: 4, stationId: 7, trackId: 12, kp: 12.3,
+            railAccess: true, roadAccess: false, latitude: 32.2, longitude: 34.82, active: true, version: 2}
+        const searches = record('get', `${BASE}/parking-sites`, () => HttpResponse.json(page([site])))
+        const posts = record('post', `${BASE}/parking-sites`, () => HttpResponse.json(site, {status: 201}))
+        const patches = record('patch', `${BASE}/parking-sites/:id`, () => HttpResponse.json(site))
+        record('delete', `${BASE}/parking-sites/:id`, () => new HttpResponse(null, {status: 204}))
+
+        await searchParkingSites({kind: 'SIDING', executionPackageId: 4, active: true})
+        await createParkingSite(newParkingSiteRequest({code: ' APT-RSH ', name: 'Apartadero', kind: 'SIDING', executionPackageId: '4', stationId: null,
+            trackId: '12', kp: '12.300', railAccess: true, roadAccess: false, address: ' ', latitude: '', longitude: ''}))
+        await patchParkingSite(SITE, parkingSitePatch(site, {...site, executionPackageId: '5', trackId: null, kp: '12.30', latitude: '', longitude: ''}))
+        await patchParkingSite(SITE, parkingSitePatch(site, {...site, executionPackageId: null, roadAccess: true}, {readsConfiguration: false}))
+        await retireParkingSite(SITE)
+        await offerParkingSiteAgain({...site, version: 3})
+
+        expect(searches[0].url.search).toBe('?kind=SIDING&executionPackageId=4&active=true&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'APT-RSH', name: 'Apartadero', kind: 'SIDING', executionPackageId: 4, trackId: 12, kp: 12.3,
+            railAccess: true, roadAccess: false})
+        expect(patches.map(json)).toEqual([
+            {executionPackageId: 5, trackId: null, latitude: null, longitude: null, version: 2},
+            {roadAccess: true, version: 2},
+            {active: true, version: 3},
+        ])
+    })
+
+    it('los vehículos: la búsqueda, el alta con lo que pide su modelo, la modificación, sus ubicaciones y el tablero por vía y kp', async () => {
+        useToken()
+        const VEHICLE = '9d0e1f20-0000-4000-8000-000000000001'
+        const SHIFT = 'a0b1c2d3-0000-4000-8000-000000000001'
+        const railModel = {id: 'model', code: 'DIC-30', mobility: 'RAIL_ONLY', transportModeAuthorised: true}
+        const roadModel = {id: 'van', code: 'VAN', mobility: 'ROAD_ONLY'}
+        const dresina = {id: VEHICLE, code: 'DR-01', type: railModel, registrationPlate: null, railVehicleNumber: '99 80', owner: 'OWN',
+            operationalStatus: 'LIMITED', statusReason: 'Plataforma', manufactureYear: 2019, active: true, version: 6,
+            position: {kind: 'TELEPORTED', sourceReference: `mto-maintenance:shift:${SHIFT}`}}
+        const searches = record('get', `${BASE}/vehicles`, () => HttpResponse.json(page([dresina])))
+        const posts = record('post', `${BASE}/vehicles`, () => HttpResponse.json(dresina, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicles/:id`, () => HttpResponse.json(dresina))
+        record('delete', `${BASE}/vehicles/:id`, () => new HttpResponse(null, {status: 204}))
+        const locations = record('post', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json({kind: 'ON_TRACK'}, {status: 201}))
+        const histories = record('get', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json(page([])))
+        // MSW da prioridad a lo último que se registra: el tablero, después de los vehículos por id.
+        const boards = record('get', `${BASE}/vehicles/positions`, () => HttpResponse.json(page([{vehicle: {code: 'PL-01'}, position: {kind: 'ATTACHED'},
+            effective: {kind: 'ON_TRACK', trackId: 12}}])))
+
+        const found = await searchVehicles({search: ' dr ', mobility: 'RAIL_ONLY', status: 'LIMITED', available: true, active: true})
+        await createVehicle(newVehicleRequest({code: 'DR-02', typeId: 'model', registrationPlate: 'no viaja', railVehicleNumber: ' 99 81 ',
+            owner: 'OWN', ownerCompany: 'no viaja', operationalStatus: 'OPERATIONAL', statusReason: 'no viaja', manufactureYear: '2020'}, railModel))
+        await patchVehicle(VEHICLE, vehiclePatch(dresina, {...dresina, typeId: 'model', operationalStatus: 'OPERATIONAL', manufactureYear: '2019',
+            railVehicleNumber: '99 80'}, railModel))
+        await patchVehicle(VEHICLE, vehiclePatch(dresina, {...dresina, typeId: 'van', registrationPlate: '1234-ABC', manufactureYear: 2019,
+            statusReason: 'Plataforma'}, roadModel))
+        await retireVehicle(VEHICLE)
+        await reactivateVehicle({...dresina, active: false, version: 7})
+        await recordLocation(VEHICLE, locationRequest({kind: 'ON_TRACK', parkingSiteId: 'no viaja', executionPackageId: '4', trackId: '12', kp: '10.50',
+            latitude: '32', longitude: '34', accessPoint: 'no viaja', description: ' En la playa ', carrierVehicleId: 'no viaja',
+            observedAt: '2026-10-16 05:40:00'}, 'RAIL_ONLY'))
+        await listLocations(VEHICLE, {from: '2026-10-01', to: '2026-10-16'})
+        const board = await fleetPositions({trackId: 12})
+
+        expect(searches[0].url.search).toBe('?search=dr&mobility=RAIL_ONLY&status=LIMITED&available=true&active=true'
+            + '&page=0&size=50&sort=code%2Casc&sort=id%2Casc')
+        expect(json(posts[0])).toEqual({code: 'DR-02', typeId: 'model', railVehicleNumber: '99 81', manufactureYear: 2020, owner: 'OWN',
+            operationalStatus: 'OPERATIONAL'})
+        expect(patches.map(json)).toEqual([
+            {operationalStatus: 'OPERATIONAL', statusReason: null, version: 6},
+            {typeId: 'van', registrationPlate: '1234-ABC', railVehicleNumber: null, version: 6},
+            {active: true, version: 7},
+        ])
+        expect(json(locations[0])).toEqual({kind: 'ON_TRACK', executionPackageId: 4, trackId: 12, kp: 10.5, description: 'En la playa',
+            observedAt: new Date(2026, 9, 16, 5, 40).toISOString()})
+        expect(histories[0].url.searchParams.get('from')).toBe(new Date(2026, 9, 1).toISOString())
+        expect(histories[0].url.searchParams.get('to')).toBe(new Date(2026, 9, 17).toISOString())
+        expect(histories[0].url.searchParams.has('sort')).toBe(false)
+        expect(boards[0].url.search).toBe('?trackId=12&page=0&size=50&sort=trackId%2Casc&sort=kp%2Casc&sort=vehicleId%2Casc')
+        expect(whereOf(board.content[0]).kind).toBe('ON_TRACK')
+        expect(shiftIdOf(found.content[0].position)).toBe(SHIFT)
+        expect(LOCATION_KIND.label(found.content[0].position.kind)).toBe('Desconocido')
+        expect(LOCATION_KIND.label('UNKNOWN')).toBe('Desconocida')
+        expect(recordableKinds('ROAD_ONLY')).toEqual(['PARKED', 'ON_ROAD', 'IN_WORKSHOP', 'ATTACHED', 'UNKNOWN'])
+    })
+
+    it('un usuario repetido es un 409 PER-409 con la forma de los de mantenimiento', async () => {
+        useToken()
+        record('post', `${BASE}/people`, () => HttpResponse.json({
+            timestamp: '2026-10-16T06:07:00Z', status: 409, error: 'CONFLICT', message: 'Username equipo.jefe is already in use',
+            path: '/api/v1/resources/people', method: 'POST', errorCode: 'PER-409', correlationId: 'corr-r1', validationErrors: [],
+        }, {status: 409}))
+
+        const error = await failure(createPerson({firstName: 'Otra', lastName: 'Persona', category: 'WORKER', username: 'equipo.jefe'}))
+
+        expect(error).toBeInstanceOf(ConflictError)
+        expect(error.code).toBe('PER-409')
+        expect(error.reference).toBe('corr-r1')
     })
 })
 

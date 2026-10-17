@@ -1,17 +1,19 @@
 import {ActionIcon, Button, Checkbox, Fieldset, Group, Modal, Select, Stack, Text, TextInput, Tooltip} from '@mantine/core'
 import {IconPlus, IconTrash} from '@tabler/icons-react'
-import {useState} from 'react'
+import {useCallback, useState} from 'react'
 import {activeTaskTypes} from '../../api/maintenance/catalogs.js'
 import {ASSET_TYPE, GENERATION_OUTCOME} from '../../api/maintenance/enums.js'
+import {OPERATION_STATUS, operationError} from '../../api/maintenance/operations.js'
 import {GENERATED_ASSET_TYPES, GENERATION_SCOPE, generateRequest, generationRow, skippedOf} from '../../api/maintenance/tasks.js'
 import {assetLabel} from '../../api/maintenance/values.js'
 import DataTable from '../../ui/DataTable.jsx'
+import {notifyApiError} from '../../ui/errors/notifyError.js'
 import {formatQuantity} from '../../ui/format.js'
-import {notifySuccess} from '../../ui/notifySuccess.js'
+import {notifySuccess, notifyWarning} from '../../ui/notifySuccess.js'
 import {optionalKp} from './maintenanceForms.js'
-import {countText, kp, kpRange} from './maintenanceTexts.js'
+import {countText, GENERATION_STILL_RUNNING, kp, kpRange} from './maintenanceTexts.js'
 import {AssetPicker, AssetsMultiPicker, ReferenceSelect, TaskTypesSelect} from './MaintenancePickers.jsx'
-import {useGenerateTasks, usePreviewGeneration, useTaskTypes} from './useMaintenance.js'
+import {useFollowGeneration, useGenerateTasks, usePreviewGeneration, useTaskTypes} from './useMaintenance.js'
 import {useConfigurationNames} from './useMaintenanceNames.js'
 
 const ASSET_TYPES = [
@@ -33,6 +35,12 @@ const ASSET_TYPES = [
  * orden, lo que tiene una abierta en otra orden y lo de otro EP se salta: repetirlo no duplica.
  * «Previsualizar» pregunta al servicio qué pasaría con cada activo sin crear nada; cualquier cambio en el
  * diálogo la borra. Lo que resulta lo cuenta el servicio y se enseña tal cual.
+ *
+ * Generar de verdad puede tardar con un EP grande: va con Prefer: respond-async (startTaskGeneration). Si
+ * el servicio no termina en su espera contesta con la operación, y el diálogo la sigue cada 2 s mientras
+ * esté abierto y la pestaña se vea: al terminar bien dice lo mismo que la llamada síncrona y relee las
+ * tareas; si falla, dice su error con el diálogo abierto. Cerrarlo deja de seguirla, avisando de que
+ * continúa en el servicio. La previsualización sigue siendo síncrona.
  */
 export default function GenerateTasksModal({order, onClose}) {
     const types = useTaskTypes()
@@ -46,6 +54,30 @@ export default function GenerateTasksModal({order, onClose}) {
     const [preview, setPreview] = useState(null)
     const generating = useGenerateTasks(order.id)
     const previewing = usePreviewGeneration(order.id)
+    // La operación del 202, mientras sigue en el servicio: el diálogo pregunta por ella cada 2 s.
+    const [following, setFollowing] = useState(null)
+    const finished = useCallback((operation) => {
+        setFollowing(null)
+        const status = OPERATION_STATUS.parse(operation.status)
+        if (status === 'FAILED') {
+            notifyApiError(operationError(operation))
+            return
+        }
+        if (status === 'SUCCEEDED' && operation.result) {
+            notifySuccess(generatedText(operation.result))
+        } else {
+            notifyWarning('La generación ha terminado en un estado desconocido: revisa las tareas de la orden.')
+        }
+        onClose()
+    }, [onClose])
+    const followed = useFollowGeneration(order.id, following?.id ?? null, finished)
+    const progress = following ? followed.data ?? following : null
+    const close = () => {
+        if (following) {
+            notifyWarning(GENERATION_STILL_RUNNING)
+        }
+        onClose()
+    }
 
     const scopes = scopeOptions(onSection, packageId, names.readsConfiguration)
     const touch = (next) => {
@@ -66,8 +98,12 @@ export default function GenerateTasksModal({order, onClose}) {
             return
         }
         generating.mutate(request(false), {
-            onSuccess: (result) => {
-                notifySuccess(generatedText(result))
+            onSuccess: (answer) => {
+                if (answer.operation) {
+                    setFollowing(answer.operation)
+                    return
+                }
+                notifySuccess(generatedText(answer.result))
                 onClose()
             },
         })
@@ -77,7 +113,7 @@ export default function GenerateTasksModal({order, onClose}) {
     const ownTypes = packageId !== null
 
     return (
-        <Modal opened onClose={onClose} closeOnClickOutside={false} size="xl" title={`Generar tareas de ${order.code}`}>
+        <Modal opened onClose={close} closeOnClickOutside={false} size="xl" title={`Generar tareas de ${order.code}`}>
             <Stack>
                 <Text size="sm">{introText(order, onSection, packageId)}</Text>
                 {rows.map((row, index) => (
@@ -128,12 +164,21 @@ export default function GenerateTasksModal({order, onClose}) {
                               setPreview(null)
                           }}/>
                 {preview && <PreviewTable preview={preview} names={names}/>}
+                {progress && (
+                    <Text size="sm" role="status">
+                        {`La generación sigue en el servicio (${OPERATION_STATUS.label(progress.status).toLowerCase()}): se comprueba cada 2 s. `
+                            + 'Si cierras el diálogo, continúa allí.'}
+                    </Text>
+                )}
                 <Group justify="flex-end">
-                    <Button variant="default" onClick={onClose} disabled={busy}>Volver</Button>
-                    <Button variant="light" loading={previewing.isPending} disabled={generating.isPending} onClick={() => send(true)}>
+                    <Button variant="default" onClick={close} disabled={busy}>Volver</Button>
+                    <Button variant="light" loading={previewing.isPending} disabled={generating.isPending || progress !== null}
+                            onClick={() => send(true)}>
                         Previsualizar
                     </Button>
-                    <Button loading={generating.isPending} disabled={previewing.isPending} onClick={() => send(false)}>Generar</Button>
+                    <Button loading={generating.isPending} disabled={previewing.isPending || progress !== null} onClick={() => send(false)}>
+                        Generar
+                    </Button>
                 </Group>
             </Stack>
         </Modal>

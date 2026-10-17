@@ -89,6 +89,12 @@ export function startOfDayInstant(localDate) {
     return new Date(year, month - 1, day).toISOString()
 }
 
+/** El comienzo del día siguiente (YYYY-MM-DD), como Instant: el «hasta» de un filtro cuyo fin no se incluye. */
+export function startOfNextDayInstant(localDate) {
+    const [year, month, day] = parts(localDate)
+    return new Date(year, month - 1, day + 1).toISOString()
+}
+
 /** El ultimo milisegundo de un dia (YYYY-MM-DD), como Instant: el «hasta» inclusivo de un filtro. */
 export function endOfDayInstant(localDate) {
     const [year, month, day] = parts(localDate)

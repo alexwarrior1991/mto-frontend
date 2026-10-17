@@ -21,6 +21,7 @@ export const MENU_GROUPS = Object.freeze({
     usuarios: {label: 'Usuarios', icon: 'users'},
     almacen: {label: 'Almacén', icon: 'warehouse'},
     mantenimiento: {label: 'Mantenimiento', icon: 'maintenance'},
+    recursos: {label: 'Recursos', icon: 'resources'},
     actividad: {label: 'Actividad', icon: 'activity'},
 })
 
@@ -28,6 +29,7 @@ const CONFIG = [P.CONFIG_READ]
 const USERS = [P.USERS_READ]
 const STOCK = [P.STOCK_READ]
 const MAINTENANCE = [P.MAINTENANCE_READ]
+const RESOURCES = [P.RESOURCES_READ]
 
 export const ROUTES = Object.freeze([
     {path: '', title: 'Inicio', page: 'home', menu: {order: 0, icon: 'home'}},
@@ -70,6 +72,15 @@ export const ROUTES = Object.freeze([
     {path: 'mantenimiento/equipos', title: 'Equipos', page: 'maintenanceTeams', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 66, icon: 'teams'}},
     {path: 'mantenimiento/tipos-de-tarea', title: 'Tipos de tarea', page: 'maintenanceTaskTypes', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 67, icon: 'taskTypes'}},
     {path: 'mantenimiento/plantillas', title: 'Plantillas de inspección', page: 'maintenanceTemplates', requires: MAINTENANCE, menu: {group: 'mantenimiento', order: 68, icon: 'templates'}},
+
+    {path: 'recursos/personal', title: 'Personal', page: 'resourcesPeople', requires: RESOURCES, menu: {group: 'recursos', order: 70, icon: 'people'}},
+    {path: 'recursos/organigrama', title: 'Organigrama', page: 'resourcesOrganization', requires: RESOURCES, menu: {group: 'recursos', order: 71, icon: 'organization'}},
+    {path: 'recursos/organigrama/:unitId', title: 'Unidad', page: 'resourcesUnit', requires: RESOURCES},
+    {path: 'recursos/flota', title: 'Vehículos', page: 'resourcesVehicles', requires: RESOURCES, menu: {group: 'recursos', order: 72, icon: 'vehicles'}},
+    {path: 'recursos/flota/:vehicleId', title: 'Vehículo', page: 'resourcesVehicle', requires: RESOURCES},
+    {path: 'recursos/flota/tablero', title: 'Tablero de la flota', page: 'resourcesBoard', requires: RESOURCES, menu: {group: 'recursos', order: 73, icon: 'board'}},
+    {path: 'recursos/flota/modelos', title: 'Modelos de vehículo', page: 'resourcesVehicleTypes', requires: RESOURCES, menu: {group: 'recursos', order: 74, icon: 'vehicleTypes'}},
+    {path: 'recursos/flota/aparcamientos', title: 'Sitios de aparcamiento', page: 'resourcesParkingSites', requires: RESOURCES, menu: {group: 'recursos', order: 75, icon: 'parkingSites'}},
 
     {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], menu: {order: 80, icon: 'notifications'}},
     {path: 'actividad', title: 'Registro de actividad', page: 'activity', requires: [P.NOTIFICATION_ACTIVITY_READ], menu: {group: 'actividad', order: 82, icon: 'activity'}},

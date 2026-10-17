@@ -1,11 +1,22 @@
-import {Button, Group, Modal, Select, SimpleGrid, Stack, Textarea, TextInput} from '@mantine/core'
+import {Button, Group, Modal, Select, SimpleGrid, Stack, Text, Textarea, TextInput} from '@mantine/core'
 import {DateInput} from '@mantine/dates'
 import {useForm} from '@mantine/form'
 import {toLocalDateParam} from '../../api/dates.js'
 import {POSSESSION} from '../../api/maintenance/enums.js'
-import {shiftFormValues, shiftPatch, shiftRequest} from '../../api/maintenance/shifts.js'
+import {
+    crewText,
+    SHIFT_LEADER_CATEGORIES,
+    SHIFT_SUPERVISOR_CATEGORIES,
+    shiftFormValues,
+    shiftPatch,
+    shiftRequest,
+} from '../../api/maintenance/shifts.js'
+import {LINEMAN_CATEGORIES} from '../../api/resources/enums.js'
+import {P} from '../../auth/permissions.js'
+import {useSession} from '../../auth/sessionContext.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {DATE_FORMAT, DATE_TIME_FORMAT, parseTypedDate, parseTypedDateTime} from '../../ui/typedDates.js'
+import {PeopleMultiSelect, PersonSelect, VehiclesMultiSelect} from '../resources/ResourcesPickers.jsx'
 import {saveErrors} from './maintenanceErrors.js'
 import {dateTimeAfter, kpAfter, maxLength, optionalKp, required} from './maintenanceForms.js'
 import {AssetsMultiPicker, ReferenceSelect, ReferencesMultiSelect, TeamSelect} from './MaintenancePickers.jsx'
@@ -24,6 +35,13 @@ const MEASUREMENT_LENGTH = 500
  * seccionadores enteros si cambiaron, y la versión leída. Que una vía desviada pida posesión total lo
  * dice el servicio al trabajar sus tareas.
  *
+ * La dotación y los vehículos son de mto-resources y se buscan allí con resources-read: el jefe,
+ * cualquiera menos un operario; el supervisor, de supervisor para arriba; los linemen, operarios o
+ * jefes de equipo; los vehículos, activos y disponibles. En el alta, lo que se deje vacío lo copia el
+ * servicio del equipo si es de mto-resources. Las demás reglas (de 2 a 6 linemen para iniciar, las
+ * plazas, el remolque, una persona o un vehículo en otro turno del día) las dice el servicio con 409
+ * SHF-001, con el diálogo abierto. Sin resources-read la dotación se lee y no viaja.
+ *
  * Las propiedades del formulario se llaman como los campos de la petición, para que los errores del
  * servicio caigan en su campo.
  *
@@ -32,6 +50,7 @@ const MEASUREMENT_LENGTH = 500
  */
 export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
     const creating = shift === null
+    const readsResources = useSession().has(P.RESOURCES_READ)
     const names = useConfigurationNames({tracks: true})
     const teams = useTeams()
     const form = useForm({
@@ -54,7 +73,7 @@ export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
     const saving = useSaveShift()
 
     const save = form.onSubmit((values) => {
-        const body = creating ? shiftRequest(values) : shiftPatch(shift, values)
+        const body = creating ? shiftRequest(values, {readsResources}) : shiftPatch(shift, values, {readsResources})
         if (body === null) {
             onClose()
             return
@@ -93,6 +112,26 @@ export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
                     </SimpleGrid>
                     <AssetsMultiPicker label="Seccionadores que se abren" type="DISCONNECTOR" current={shift?.blockingDisconnectors ?? []}
                                        {...form.getInputProps('blockingDisconnectorIds')}/>
+                    {readsResources && (
+                        <>
+                            <SimpleGrid cols={{base: 1, sm: 2}}>
+                                <PersonSelect label="Jefe del turno" categories={SHIFT_LEADER_CATEGORIES} current={shift?.teamLeader ?? null}
+                                              description={creating ? 'Vacío: el del equipo, si es de mto-resources' : null}
+                                              {...form.getInputProps('teamLeaderPersonId')}/>
+                                <PersonSelect label="Supervisor" categories={SHIFT_SUPERVISOR_CATEGORIES} current={shift?.supervisor ?? null}
+                                              description={creating ? 'Vacío: el del equipo, si es de mto-resources' : null}
+                                              {...form.getInputProps('supervisorPersonId')}/>
+                            </SimpleGrid>
+                            <PeopleMultiSelect label="Linemen" categories={LINEMAN_CATEGORIES} current={shift?.linemen ?? []}
+                                               description={creating ? 'Vacío: los del equipo, si es de mto-resources. Para iniciar, de 2 a 6'
+                                                   : 'Para iniciar, de 2 a 6'}
+                                               {...form.getInputProps('linemanPersonIds')}/>
+                            <VehiclesMultiSelect label="Vehículos" current={shift?.vehicles ?? []}
+                                                 description={creating ? 'Vacío: el del equipo, si es de mto-resources' : null}
+                                                 {...form.getInputProps('vehicleIds')}/>
+                        </>
+                    )}
+                    {!readsResources && !creating && <Text size="sm" aria-label="Dotación del turno">{crewText(shift)}</Text>}
                     <SimpleGrid cols={{base: 1, sm: 2}}>
                         <TextInput label="Base" maxLength={TEXT_LENGTH} description={creating ? 'Vacía: la del equipo' : null}
                                    {...form.getInputProps('baseName')}/>

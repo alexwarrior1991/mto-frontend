@@ -2,6 +2,7 @@ import {idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {CHECK_ITEM_RESULT} from './enums.js'
+import {GENERATION_PREFER} from './operations.js'
 import {maintenancePath} from './values.js'
 
 /**
@@ -47,6 +48,17 @@ export function createTask(orderId, body) {
 /** 200 con lo que generó el servicio, o con dryRun lo que generaría: recuentos, estimación y, previsualizando, cada activo. */
 export function generateTasks(orderId, body) {
     return apiFetch(taskPath(orderId, 'generate'), {method: 'POST', json: body})
+}
+
+/**
+ * Generar de verdad, con Prefer: respond-async, wait=5: {result} si el servicio termina en su espera (el
+ * 200 de siempre), {operation} si no (el 202, que sigue allí: operations.js). El tope de operaciones del
+ * despliegue es un 429 OPS-429. La previsualización (dryRun) va por generateTasks: es síncrona.
+ */
+export async function startTaskGeneration(orderId, body) {
+    const {status, body: answer} = await apiFetch(taskPath(orderId, 'generate'), {method: 'POST', json: body, prefer: GENERATION_PREFER,
+        withStatus: true})
+    return status === 202 ? {operation: answer} : {result: answer}
 }
 
 export function patchTask(orderId, taskId, patch) {

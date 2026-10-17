@@ -1,5 +1,5 @@
 {
-  "source": "mto-backoffice: los @Route de ui/**/*View.java (con MaintenanceRoutes, StockRoutes y NotificationRoutes)",
+  "source": "mto-backoffice: los @Route de ui/**/*View.java (con MaintenanceRoutes, StockRoutes, ResourcesRoutes y NotificationRoutes)",
   "routes": [
     "",
     "catalogos/:resource",
@@ -35,6 +35,14 @@
     "mantenimiento/equipos",
     "mantenimiento/tipos-de-tarea",
     "mantenimiento/plantillas",
+    "recursos/personal",
+    "recursos/organigrama",
+    "recursos/organigrama/:unitId",
+    "recursos/flota",
+    "recursos/flota/:vehicleId",
+    "recursos/flota/tablero",
+    "recursos/flota/modelos",
+    "recursos/flota/aparcamientos",
     "notificaciones",
     "actividad",
     "actividad/accesos"

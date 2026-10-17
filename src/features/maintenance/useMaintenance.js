@@ -1,4 +1,5 @@
 import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack/react-query'
+import {useEffect, useRef} from 'react'
 import {NotFoundError} from '../../api/errors.js'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
 import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
@@ -28,7 +29,18 @@ import {
     transitionShift,
     unassignTaskFromShift,
 } from '../../api/maintenance/shifts.js'
-import {cancelTask, completeTask, createTask, generateTasks, listOrderTasks, patchCheckItem, patchTask, startTask} from '../../api/maintenance/tasks.js'
+import {FOLLOW_INTERVAL_MS, getOperation, isFinishedOperation, OPERATION_STATUS} from '../../api/maintenance/operations.js'
+import {
+    cancelTask,
+    completeTask,
+    createTask,
+    generateTasks,
+    listOrderTasks,
+    patchCheckItem,
+    patchTask,
+    startTask,
+    startTaskGeneration,
+} from '../../api/maintenance/tasks.js'
 
 /**
  * Las consultas y las escrituras del módulo de mantenimiento. Las claves van todas bajo
@@ -306,12 +318,49 @@ export function useSaveTask(orderId) {
     })
 }
 
+/**
+ * Generar de verdad, con Prefer: respond-async: {result} si el servicio terminó en su espera, y entonces
+ * se releen las tareas; {operation} si sigue allí (useFollowGeneration).
+ */
 export function useGenerateTasks(orderId) {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: (body) => generateTasks(orderId, body),
-        onSuccess: () => invalidateTasksOf(queryClient, orderId),
+        mutationFn: (body) => startTaskGeneration(orderId, body),
+        onSuccess: (answer) => (answer.result ? invalidateTasksOf(queryClient, orderId) : undefined),
     })
+}
+
+/**
+ * Una generación que sigue en el servicio: su operación cada 2 s mientras no termine y la pestaña se vea,
+ * sin avisar de un fallo al preguntar (la siguiente vuelta lo reintenta). Al terminar llama una vez a
+ * onFinished con ella y, salvo que falle, relee las tareas de la orden.
+ *
+ * @param {string|null} operationId null: nada que seguir
+ */
+export function useFollowGeneration(orderId, operationId, onFinished) {
+    const queryClient = useQueryClient()
+    const handled = useRef(null)
+    const operation = useQuery({
+        queryKey: maintenanceKey('operation', operationId),
+        queryFn: ({signal}) => getOperation(operationId, {signal}),
+        enabled: operationId !== null,
+        refetchInterval: (query) => (isFinishedOperation(query.state.data) ? false : FOLLOW_INTERVAL_MS),
+        refetchIntervalInBackground: false,
+        staleTime: 0,
+        meta: {notifyError: false},
+    })
+    const data = operation.data
+    useEffect(() => {
+        if (!data || !isFinishedOperation(data) || handled.current === data.id) {
+            return
+        }
+        handled.current = data.id
+        if (OPERATION_STATUS.parse(data.status) !== 'FAILED') {
+            void invalidateTasksOf(queryClient, orderId)
+        }
+        onFinished(data)
+    }, [data, onFinished, orderId, queryClient])
+    return operation
 }
 
 /** Lo que daría generar (dryRun): no escribe nada, así que no relee nada. */

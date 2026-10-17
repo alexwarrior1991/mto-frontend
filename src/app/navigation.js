@@ -4,7 +4,7 @@ import {MENU_GROUPS, ROUTES} from './routeTable.js'
 
 /**
  * El menu de la persona: solo lo que puede abrir, agrupado y en el orden del backoffice (Inicio,
- * Infraestructura, Trabajos, Usuarios, Almacen, Mantenimiento, Notificaciones, Actividad y, al final,
+ * Infraestructura, Trabajos, Usuarios, Almacen, Mantenimiento, Recursos, Notificaciones, Actividad y, al final,
  * los Catalogos). Un grupo sale si la persona puede abrir algo de el, y se ordena por su primera
  * entrada.
  *

@@ -40,8 +40,8 @@ export async function apiAs(playwright, username) {
     }
 
     const api = await playwright.request.newContext({baseURL: BASE_URL, extraHTTPHeaders: {Authorization: `Bearer ${token}`}})
-    const call = async (method, path, data) => {
-        const response = await api.fetch(path, {method, data})
+    const call = async (method, path, data, contentType = null) => {
+        const response = await api.fetch(path, {method, data, headers: contentType ? {'Content-Type': contentType} : undefined})
         const text = await response.text()
         if (!response.ok()) {
             throw new Error(`${method} ${path}: ${response.status()} ${text}`)
@@ -51,6 +51,8 @@ export async function apiAs(playwright, username) {
     return {
         get: (path) => call('GET', path),
         post: (path, data) => call('POST', path, data),
+        // Las modificaciones de mto-maintenance y mto-resources son merge-patch, con la versión leída.
+        patch: (path, data) => call('PATCH', path, data, 'application/merge-patch+json'),
         delete: (path) => call('DELETE', path),
         dispose: () => api.dispose(),
     }

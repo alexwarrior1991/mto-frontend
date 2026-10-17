@@ -1,13 +1,13 @@
 import {SERVICES} from '../api/services.js'
 
 /**
- * Los permisos de la aplicacion son roles de CLIENTE de los cinco clientes de API, leidos de
+ * Los permisos de la aplicacion son roles de CLIENTE de los seis clientes de API, leidos de
  * resource_access del access token. Nunca roles de realm: si un rol de realm concediera algo, quien
  * administre el realm podria crear uno llamado como un permiso y darselo a cualquiera. Y nunca un rol
  * que no este en el catalogo de su cliente (ops-metrics, o un users-read colado en mto-stock-api).
  *
  * Los nombres no se repiten entre clientes (config-*, lov-manage, users-*, stock-*, maintenance-*,
- * notification-*), asi que un Set plano basta; securityLayer.test.js lo comprueba.
+ * notification-*, resources-*), asi que un Set plano basta; securityLayer.test.js lo comprueba.
  *
  * Esto decide que se ensena, no que se puede hacer: quien decide es el 403 del servicio.
  */
@@ -44,6 +44,11 @@ export const P = Object.freeze({
     NOTIFICATION_ACTIVITY_READ: 'notification-activity-read',
     NOTIFICATION_ACCESS_READ: 'notification-access-read',
     NOTIFICATION_ADMIN: 'notification-admin',
+    RESOURCES_READ: 'resources-read',
+    RESOURCES_WRITE: 'resources-write',
+    RESOURCES_FLEET_WRITE: 'resources-fleet-write',
+    RESOURCES_LOCATION_WRITE: 'resources-location-write',
+    RESOURCES_DELETE: 'resources-delete',
 })
 
 /** Los roles de cada cliente del catalogo que trae el token, en el orden del catalogo. */
