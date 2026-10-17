@@ -3202,7 +3202,7 @@ describe('notification/*.js: la bandeja, el registro y los accesos de mto-notifi
         expect(detail.payload).toEqual({targetUsername: 'nueva.persona', temporaryCredential: true, actions: ['VERIFY_EMAIL']})
         expect(access.message).toMatch(/accesos/)
         expect(searches).toHaveLength(2)
-        expect(activityCategories().map((option) => option.value)).toEqual(['USERS', 'CONFIGURATION', 'MAINTENANCE', 'STOCK', 'FIELD', 'SYSTEM'])
+        expect(activityCategories().map((option) => option.value)).toEqual(['USERS', 'CONFIGURATION', 'MAINTENANCE', 'STOCK', 'FIELD', 'RESOURCES', 'SYSTEM'])
     })
 
     it('quién y sobre qué se nombran como en el backoffice: sin nombre de usuario, su clase; sin etiqueta, el id', () => {

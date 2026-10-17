@@ -22,6 +22,8 @@
     "/almacen/materiales",
     "/almacen/reservas",
     "/almacen/movimientos",
+    "/recursos/organigrama/#{event.subjectId}",
+    "/recursos/flota/#{event.subjectId}",
     "/actividad?category=SYSTEM"
   ]
 }

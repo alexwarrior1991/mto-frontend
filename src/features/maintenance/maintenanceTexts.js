@@ -17,6 +17,12 @@ import {formatDate, formatQuantity} from '../../ui/format.js'
  * port de MaintenanceFormats y MaintenanceHistory).
  */
 
+/**
+ * Lo que hace el servicio con la persona vacía de una orden: la de un equipo de mto-resources va al
+ * usuario de su jefe (y la que tenía al jefe del equipo anterior, al del nuevo). Aquí solo se dice.
+ */
+export const LEADER_HINT = 'Vacía: el jefe del equipo, si es de Recursos'
+
 /** Lo que se dice de una línea con una petición al almacén sin respuesta. */
 export const IN_DOUBT_HINT = 'El almacén no contestó: se reintenta sola cada 5 minutos, y hasta que conteste no cambian lo '
     + 'previsto, lo consumido ni el proyecto de almacén de la orden.'

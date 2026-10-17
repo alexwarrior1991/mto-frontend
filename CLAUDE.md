@@ -467,7 +467,9 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   el diálogo abierto. Cada transición es su llamada, con su cuerpo, y no se funden. Cancelar una
   orden, completarla con `force` y resolver, cerrar o descartar un defecto piden
   `maintenance-supervise` **y** `maintenance-write` (`hasAll`); `force` ni se ve sin ellos. Tras
-  guardar, la ficha pinta lo que devuelve el servicio y relee lo que ha podido cambiar.
+  guardar, la ficha pinta lo que devuelve el servicio y relee lo que ha podido cambiar. Asignar (y el
+  editor de la orden) sin persona deja que el servicio ponga al jefe de un equipo de Recursos: aquí solo
+  se dice en el campo (`LEADER_HINT`).
 - **Un activo sincronizado es de `mto-configuration`, pero su desactivación también es de
   mantenimiento.** De un perfil, un seccionador o un aislador solo se cambian la descripción y el
   intervalo del preventivo. `enabledAtSource` y `disabledLocally` son dos voces y el estado dice

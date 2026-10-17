@@ -879,12 +879,13 @@ describe('las órdenes', () => {
         expect(screen.getByRole('dialog', {name: 'Iniciar MO-000001'})).toBeInTheDocument()
     })
 
-    it('asignar pide un equipo, una persona o los dos', async () => {
+    it('asignar pide un equipo, una persona o los dos, y dice que sin persona va al jefe del equipo', async () => {
         const assigns = recordWrites('post', `${BASE}/orders/${ORDER1}/assign`, () => HttpResponse.json(order({status: 'ASSIGNED'})))
         const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'PLANNED', team: null, assignedUser: null}))
 
         await user.click(screen.getByRole('button', {name: 'Asignar'}))
         const dialog = await screen.findByRole('dialog', {name: 'Asignar MO-000001'})
+        expect(within(dialog).getByText('Vacía: el jefe del equipo, si es de Recursos')).toBeInTheDocument()
         await user.click(within(dialog).getByRole('button', {name: 'Asignar'}))
         expect(await within(dialog).findByText('Hace falta un equipo, una persona o los dos')).toBeInTheDocument()
         expect(assigns).toHaveLength(0)

@@ -436,7 +436,7 @@ describe('el registro de actividad', () => {
 
         await user.click(screen.getByRole('combobox', {name: 'Categoría'}))
         const offered = (await screen.findAllByRole('option')).map((option) => option.textContent)
-        expect(offered).toEqual(['Usuarios', 'Configuración', 'Mantenimiento', 'Almacén', 'Campo', 'Sistema'])
+        expect(offered).toEqual(['Usuarios', 'Configuración', 'Mantenimiento', 'Almacén', 'Campo', 'Recursos', 'Sistema'])
         await user.keyboard('{Escape}')
 
         await choose(user, 'Gravedad', 'Crítica')
