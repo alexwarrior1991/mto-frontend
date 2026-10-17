@@ -4,7 +4,7 @@ import {useState} from 'react'
 import {Navigate, useNavigate, useParams} from 'react-router'
 import {NotFoundError} from '../../api/errors.js'
 import {VEHICLE_MOBILITY} from '../../api/resources/enums.js'
-import {isActiveVehicle, vehicleRevisionsPath} from '../../api/resources/vehicles.js'
+import {accessPointText, isActiveVehicle, vehicleRevisionsPath} from '../../api/resources/vehicles.js'
 import {unitLabel} from '../../api/resources/values.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
@@ -82,7 +82,7 @@ function VehicleDetail({vehicleId}) {
     const current = vehicle.data
     const active = isActiveVehicle(current)
     const details = position ? join(position.executionPackageId == null ? null : `EP ${names.packageName(position.executionPackageId)}`,
-        position.accessPoint ? `Acceso: ${position.accessPoint}` : null,
+        accessPointText(position) ? `Acceso: ${accessPointText(position)}` : null,
         position.latitude == null ? null : `${position.latitude}, ${position.longitude}`) : ''
     const retire = () => acting.mutate({action: 'retire', vehicle: current}, {
         onSuccess: () => notifySuccess(`Retirado ${unitLabel(current)}`),

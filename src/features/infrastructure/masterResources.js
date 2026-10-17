@@ -1,5 +1,5 @@
 /**
- * Los seis maestros de infraestructura de mto-configuration. Para cada uno: su ruta en el servicio y
+ * Los siete maestros de infraestructura de mto-configuration. Para cada uno: su ruta en el servicio y
  * cómo se nombra en pantalla. Es el port de MasterResource del backoffice, con tildes y con género,
  * para que «1 vía» y «Borrada» concuerden. children dice qué cuelga de cada uno: borrar es lógico y
  * eso se queda.
@@ -27,6 +27,10 @@ export const MASTERS = Object.freeze({
     sectionInsulators: Object.freeze({
         path: 'section-insulators', title: 'Aisladores de sección', singular: 'aislador de sección',
         plural: 'aisladores de sección', feminine: false, children: 'sus agujas',
+    }),
+    trackAccessPoints: Object.freeze({
+        path: 'track-access-points', title: 'Accesos a vía', singular: 'acceso a vía', plural: 'accesos a vía', feminine: false,
+        children: null,
     }),
 })
 

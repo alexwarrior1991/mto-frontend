@@ -213,6 +213,7 @@ import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, 
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
 import {
+    ACCESS_POINT_KIND,
     canHangFrom,
     capabilityLabel,
     categoriesAtLeast,
@@ -234,6 +235,7 @@ import {
     createParkingSite,
     createVehicleType,
     figureTravels,
+    listTrackAccessPoints,
     newParkingSiteRequest,
     newVehicleTypeRequest,
     offerParkingSiteAgain,
@@ -312,11 +314,13 @@ import {
 } from '../api/resources/units.js'
 import {daysBetween, EXPIRY_WARNING_DAYS, expiryState, personLabel, unitLabel} from '../api/resources/values.js'
 import {
+    accessPointText,
     addVehicleDocument,
     createVehicle,
     fleetPositions,
     listLocations,
     listVehicleDocuments,
+    locationFields,
     locationRequest,
     newVehicleRequest,
     offeredDocumentKinds,
@@ -1353,8 +1357,25 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(masterBody('disconnectors', {id: 6, name: 'KAF-NS1', stationId: 12, trackId: 3}, {stationId: null}))
             .toEqual({id: 6, name: 'KAF-NS1', stationId: null, trackId: 3})
         expect(Object.keys(MASTER_CHILDREN)).toEqual(['execution-packages', 'stations', 'tracks', 'profiles', 'disconnectors',
-            'section-insulators'])
+            'section-insulators', 'track-access-points'])
         expect(MASTER_CHILDREN['section-insulators']).toEqual(['switches'])
+        expect(MASTER_CHILDREN['track-access-points']).toEqual([])
+    })
+
+    it('un punto de acceso: su /filter con sus filtros, y la fila entera de vuelta con sus cifras como números JSON', async () => {
+        useToken()
+        const filters = record('post', '/api/configuration/track-access-points/filter', () => HttpResponse.json(page([], 0, 50, 0)))
+        const updates = record('put', '/api/configuration/track-access-points/77', () => HttpResponse.json({id: 77, versionNumber: 4}))
+        const point = {id: 77, name: 'Acceso km 110+176', trackId: 3, stationId: 12, kp: 110176, kind: 'PREPARED_ACCESS', side: 'LEFT',
+            roadRailAccess: true, maxAxleLoadT: 12.5, maxGrossWeightT: 40, latitude: 31.669342, longitude: 34.574119, enabled: true,
+            versionNumber: 3, createUser: 'config.editor', fieldOfTomorrow: 1}
+
+        await filterMasters('track-access-points', {filter: {searchText: ' acc ', trackId: 3, kind: 'DEPOT', enabled: false, roadRailAccess: null}})
+        await updateMaster('track-access-points', masterBody('track-access-points', point, {kp: 110180.5, stationId: null}))
+
+        expect(json(filters[0])).toEqual({searchText: 'acc', trackId: 3, kind: 'DEPOT', enabled: false})
+        expect(json(updates[0])).toEqual({...point, kp: 110180.5, stationId: null})
+        expect(updates[0].body).toContain('"kp":110180.5')
     })
 
     it('una referencia a catalogo viaja como {id, code}; quitar una opcional de un perfil es {}, porque null no la toca', () => {
@@ -1410,15 +1431,16 @@ describe('configuration/jobs.js: los trabajos en segundo plano', () => {
         await exportProfiles({trackId: 4})
         await republish({entity: 'profile', trackId: 3})
         await republish({entity: 'disconnector', stationId: 12})
+        await republish({entity: 'track-access-point', trackId: 3})
         await republish({entity: 'all'})
 
         expect(exports.map((request) => request.url.search)).toEqual(['?trackId=3&mapperType=technical', '?trackId=4&mapperType=basic'])
         expect(republished.map((request) => request.url.search)).toEqual(['?entity=profile&trackId=3', '?entity=disconnector&stationId=12',
-            '?entity=all'])
+            '?entity=track-access-point&trackId=3', '?entity=all'])
         expect(exports[0].body).toBe('')
         expect(MAPPER_TYPES).toEqual(['basic', 'default', 'technical'])
         expect(REPUBLISH_TARGETS.map((target) => [target.value, target.scope])).toEqual([
-            ['profile', 'track'], ['disconnector', 'station'], ['section-insulator', 'station'], ['all', null]])
+            ['profile', 'track'], ['disconnector', 'station'], ['section-insulator', 'station'], ['track-access-point', 'track'], ['all', null]])
     })
 
     it('la lista pide la página del servicio (desde 0), 20 filas y los filtros, sin sort: ordena el servicio', async () => {
@@ -3105,6 +3127,42 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
             {roadAccess: true, version: 2},
             {active: true, version: 3},
         ])
+    })
+
+    it('los puntos de acceso de una vía son una lista entera con sus filtros; el de una ubicación viaja con su vía y se lee de trackAccessPoint o del texto', async () => {
+        useToken()
+        const point = {id: 77, name: 'Acceso km 110+176', trackId: 12, executionPackageId: 4, stationId: 7, kp: 110176, kind: 'PREPARED_ACCESS',
+            side: 'LEFT', roadRailAccess: true, maxAxleLoadT: 12.5, maxGrossWeightT: 40, latitude: 31.669342, longitude: 34.574119, enabled: true}
+        const lists = record('get', `${BASE}/track-access-points`, () => HttpResponse.json([point]))
+        const locations = record('post', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json({kind: 'ON_TRACK'}, {status: 201}))
+
+        await expect(listTrackAccessPoints({trackId: 12, enabled: true})).resolves.toEqual([point])
+        await expect(listTrackAccessPoints({executionPackageId: 4})).resolves.toEqual([point])
+        await recordLocation('v-1', locationRequest({kind: 'ON_TRACK', trackId: '12', kp: '110176', accessPointId: '77', accessPoint: ' km 110 '},
+            'ROAD_RAIL'))
+
+        expect(lists.map((request) => request.url.search)).toEqual(['?trackId=12&enabled=true', '?executionPackageId=4'])
+        expect(json(locations[0])).toEqual({kind: 'ON_TRACK', trackId: 12, kp: 110176, accessPointId: 77, accessPoint: 'km 110'})
+        // Sin vía no viaja (es uno de los de la vía), ni donde no hay vía (en taller), ni en un aparcado de solo carretera.
+        expect(locationRequest({kind: 'ON_TRACK', trackId: null, accessPointId: '77'}, 'ROAD_RAIL')).toEqual({kind: 'ON_TRACK'})
+        expect(locationRequest({kind: 'IN_WORKSHOP', trackId: '12', accessPointId: '77'}, 'ROAD_RAIL')).toEqual({kind: 'IN_WORKSHOP'})
+        expect(locationRequest({kind: 'PARKED', trackId: '12', accessPointId: '77'}, 'ROAD_ONLY')).toEqual({kind: 'PARKED'})
+        expect(locationRequest({kind: 'PARKED', trackId: '12', accessPointId: '77'}, 'RAIL_ONLY')).toEqual({kind: 'PARKED', trackId: 12,
+            accessPointId: 77})
+        // Sin config-read no se elige vía, y con ella tampoco el punto.
+        expect(locationRequest({kind: 'ON_TRACK', trackId: '12', accessPointId: '77'}, 'ROAD_RAIL', {readsConfiguration: false}))
+            .toEqual({kind: 'ON_TRACK'})
+        expect(locationFields('ON_TRACK', 'RAIL_ONLY')).toMatchObject({trackId: true, accessPointId: true, accessPoint: false})
+
+        // El punto de acceso a la vía, por su nombre (#id sin él), gana al texto libre; sin punto, el texto.
+        expect(accessPointText({trackAccessPoint: {id: 77, name: 'Acceso km 110+176', kind: 'PREPARED_ACCESS'}, accessPoint: 'km 110'}))
+            .toBe('Acceso km 110+176')
+        expect(accessPointText({trackAccessPoint: {id: 78, name: null, kind: 'DEPOT'}, accessPoint: null})).toBe('#78')
+        expect(accessPointText({trackAccessPoint: null, accessPoint: 'LC-31'})).toBe('LC-31')
+        expect(accessPointText({trackAccessPoint: null, accessPoint: null})).toBe('')
+        expect(accessPointText(null)).toBe('')
+        expect(ACCESS_POINT_KIND.label('LEVEL_CROSSING')).toBe('Paso a nivel')
+        expect(ACCESS_POINT_KIND.label('FERRY')).toBe('Desconocido')
     })
 
     it('los vehículos: la búsqueda, el alta con lo que pide su modelo, la modificación, sus ubicaciones y el tablero por vía y kp', async () => {

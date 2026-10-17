@@ -67,13 +67,15 @@ export const JOBS_PAGE_SIZE = 20
 export const MAPPER_TYPES = Object.freeze(['basic', 'default', 'technical'])
 
 /**
- * Qué se puede republicar y qué filtro admite cada cosa: la vía solo acota los perfiles; la estación,
- * los seccionadores y los aisladores; «Todo» no admite ninguno.
+ * Qué se puede republicar y qué filtro admite cada cosa: la vía acota los perfiles y los puntos de
+ * acceso; la estación, los seccionadores y los aisladores; «Todo» no admite ninguno (y los incluye a
+ * todos, también los puntos de acceso).
  */
 export const REPUBLISH_TARGETS = Object.freeze([
     Object.freeze({value: 'profile', label: 'Perfiles', scope: 'track'}),
     Object.freeze({value: 'disconnector', label: 'Seccionadores', scope: 'station'}),
     Object.freeze({value: 'section-insulator', label: 'Aisladores de sección', scope: 'station'}),
+    Object.freeze({value: 'track-access-point', label: 'Puntos de acceso a vía', scope: 'track'}),
     Object.freeze({value: 'all', label: 'Todo', scope: null}),
 ])
 

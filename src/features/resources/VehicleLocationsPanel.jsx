@@ -4,7 +4,7 @@ import {IconCalendarTime} from '@tabler/icons-react'
 import {useState} from 'react'
 import {useNavigate} from 'react-router'
 import {LOCATION_SOURCE} from '../../api/resources/enums.js'
-import {LOCATIONS_PAGE_SIZE, shiftIdOf} from '../../api/resources/vehicles.js'
+import {accessPointText, LOCATIONS_PAGE_SIZE, shiftIdOf} from '../../api/resources/vehicles.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {formatDateTime} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
@@ -31,7 +31,7 @@ export default function VehicleLocationsPanel({vehicle, names, readsMaintenance}
     const columns = [
         {key: 'when', label: 'Cuándo', render: (location) => (location.observedAt ? formatDateTime(location.observedAt) : '')},
         {key: 'where', label: 'Dónde', render: (location) => placeText(location, names)},
-        {key: 'access', label: 'Acceso', render: (location) => location.accessPoint ?? ''},
+        {key: 'access', label: 'Acceso', render: accessPointText},
         {key: 'source', label: 'Origen', render: (location) => LOCATION_SOURCE.label(location.source)},
         {key: 'recordedBy', label: 'Registrada por', render: (location) => location.recordedBy ?? ''},
     ]

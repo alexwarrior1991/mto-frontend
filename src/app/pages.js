@@ -4,6 +4,7 @@ import ExecutionPackagesPage from '../features/infrastructure/ExecutionPackagesP
 import ProfilesPage from '../features/infrastructure/ProfilesPage.jsx'
 import SectionInsulatorsPage from '../features/infrastructure/SectionInsulatorsPage.jsx'
 import StationsPage from '../features/infrastructure/StationsPage.jsx'
+import TrackAccessPointsPage from '../features/infrastructure/TrackAccessPointsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
 import AssetsPage from '../features/maintenance/AssetsPage.jsx'
@@ -60,6 +61,7 @@ export const PAGES = Object.freeze({
     profiles: ProfilesPage,
     disconnectors: DisconnectorsPage,
     sectionInsulators: SectionInsulatorsPage,
+    trackAccessPoints: TrackAccessPointsPage,
     jobs: JobsPage,
     users: UsersPage,
     userProfiles: UserProfilesPage,

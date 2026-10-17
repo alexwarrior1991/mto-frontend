@@ -254,6 +254,12 @@ export const VEHICLE_ATTACHMENT = defineEnum({TOWED: 'Remolcado', CARRIED: 'Tran
 export const LOCATION_SOURCE = defineEnum({MANUAL: 'A mano', SHIFT: 'Turno', FIELD: 'Campo', TELEMATICS: 'Telemática'})
 
 /**
+ * El tipo de un punto de acceso a la vía: el maestro de mto-configuration, que mto-resources guarda de su
+ * evento y ofrece al registrar dónde está un vehículo.
+ */
+export const ACCESS_POINT_KIND = defineEnum({PREPARED_ACCESS: 'Acceso preparado', LEVEL_CROSSING: 'Paso a nivel', DEPOT: 'Base o cochera'})
+
+/**
  * La clase de un tipo de cualificación. Un permiso de conducir dice cuál (B, C o C+E), y solo él: lo
  * exige el servicio (400 VAL-001), y el editor solo lo ofrece con esa clase.
  */

@@ -42,6 +42,7 @@ export const ROUTES = Object.freeze([
     {path: 'infraestructura/perfiles', title: 'Perfiles', page: 'profiles', requires: CONFIG, menu: {group: 'infraestructura', order: 13, icon: 'profiles'}},
     {path: 'infraestructura/seccionadores', title: 'Seccionadores', page: 'disconnectors', requires: CONFIG, menu: {group: 'infraestructura', order: 14, icon: 'disconnectors'}},
     {path: 'infraestructura/aisladores', title: 'Aisladores de sección', page: 'sectionInsulators', requires: CONFIG, menu: {group: 'infraestructura', order: 15, icon: 'insulators'}},
+    {path: 'infraestructura/accesos', title: 'Accesos a vía', page: 'trackAccessPoints', requires: CONFIG, menu: {group: 'infraestructura', order: 16, icon: 'accessPoints'}},
 
     {path: 'trabajos', title: 'Trabajos', page: 'jobs', requires: CONFIG, menu: {order: 30, icon: 'jobs'}},
 

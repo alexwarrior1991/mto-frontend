@@ -78,7 +78,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
   `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
-  `lovEntryWithEnabled`) y `configuration/masters.js` (los seis maestros: `filterMasters`, el CRUD,
+  `lovEntryWithEnabled`) y `configuration/masters.js` (los siete maestros: `filterMasters`, el CRUD,
   `trackSchematic`, `listBusinessEntities`, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
   `lovRef`, `CLEARED_LOV_REF`) y `configuration/jobs.js` (los trabajos en segundo plano: `JOB_TYPE`
   y `JOB_STATUS` tolerantes, `JOB_FAMILIES` y `familyOf`, `isTerminal`, `isDownloadable`,
@@ -142,12 +142,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
   pueden colgar, `headCategories`, `LINEMAN_CATEGORIES` y la regla de 2 a 6, la movilidad con sus
   categorías, los tipos de ubicación que admite cada una, `recordableKinds`, y `QUALIFICATION_KIND`,
-  `VEHICLE_DOCUMENT_KIND` e `INSTRUMENT_KIND`, todos tolerantes),
+  `VEHICLE_DOCUMENT_KIND`, `INSTRUMENT_KIND` y `ACCESS_POINT_KIND`, todos tolerantes),
   `resources/people.js`, `resources/units.js` (el árbol, una unidad, sus hijas y sus linemen,
   `newUnitRequest` y `unitPatch`, con el vehículo por defecto de un equipo), `resources/fleet.js` (modelos
-  con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y la habilitación de su conductor, y sitios de
-  aparcamiento), `resources/vehicles.js` (los vehículos, sus ubicaciones, `locationFields` y
-  `locationRequest`, el tablero, `fleetPositions`, por vía y kp con el vehículo para desempatar, y
+  con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y la habilitación de su conductor, sitios de
+  aparcamiento, y `listTrackAccessPoints`, los puntos de acceso a la vía que guarda de
+  `mto-configuration`), `resources/vehicles.js` (los vehículos, sus ubicaciones, `locationFields` y
+  `locationRequest`, con `accessPointId`, y `accessPointText`, el punto de una ubicación: el de
+  `trackAccessPoint`, o el texto libre de `accessPoint`; el tablero, `fleetPositions`, por vía y kp con el vehículo para desempatar, y
   `whereOf`, y sus documentos con caducidad, `offeredDocumentKinds`), `resources/qualifications.js` (el
   catálogo de tipos de cualificación, `takesDrivingLicence`, y las de cada persona,
   `offeredQualificationTypes`) y `resources/instruments.js` (los instrumentos con su calibración, y su
@@ -196,15 +198,17 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `MasterPage` (el port de `MasterView`): la lista de un maestro con su búsqueda, sus filtros, sus
     columnas, «Modificado» y la columna de acciones siempre presente; una página por maestro
     (`ExecutionPackagesPage`, `StationsPage`, `TracksPage`, `ProfilesPage`, `DisconnectorsPage`,
-    `SectionInsulatorsPage`) pone columnas, filtros y editor;
+    `SectionInsulatorsPage`, `TrackAccessPointsPage`) pone columnas, filtros y editor;
   - `MasterEditorModal` (el marco de cada editor) y un editor por maestro sobre `@mantine/form`, con
     las propiedades llamadas como los campos del servicio;
   - `ChildrenTable` (los hijos que el editor gestiona), `CantileverModal`, `SwitchModal` y
     `ProfilePicker` (un perfil buscado en el servidor);
   - `TrackSchematicModal`, `SchematicSvg` y `schematicLayout.js` (las cuentas puras del dibujo);
   - `masterResources.js`, `references.js` (nombres de las referencias y `#id`), `formValues.js` (de
-    DTO a formulario y vuelta), `useMasters.js` (listas, escrituras y referencias) y
-    `useCatalogues.js` (varios catálogos para los desplegables, con la caché de `catalogues/`).
+    DTO a formulario y vuelta, y `optionalDecimal`, una cifra con su columna), `useMasters.js` (listas,
+    escrituras y referencias), `useCatalogues.js` (varios catálogos para los desplegables, con la caché
+    de `catalogues/`) y los enumerados de cada maestro, que vuelven como se leyeron
+    (`installationTypes.js`, `disconnectorStates.js`, `accessPointKinds.js`).
 
   `jobs/` es el port de `ui/jobs`:
   - `JobsPage` (el port de `JobsView`): los lanzadores que permite la sesión y el historial;
@@ -350,7 +354,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `SUP-409`, `PRJ-409` o `ASM-409`, o de recursos, `QTY-409` o `INT-409`, no; tampoco `QUA-001` ni
   `VDO-409`, lo que una persona o un vehículo ya tienen; los 409 de estado de mantenimiento no piden recargar; un 422
   sin errores por campo es una regla de negocio; `NTF-404` y `ACT-404` dicen que esa notificación o
-  esa línea ya no existen). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  esa línea ya no existen, y `TAP-404`, que ese punto de acceso ya no está o aún no ha llegado a
+  Recursos). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -418,6 +423,15 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     que no sea la suya lo dice el servicio, en ese campo. Su `stationId` es opcional (uno en plena vía, en una zona
     neutra o en una subestación no es de ninguna); que sin estación esté en un poste o con su vía
     propia lo dice el servicio, con un 400 sobre la estación.
+  - Un punto de acceso a la vía (`infraestructura/accesos`, `V28`) es un maestro más, sin hijos: su vía
+    es obligatoria y su estación no; su tipo (`PREPARED_ACCESS`, `LEVEL_CROSSING`, `DEPOT`) y su lado
+    (`LEFT`, `RIGHT`, `BOTH`) vuelven como se leyeron, también uno que esta pantalla no conoce. Sus
+    cifras viajan como números JSON, como el KP de un aislador, y se comprueban antes de llamar con su
+    columna (`optionalDecimal`): el KP (`numeric(12,3)`) y los pesos (`numeric(8,3)`) no son
+    negativos, con tres decimales como mucho, y la latitud y la longitud (`numeric(9,6)`, ±90 y ±180,
+    seis decimales) van juntas, y el error cae en la que falta, como el 400 del servicio. Un nombre
+    repetido en su vía es el 409 `BUS-002`, con el diálogo abierto. Se republica acotado por vía,
+    como los perfiles.
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.
@@ -538,7 +552,18 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   de un nivel estrictamente superior y de la misma disciplina, y su jefe, de las categorías que admite
   el nivel; un modelo enseña las secciones de su movilidad y quitar una capacidad vacía sus cifras; un
   vehículo pide lo que exige su modelo; «Registrar dónde está» ofrece solo lo que admite su movilidad.
-  Lo demás es su 409 `UNI-001` o `VEH-001`, con el diálogo abierto. Se modifica con merge-patch y la
+  Lo demás es su 409 `UNI-001` o `VEH-001`, con el diálogo abierto.
+- **El punto de acceso de una ubicación es uno de los de su vía, y si vale lo dice `mto-resources`.**
+  «Registrar dónde está», donde va una vía (en vía, o aparcado de uno que no es de solo carretera) y con
+  una elegida, ofrece «Punto de acceso», opcional, entre los activos de esa vía que guarda
+  `mto-resources` (`GET /track-access-points?trackId=&enabled=true`, `useTrackAccessPoints`, sin aviso
+  si falla: lo dice el desplegable); cambiar de vía lo vacía y sin vía no viaja (`accessPointId` en
+  `locationRequest`). El texto libre de una bivial («Acceso (texto)», `accessPoint`) sigue aparte. Que
+  admita biviales, que sea de esa vía, que sea preparado si el modelo lo exige o que aguante su peso es
+  el 409 `VEH-001`, y uno que ya no está o aún no ha llegado, el 404 `TAP-404`, que relee la lista; los
+  dos con el diálogo abierto. La ubicación (su historial, la posición de un vehículo y el tablero) lo
+  trae en `trackAccessPoint` (`{id, name, kind}` o `null`) y lo nombra (`accessPointText`): su nombre, o
+  `#id` sin él; sin punto, el texto libre de `accessPoint`. Se modifica con merge-patch y la
   versión leída, nada se borra (`DELETE` desactiva o retira, con `resources-delete`) y reactivar es un
   `PATCH active=true`. El tablero se lee por vía y kp (`whereOf`: un remolcado está donde su portador)
   y se vuelve a pedir con «Actualizar», sin sondeo.
@@ -703,11 +728,14 @@ imagen de este commit construida desde el checkout, la publicada de cada hermano
 necesita y no recorre en pantalla (un token del password grant local, y `/api` por el origen de la
 SPA): así valen en una plataforma recién levantada. `coexistence.spec.js` salta al backoffice y vuelve,
 con la misma ruta, su filtro y el mismo SSO (también el organigrama), e `infrastructure.spec.js` dibuja
-el esquema de su vía con un perfil y su ménsula en las dos aplicaciones. `resources.spec.js` crea un
+el esquema de su vía con un perfil y su ménsula en las dos aplicaciones, y da de alta en pantalla un
+punto de acceso en una vía de usar y tirar que sale en la lista de las dos aplicaciones. `resources.spec.js` crea un
 equipo con la regla de 2 a 6, un modelo bivial 9A y un vehículo puesto en vía que sale en el tablero, y
 lleva un equipo de `mto-resources` a un turno de mantenimiento que, al cerrarse, deja su vehículo
 aparcado como del turno en `mto-resources` (`expect.poll`, porque llega por evento); usa códigos E2E,
-nunca `A` ni `B`, y lo desactiva o retira todo al acabar. El jefe de ese turno lleva la habilitación
+nunca `A` ni `B`, y lo desactiva o retira todo al acabar. Su vehículo bivial se pone en vía por un punto
+de acceso de su vía, que da de alta `config.responsable` por la API y llega a `mto-resources` por evento
+(`expect.poll`), y su ficha lo nombra. El jefe de ese turno lleva la habilitación
 `RR-OPERATOR` (la que exige su vehículo bivial para iniciarlo), y su ficha enseña sus cualificaciones y
 da de alta otra en pantalla. El CI construye además la imagen y la prueba de humo
 (`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no

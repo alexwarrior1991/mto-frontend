@@ -15,8 +15,9 @@ import {loginAs, sessionWith} from './session.js'
  * backoffice: la lista paginada, buscada, filtrada y ordenada en el servicio; lo que ve quien solo lee;
  * la modificación sobre la fila leída, con lo desconocido, la versión y los hijos a null; los errores
  * del servicio; el borrado; el alta y las ménsulas de un perfil; las agujas de un aislador; el perfil
- * de un seccionador; y el esquema de una vía. Y lo que el backoffice no hacía: vaciar una referencia
- * a catálogo de verdad ({}) y no ofrecer cambiar el seccionador desde el perfil.
+ * de un seccionador; los puntos de acceso a la vía, con sus cifras comprobadas con su columna; y el
+ * esquema de una vía. Y lo que el backoffice no hacía: vaciar una referencia a catálogo de verdad ({}) y
+ * no ofrecer cambiar el seccionador desde el perfil.
  */
 
 const BASE = '/api/configuration'
@@ -68,6 +69,7 @@ const FILTERS = Object.freeze({
     onLoad: (row, value) => row.onLoad === value,
     trackId: (row, value) => row.trackId === value,
     installationType: (row, value) => row.installationType === value,
+    kind: (row, value) => row.kind === value,
     profileStatusCode: (row, value) => row.profileStatus?.code === value,
 })
 
@@ -95,9 +97,9 @@ function serveMaster(path, rows) {
     return requests
 }
 
-/** El gateway con todo lo que piden las pantallas: los seis maestros, las empresas y los catálogos. */
+/** El gateway con todo lo que piden las pantallas: los siete maestros, las empresas y los catálogos. */
 function serveGateway({
-    packages = PACKAGES, stations = STATIONS, tracks = threeTracks(), profiles = [], disconnectors = [], insulators = [],
+    packages = PACKAGES, stations = STATIONS, tracks = threeTracks(), profiles = [], disconnectors = [], insulators = [], accessPoints = [],
 } = {}) {
     const requests = {
         packages: serveMaster('execution-packages', packages),
@@ -106,6 +108,7 @@ function serveGateway({
         profiles: serveMaster('profiles', profiles),
         disconnectors: serveMaster('disconnectors', disconnectors),
         insulators: serveMaster('section-insulators', insulators),
+        accessPoints: serveMaster('track-access-points', accessPoints),
     }
     server.use(http.get(`${BASE}/business-entities`, () => HttpResponse.json(COMPANIES)))
     for (const [path, entries] of Object.entries(CATALOGUES)) {
@@ -173,11 +176,12 @@ async function typeInto(user, container, label, text) {
 }
 
 describe('el menú y las rutas', () => {
-    it('los seis maestros salen bajo «Infraestructura» para quien lee la configuración, y ya no están pendientes', async () => {
+    it('los siete maestros salen bajo «Infraestructura» para quien lee la configuración, y ya no están pendientes', async () => {
         serveGateway()
         const infrastructure = buildMenu(loginAs('config.lector')).find((item) => item.key === 'infraestructura')
         expect(infrastructure.children.map((child) => child.label)).toEqual(['Paquetes de ejecución', 'Estaciones', 'Vías',
-            'Perfiles', 'Seccionadores', 'Aisladores de sección'])
+            'Perfiles', 'Seccionadores', 'Aisladores de sección', 'Accesos a vía'])
+        expect(infrastructure.children.at(-1).path).toBe('/infraestructura/accesos')
         expect(buildMenu(loginAs('almacen.lector')).some((item) => item.key === 'infraestructura')).toBe(false)
 
         renderRoute('/infraestructura/aisladores', {session: loginAs('config.lector')})
@@ -798,6 +802,130 @@ describe('los aisladores de sección', () => {
 
         await waitFor(() => expect(updates).toHaveLength(1))
         expect(updates[0]).toMatchObject({installationType: 'IN_TRACK', connectedTrackId: null, trackId: 3, switches: null})
+    })
+})
+
+describe('los puntos de acceso a la vía', () => {
+    function accessPoint(extra = {}) {
+        return {
+            id: 77, name: 'Acceso km 110+176', trackId: 3, stationId: 12, kp: 110176, kind: 'PREPARED_ACCESS', side: 'LEFT', roadRailAccess: true,
+            maxAxleLoadT: 12.5, maxGrossWeightT: 40, latitude: 31.669342, longitude: 34.574119, enabled: true, versionNumber: 3,
+            createUser: 'config.editor', fieldOfTomorrow: {deep: 1}, ...extra,
+        }
+    }
+    const crossing = () => accessPoint({id: 78, name: 'PN Rishpon', trackId: 4, stationId: null, kp: 110900.5, kind: 'LEVEL_CROSSING',
+        side: 'BOTH', roadRailAccess: false, maxAxleLoadT: null, maxGrossWeightT: null, latitude: null, longitude: null, versionNumber: 1})
+
+    it('la lista dice su vía, su estación, su tipo y su lado, y se filtra y se ordena en el servicio; quien solo lee no ve controles', async () => {
+        const requests = serveGateway({accessPoints: [accessPoint(), crossing()]})
+        const {user} = await open('/infraestructura/accesos', loginAs('config.lector'), 'Accesos a vía', 2)
+
+        expect(screen.getByRole('heading', {name: 'Accesos a vía'})).toBeInTheDocument()
+        expect(screen.getByText('2 accesos a vía')).toBeInTheDocument()
+        const cellsOf = (name) => within(rowOf('Accesos a vía', name)).getAllByRole('cell').map((cell) => cell.textContent).slice(0, 8)
+        expect(cellsOf('Acceso km 110+176')).toEqual(['Acceso km 110+176', 'VIA 1 (EP4)', 'ATOCHA (EP4)', '110176', 'Acceso preparado',
+            'Izquierda', 'Sí', 'Sí'])
+        expect(cellsOf('PN Rishpon')).toEqual(['PN Rishpon', 'VIA 2 (EP4)', '', '110900.5', 'Paso a nivel', 'Los dos lados', 'No', 'Sí'])
+        expect(screen.queryByRole('button', {name: 'Nuevo'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Modificar PN Rishpon'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Borrar PN Rishpon'})).not.toBeInTheDocument()
+
+        await choose(user, document.body, 'Vía', 'VIA 2 (EP4)')
+        await waitFor(() => expect(firstColumn('Accesos a vía')).toEqual(['PN Rishpon']))
+        expect(listRequests(requests.accessPoints).at(-1).body).toEqual({trackId: 4})
+        await choose(user, document.body, 'Tipo', 'Paso a nivel')
+        await choose(user, document.body, 'Estado', 'Activos')
+        await waitFor(() => expect(listRequests(requests.accessPoints).at(-1).body).toEqual({trackId: 4, kind: 'LEVEL_CROSSING', enabled: true}))
+        await user.click(screen.getByRole('button', {name: 'Tipo'}))
+        await waitFor(() => expect(listRequests(requests.accessPoints).at(-1).url.searchParams.get('sort')).toBe('kind,asc'))
+    })
+
+    it('el alta comprueba cada cifra con su columna antes de llamar, y viaja con las cifras como números', async () => {
+        const requests = serveGateway()
+        const creates = recordWrites('post', `${BASE}/track-access-points`, (body) => HttpResponse.json({...body, id: 80, versionNumber: 0},
+            {status: 201}))
+        const {user} = await open('/infraestructura/accesos', sessionWith(WRITER), 'Accesos a vía', 0)
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Alta de acceso a vía'})
+        expect(within(dialog).getByRole('checkbox', {name: /Admite biviales/})).toBeChecked()
+        expect(within(dialog).getByRole('checkbox', {name: 'Activo'})).toBeChecked()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El nombre es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('La vía es obligatoria')).toBeInTheDocument()
+        expect(within(dialog).getByText('Hay que decir qué tipo de acceso es')).toBeInTheDocument()
+        expect(within(dialog).getByText('Hay que decir por qué lado se entra')).toBeInTheDocument()
+
+        await typeInto(user, dialog, 'Nombre', 'Acceso km 12+400')
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP4)')
+        await choose(user, dialog, 'Tipo', 'Base o cochera')
+        await choose(user, dialog, 'Lado', 'Derecha')
+        await typeInto(user, dialog, 'KP (m)', '-5')
+        await typeInto(user, dialog, 'Carga máxima por eje (t)', '12.5555')
+        await typeInto(user, dialog, 'Peso bruto máximo (t)', '123456')
+        await typeInto(user, dialog, 'Latitud', '91')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('No puede ser negativo')).toBeInTheDocument()
+        expect(within(dialog).getByText('Como mucho 3 decimales')).toBeInTheDocument()
+        expect(within(dialog).getByText('Como mucho 5 cifras enteras')).toBeInTheDocument()
+        expect(within(dialog).getByText('Entre -90 y 90')).toBeInTheDocument()
+        expect(within(dialog).getByText('Con la latitud va también la longitud')).toBeInTheDocument()
+
+        await typeInto(user, dialog, 'KP (m)', '12400.5')
+        await typeInto(user, dialog, 'Carga máxima por eje (t)', '12.5')
+        await typeInto(user, dialog, 'Peso bruto máximo (t)', '+40.')
+        await typeInto(user, dialog, 'Latitud', '31.6693421')
+        await typeInto(user, dialog, 'Longitud', '-181')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('Como mucho 6 decimales')).toBeInTheDocument()
+        expect(within(dialog).getByText('Entre -180 y 180')).toBeInTheDocument()
+        expect(creates).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Latitud', '31.669342')
+        await typeInto(user, dialog, 'Longitud', '34.574119')
+        await user.click(within(dialog).getByRole('checkbox', {name: /Admite biviales/}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(creates).toHaveLength(1))
+        expect(creates[0]).toEqual({name: 'Acceso km 12+400', trackId: 3, stationId: null, kp: 12400.5, kind: 'DEPOT', side: 'RIGHT',
+            roadRailAccess: false, maxAxleLoadT: 12.5, maxGrossWeightT: 40, latitude: 31.669342, longitude: 34.574119, enabled: true})
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(listRequests(requests.accessPoints).length).toBeGreaterThan(1)
+    })
+
+    it('la modificación devuelve la fila entera con su versión y lo que no conoce; un nombre repetido en la vía deja el diálogo abierto', async () => {
+        // Un lado que esta pantalla no conoce se enseña tal cual y, si nadie lo cambia, vuelve tal cual.
+        const read = accessPoint({side: 'UPHILL'})
+        serveGateway({accessPoints: [read]})
+        const updates = recordWrites('put', `${BASE}/track-access-points/77`, (body) => (updates.length === 1
+            ? problem(409, {title: 'Conflicto', status: 409, code: 'BUS-002', detail: 'Duplicated name in track', traceId: 't-bus'})
+            : HttpResponse.json({...body, versionNumber: 4})))
+        const deletes = recordWrites('delete', `${BASE}/track-access-points/77`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await open('/infraestructura/accesos', sessionWith(MANAGER), 'Accesos a vía', 1)
+        expect(within(rowOf('Accesos a vía', 'Acceso km 110+176')).getByText('UPHILL')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Modificar Acceso km 110+176'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar acceso a vía'})
+        expect(within(dialog).getByRole('textbox', {name: 'KP (m)'})).toHaveValue('110176')
+        expect(within(dialog).getByRole('combobox', {name: 'Lado'})).toHaveValue('UPHILL')
+        await choose(user, dialog, 'Tipo', 'Paso a nivel')
+        await typeInto(user, dialog, 'Latitud', '')
+        await typeInto(user, dialog, 'Longitud', '')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Ya existe otro registro con ese valor (un código que no se puede repetir), o la entrada está en uso.'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar acceso a vía'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(updates).toHaveLength(2)
+        expect(updates[1]).toEqual({...read, kind: 'LEVEL_CROSSING', latitude: null, longitude: null})
+
+        await user.click(screen.getByRole('button', {name: 'Borrar Acceso km 110+176'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Borrar acceso a vía Acceso km 110+176'})
+        expect(confirm).toHaveTextContent('Desaparece de las listas: el servicio lo marca como borrado y desde aquí no se puede recuperar.')
+        await user.click(within(confirm).getByRole('button', {name: 'Borrar'}))
+        expect(await screen.findByText('Borrado Acceso km 110+176')).toBeInTheDocument()
+        expect(deletes).toEqual([null])
     })
 })
 

@@ -1,4 +1,5 @@
 import {
+    ACCESS_POINT_KIND,
     INSTRUMENT_KIND,
     LOCATION_KIND,
     LOCATION_SOURCE,
@@ -115,6 +116,15 @@ export function placeText(location, names) {
     }
     return join(LOCATION_KIND.label(location.kind), location.parkingSite?.code, location.trackId == null ? null : names.trackName(location.trackId),
         location.kp == null ? null : `kp ${location.kp}`, location.description)
+}
+
+/**
+ * Un punto de acceso a la vía en el desplegable de «Registrar dónde está»: su nombre, su tipo, su kp y,
+ * si no admite biviales, que no los admite (mto-resources lo rechazaría con un 409 VEH-001).
+ */
+export function accessPointLabel(point) {
+    return join(point?.name ?? `#${point?.id}`, point?.kind ? ACCESS_POINT_KIND.label(point.kind) : null,
+        point?.kp == null ? null : `kp ${point.kp}`, point?.roadRailAccess === false ? 'sin biviales' : null)
 }
 
 /** De dónde salió una ubicación y cuándo. */

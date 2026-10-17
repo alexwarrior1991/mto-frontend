@@ -966,13 +966,22 @@ function siding(extra = {}) {
 }
 
 /** Los catálogos de la flota simulados, con los tipos de cualificación, y los nombres de mto-configuration (EP, vías y estaciones). */
-function serveFleetCatalogues({types = [], sites = [], qualificationTypes = []} = {}) {
+function serveFleetCatalogues({types = [], sites = [], qualificationTypes = [], accessPoints = []} = {}) {
     const requests = serveResources({qualificationTypes})
     server.use(
         http.get(`${BASE}/vehicle-types`, ({request}) => {
             const url = new URL(request.url)
             requests.push(url)
             return HttpResponse.json(pageOf(types, url))
+        }),
+        // Los puntos de acceso que conoce mto-resources: una lista entera, filtrada por vía y estado.
+        http.get(`${BASE}/track-access-points`, ({request}) => {
+            const url = new URL(request.url)
+            requests.push(url)
+            const trackId = url.searchParams.get('trackId')
+            const enabled = url.searchParams.get('enabled')
+            return HttpResponse.json(accessPoints.filter((point) => (trackId === null || String(point.trackId) === trackId)
+                && (enabled === null || String(point.enabled) === enabled)))
         }),
         http.get(`${BASE}/parking-sites`, ({request}) => {
             const url = new URL(request.url)
@@ -1217,7 +1226,7 @@ function location(kind, {trackId = null, kp = null, carrier = null, reference = 
     return {
         id: `b1c2d3e4-0000-4000-8000-${String(Math.floor(Math.random() * 1e12)).padStart(12, '0')}`, kind,
         parkingSite: kind === 'PARKED' ? {id: PARKING_SITE1, code: 'APT-RSH', name: 'Apartadero de Rishpon', kind: 'SIDING'} : null,
-        executionPackageId: 4, trackId, kp, latitude: null, longitude: null, accessPoint: null, description: null, carrier,
+        executionPackageId: 4, trackId, kp, latitude: null, longitude: null, accessPoint: null, trackAccessPoint: null, description: null, carrier,
         attachment: carrier ? 'TOWED' : null, source: reference ? 'SHIFT' : 'MANUAL', sourceReference: reference, observedAt: '2026-10-16T03:40:00Z',
         recordedAt: '2026-10-16T03:40:02Z', recordedBy: reference ? 'service-account-mto-maintenance-svc' : 'recursos.gestor',
     }
@@ -1232,9 +1241,12 @@ function vehicle(id, code, type, position, active = true, extra = {}) {
     }
 }
 
-/** La flota simulada: los vehículos, cada uno por su id, sus ubicaciones, sus documentos y los sitios, con los catálogos y los nombres. */
-function serveVehicles({vehicles = [], locations = [], types = [], sites = [], documents = {}} = {}) {
-    const requests = serveFleetCatalogues({types, sites})
+/**
+ * La flota simulada: los vehículos, cada uno por su id, sus ubicaciones, sus documentos, los sitios y los
+ * puntos de acceso, con los catálogos y los nombres.
+ */
+function serveVehicles({vehicles = [], locations = [], types = [], sites = [], documents = {}, accessPoints = []} = {}) {
+    const requests = serveFleetCatalogues({types, sites, accessPoints})
     server.use(
         http.get(`${BASE}/vehicles/:id/documents`, ({request, params}) => {
             requests.push(new URL(request.url))
@@ -1388,6 +1400,62 @@ describe('los vehículos', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
         expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'ON_TRACK', trackId: 12, kp: 10.5,
             description: 'En la playa de vías'})))
+    })
+
+    it('con una vía elegida se ofrece el punto de acceso entre los activos de esa vía; otra vía lo vacía, y un TAP-404 deja el diálogo abierto', async () => {
+        const accessPoints = [
+            {id: 77, name: 'Acceso km 110+176', kind: 'PREPARED_ACCESS', kp: 110176, trackId: 12, executionPackageId: 4, roadRailAccess: true,
+                maxAxleLoadT: 12.5, maxGrossWeightT: 40, enabled: true},
+            {id: 78, name: 'PN Rishpon', kind: 'LEVEL_CROSSING', kp: 110900, trackId: 12, executionPackageId: 4, roadRailAccess: false,
+                maxAxleLoadT: null, maxGrossWeightT: null, enabled: true},
+            {id: 79, name: 'Acceso cerrado', kind: 'DEPOT', kp: null, trackId: 12, executionPackageId: 4, roadRailAccess: true, enabled: false},
+            {id: 90, name: 'Cochera Sur', kind: 'DEPOT', kp: 5, trackId: 20, executionPackageId: 5, roadRailAccess: true, enabled: true},
+        ]
+        // La posición trae el punto de acceso a la vía (trackAccessPoint), que gana al texto libre; una ubicación
+        // sin punto enseña su texto (accessPoint).
+        const atAccess = {...location('ON_TRACK', {trackId: 12, kp: 10.5}), accessPoint: 'Junto a la caseta',
+            trackAccessPoint: {id: 77, name: 'Acceso km 110+176', kind: 'PREPARED_ACCESS'}}
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE2, 'UN-01', ROAD_RAIL_MODEL, atAccess)], accessPoints,
+            locations: [atAccess, {...location('ON_TRACK', {trackId: 12, kp: 9}), accessPoint: 'LC-31'}]})
+        const writes = recordWrites('post', `${BASE}/vehicles/:id/locations`, (body, call) => (call === 1
+            ? resourcesError(404, 'TAP-404', 'Track access point 90 not found')
+            : HttpResponse.json(location('ON_TRACK', {trackId: 20, kp: 5}), {status: 201})))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE2}`, {session: loginAs('recursos.gestor')})
+        expect(await screen.findByRole('heading', {name: 'UN-01 · Vehículo UN-01'})).toBeInTheDocument()
+        expect(screen.getByLabelText('Dónde está')).toHaveTextContent('Acceso: Acceso km 110+176')
+        await waitFor(() => expect(dataRows('Ubicaciones de UN-01').map((cells) => cells[2].textContent)).toEqual(['Acceso km 110+176', 'LC-31']))
+        const pointRequests = () => requests.filter((url) => url.pathname === `${BASE}/track-access-points`)
+
+        await user.click(screen.getByRole('button', {name: 'Registrar ubicación'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Registrar dónde está UN-01 · Vehículo UN-01'})
+        await choose(user, dialog, 'Dónde está', 'En vía')
+        expect(within(dialog).queryByRole('combobox', {name: 'Punto de acceso'})).not.toBeInTheDocument()
+        expect(pointRequests()).toHaveLength(0)
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP 4)')
+        await waitFor(() => expect(pointRequests()).toHaveLength(1))
+        expect(pointRequests()[0].search).toBe('?trackId=12&enabled=true')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Punto de acceso'}))
+        await waitFor(() => expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+            'Acceso km 110+176 · Acceso preparado · kp 110176', 'PN Rishpon · Paso a nivel · kp 110900 · sin biviales']))
+        await user.click(screen.getByRole('option', {name: 'Acceso km 110+176 · Acceso preparado · kp 110176'}))
+        expect(within(dialog).getByRole('combobox', {name: 'Punto de acceso'})).toHaveValue('Acceso km 110+176 · Acceso preparado · kp 110176')
+
+        // Otra vía: el punto elegido era de la anterior, así que se vacía y se ofrecen los de esta.
+        await choose(user, dialog, 'Vía', 'VIA 9 (EP 5)')
+        expect(within(dialog).getByRole('combobox', {name: 'Punto de acceso'})).toHaveValue('')
+        await waitFor(() => expect(pointRequests().at(-1).search).toBe('?trackId=20&enabled=true'))
+        await choose(user, dialog, 'Punto de acceso', 'Cochera Sur · Base o cochera · kp 5')
+        await typeInto(user, dialog, 'KP', '5')
+        const before = pointRequests().length
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await screen.findByText('Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'))
+            .toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Registrar dónde está UN-01 · Vehículo UN-01'})).toBeInTheDocument()
+        await waitFor(() => expect(pointRequests().length).toBeGreaterThan(before))
+
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'ON_TRACK', trackId: 20, kp: 5, accessPointId: 90})))
     })
 
     it('retirar pide confirmación y el vehículo por defecto de un equipo lo dice el servicio; reactivar es un PATCH', async () => {

@@ -10,8 +10,9 @@ const TARGET_OPTIONS = REPUBLISH_TARGETS.map(({value, label}) => ({value, label}
 
 /**
  * Republicar datos maestros (config-import): vuelve a emitir los eventos de lo que ya existía antes de
- * que hubiera consumidores. La vía solo acota los perfiles y la estación, los seccionadores y los
- * aisladores: el filtro que no aplica se deshabilita y se vacía, así que nunca viaja.
+ * que hubiera consumidores. La vía acota los perfiles y los puntos de acceso, y la estación, los
+ * seccionadores y los aisladores: el filtro que no aplica se deshabilita y se vacía, así que nunca
+ * viaja. Pasar de perfiles a puntos de acceso deja la vía elegida, porque acota a los dos.
  */
 export default function RepublishCard({references, onLaunched}) {
     const [entity, setEntity] = useState(REPUBLISH_TARGETS[0].value)

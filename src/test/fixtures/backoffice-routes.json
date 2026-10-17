@@ -9,6 +9,7 @@
     "infraestructura/perfiles",
     "infraestructura/seccionadores",
     "infraestructura/aisladores",
+    "infraestructura/accesos",
     "trabajos",
     "usuarios",
     "usuarios/perfiles",

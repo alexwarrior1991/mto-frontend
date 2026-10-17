@@ -90,6 +90,11 @@ function notFoundMessage(error) {
             return 'Ese tipo de cualificación no existe.'
         case 'INT-404':
             return 'Ese instrumento no existe.'
+        // mto-resources: el punto de acceso a la vía elegido al registrar dónde está un vehículo. Es el
+        // maestro de mto-configuration, que llega por evento: puede que lo hayan borrado o que aún no
+        // haya llegado. Se relee la lista del desplegable.
+        case 'TAP-404':
+            return 'Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'
         // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
         case 'NTF-404':
             return 'Esa notificación ya no existe o no va dirigida a ti.'

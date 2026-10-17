@@ -22,6 +22,8 @@ import {resourcesPath} from './values.js'
  *   acceso por vía dice su vía; las coordenadas van juntas.
  * - Ninguno se borra: DELETE retira (resources-delete) y un PATCH active=true lo vuelve a ofrecer. No
  *   tienen historial: son catálogos.
+ * - Los puntos de acceso a la vía no se escriben aquí: son el maestro de mto-configuration, que
+ *   mto-resources guarda de sus eventos (resources-read para leerlos). Se leen enteros, una vía cada vez.
  */
 
 export const BY_CODE = Object.freeze(['code,asc'])
@@ -227,4 +229,14 @@ export function parkingSitePatch(original, values, {readsConfiguration = true} =
         'longitude', 'notes']
     return buildMergePatch({...original, railAccess: original.railAccess === true, roadAccess: original.roadAccess === true},
         parkingSiteValues(values, readsConfiguration), {fields, numberFields: ['kp', 'latitude', 'longitude'], version: original.version})
+}
+
+/**
+ * Los puntos de acceso a la vía que conoce mto-resources (la copia que guarda de los eventos de
+ * mto-configuration): lo que ofrece «Registrar dónde está» entre los de la vía elegida. Una lista entera,
+ * sin paginar; lo ausente no filtra. Cada uno trae id, name, trackId, executionPackageId, stationId, kp,
+ * kind, side, roadRailAccess, maxAxleLoadT, maxGrossWeightT, latitude, longitude y enabled.
+ */
+export function listTrackAccessPoints({trackId = null, executionPackageId = null, enabled = null} = {}, {signal} = {}) {
+    return apiFetch(resourcesPath('track-access-points'), {query: {trackId, executionPackageId, enabled}, signal})
 }

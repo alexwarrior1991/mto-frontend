@@ -148,6 +148,19 @@ export function whereOf(row) {
     return row?.effective ?? row?.position ?? null
 }
 
+/**
+ * El punto de acceso de una ubicación, como se enseña (en su historial, en la posición de un vehículo y
+ * en el tablero): el punto de acceso a la vía, trackAccessPoint {id, name, kind}, por su nombre (#id si no
+ * lo trae); sin él, el texto libre de accessPoint tal cual. Sin ninguno, ''.
+ */
+export function accessPointText(location) {
+    const point = location?.trackAccessPoint
+    if (point) {
+        return point.name ? point.name : `#${point.id}`
+    }
+    return location?.accessPoint ?? ''
+}
+
 /** El turno de mto-maintenance que dejó una ubicación, si fue uno. */
 export function shiftIdOf(location) {
     const reference = location?.sourceReference
@@ -158,7 +171,11 @@ export function shiftIdOf(location) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null
 }
 
-/** Qué campos lleva cada tipo de ubicación; lo que no se ve no viaja. */
+/**
+ * Qué campos lleva cada tipo de ubicación; lo que no se ve no viaja. accessPointId, el punto de acceso a
+ * la vía (el maestro de mto-configuration que guarda mto-resources), va donde va la vía, y solo con una
+ * elegida; accessPoint es el texto libre de dónde encarriló una bivial.
+ */
 export function locationFields(kind, mobility, {readsConfiguration = true} = {}) {
     const parked = kind === 'PARKED'
     const onTrack = kind === 'ON_TRACK'
@@ -169,23 +186,29 @@ export function locationFields(kind, mobility, {readsConfiguration = true} = {})
         executionPackageId: readsConfiguration && (parked || onTrack || onRoad),
         trackId: track,
         kp: track,
+        accessPointId: track,
         accessPoint: mobility === 'ROAD_RAIL' && (onTrack || onRoad),
         coordinates: parked || onRoad,
         carrier: kind === 'ATTACHED',
     }
 }
 
-/** La petición con lo que se ve; lo vacío no viaja. */
+/**
+ * La petición con lo que se ve; lo vacío no viaja. El punto de acceso solo viaja con su vía: es uno de
+ * los de esa vía (si no, 409 VEH-001; si mto-resources no lo conoce, 404 TAP-404).
+ */
 export function locationRequest(values, mobility, options = {}) {
     const shown = locationFields(values.kind, mobility, options)
+    const trackId = shown.trackId ? idOrNull(values.trackId) : null
     return withoutNulls({
         kind: values.kind,
         parkingSiteId: shown.site ? values.parkingSiteId ?? null : null,
         executionPackageId: shown.executionPackageId ? idOrNull(values.executionPackageId) : null,
-        trackId: shown.trackId ? idOrNull(values.trackId) : null,
+        trackId,
         kp: shown.kp ? numberOrNull(values.kp) : null,
         latitude: shown.coordinates ? numberOrNull(values.latitude) : null,
         longitude: shown.coordinates ? numberOrNull(values.longitude) : null,
+        accessPointId: shown.accessPointId && trackId !== null ? idOrNull(values.accessPointId) : null,
         accessPoint: shown.accessPoint ? textOrNull(values.accessPoint) : null,
         description: textOrNull(values.description),
         carrierVehicleId: shown.carrier ? values.carrierVehicleId ?? null : null,

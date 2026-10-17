@@ -2,6 +2,7 @@ import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack
 import {
     createParkingSite,
     createVehicleType,
+    listTrackAccessPoints,
     offerParkingSiteAgain,
     offerVehicleTypeAgain,
     patchParkingSite,
@@ -462,13 +463,34 @@ export function useVehicleAction() {
     })
 }
 
-/** Registrar dónde está un vehículo; mueve su posición, su ficha, la lista y el tablero: se relee todo el módulo. */
+/**
+ * Registrar dónde está un vehículo; mueve su posición, su ficha, la lista y el tablero: se relee todo el
+ * módulo. Un 404 TAP-404 (el punto de acceso ya no está, o aún no ha llegado a mto-resources) relee los
+ * puntos de acceso, para que el desplegable enseñe los que hay.
+ */
 export function useRecordLocation(vehicleId) {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (body) => recordLocation(vehicleId, body),
         meta: {notifyError: false},
         onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+        onError: (error) => (error?.code === 'TAP-404'
+            ? queryClient.invalidateQueries({queryKey: resourcesKey('track-access-points')})
+            : undefined),
+    })
+}
+
+/**
+ * Los puntos de acceso activos de una vía, para «Registrar dónde está»: sin vía no se pide. Un fallo no
+ * se avisa, lo dice el desplegable: el punto es opcional y la ubicación se registra igual sin él.
+ */
+export function useTrackAccessPoints(trackId) {
+    return useQuery({
+        queryKey: resourcesKey('track-access-points', trackId),
+        queryFn: ({signal}) => listTrackAccessPoints({trackId, enabled: true}, {signal}),
+        enabled: trackId !== null && trackId !== undefined,
+        staleTime: NOT_FRESH,
+        meta: {notifyError: false},
     })
 }
 
