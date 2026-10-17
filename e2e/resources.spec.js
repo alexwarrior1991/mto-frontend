@@ -11,7 +11,10 @@ import {signIn} from './keycloak.js'
  * - la flota: un modelo bivial 9A y un vehículo suyo, puesto en vía en una vía de usar y tirar, que se ve
  *   en el tablero y en sus ubicaciones;
  * - mantenimiento: un equipo de mto-resources llega sincronizado, su turno copia jefe, linemen y vehículo,
- *   se inicia y se cierra diciendo dónde queda el vehículo, y mto-resources lo apunta como del turno.
+ *   se inicia (su jefe está habilitado para conducir la bivial) y se cierra diciendo dónde queda el
+ *   vehículo, y mto-resources lo apunta como del turno;
+ * - las cualificaciones: la ficha de una persona enseña las suyas con cómo está cada una, y una nueva se
+ *   da de alta en pantalla.
  *
  * Las personas, la vía y lo que no recorre la pantalla se ponen por la API antes y se quitan al acabar:
  * en mto-resources nada se borra, se desactiva o se retira.
@@ -91,6 +94,12 @@ test.beforeAll(async ({playwright}) => {
         created.linemen = [await person('Uno', 'WORKER'), await person('Dos', 'WORKER'), await person('Tres', 'WORKER')]
         created.shiftLeader = await person('Jefe', 'TEAM_LEADER')
         created.shiftLinemen = [await person('Cuatro', 'WORKER'), await person('Cinco', 'WORKER')]
+        // El jefe del turno conduce su vehículo: un modelo bivial autopropulsado exige RR-OPERATOR (la semilla de
+        // V8) y, sin nadie habilitado en la dotación, mantenimiento no deja iniciar el turno (409 SHF-001).
+        const operator = (await resources.get('/api/resources/qualification-types?search=RR-OPERATOR&size=5')).content
+            .find((type) => type.code === 'RR-OPERATOR')
+        await resources.post(`/api/resources/people/${created.shiftLeader.id}/qualifications`, {qualificationTypeId: operator.id,
+            reference: `E2E-${SUFFIX}`})
 
         // El equipo del turno, con su vehículo por defecto: lo que mantenimiento copia al turno.
         const type = await resources.post('/api/resources/vehicle-types', {
@@ -290,4 +299,25 @@ test('un equipo de mto-resources trabaja un turno de mantenimiento y su vehícul
     } finally {
         await resources.dispose()
     }
+})
+
+test('la ficha de una persona enseña sus cualificaciones con cómo está cada una, y una nueva se da de alta en pantalla', async ({page}) => {
+    const leader = created.shiftLeader
+    await page.goto('/recursos/personal')
+    await signIn(page, 'recursos.responsable')
+    await expect(page.getByRole('heading', {name: 'Personal', level: 2})).toBeVisible()
+    await page.getByRole('textbox', {name: 'Buscar'}).fill(leader.code)
+    await page.getByRole('button', {name: `Abrir ${leader.code}`}).click()
+    await expect(page.getByRole('heading', {name: personLabel(leader), level: 2})).toBeVisible()
+
+    const qualifications = page.getByRole('table', {name: `Cualificaciones de ${leader.code}`})
+    await expect(qualifications.getByRole('row').filter({hasText: 'RR-OPERATOR'})).toContainText('No caduca')
+
+    await page.getByRole('button', {name: 'Añadir cualificación'}).click()
+    const adding = page.getByRole('dialog', {name: `Nueva cualificación de ${personLabel(leader)}`})
+    await chooseOption(page, adding, 'Tipo', 'LIC-B · Driving licence B')
+    await adding.getByRole('textbox', {name: 'Caduca'}).fill('31/12/2035')
+    await adding.getByRole('button', {name: 'Guardar'}).click()
+    await expect(page.getByText(`Guardada LIC-B de ${leader.code}`)).toBeVisible()
+    await expect(qualifications.getByRole('row').filter({hasText: 'LIC-B'})).toContainText('Vigente')
 })

@@ -154,6 +154,12 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
   - Mantenimiento: los equipos que llegan de `mto-resources` se leen, el turno elige su dotación y sus
     vehículos allí y, al cerrarlo, dice dónde queda cada vehículo; generar las tareas de un EP grande
     sigue en el servicio si tarda (`Prefer: respond-async`) y el diálogo la sigue hasta su resultado.
+  - Cualificaciones y caducidades: la ficha de una persona (`recursos/personal/:personId`) con sus
+    cualificaciones, el catálogo de tipos de cualificación (`recursos/cualificaciones`), los
+    instrumentos con su calibración (`recursos/instrumentos`), los documentos de cada vehículo y la
+    habilitación que un modelo exige a su conductor; cada caducidad dice si está caducada, si caduca en
+    30 días o menos o si está vigente. El turno elige también sus instrumentos, y la ficha y el parte
+    los enseñan; lo caducado no entra en el turno, y eso lo dice `mto-maintenance`.
 
 | Fase | Contenido | Equivale en el backoffice |
 |---|---|---|
@@ -166,7 +172,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
 | F8 | Convivencia: las dos aplicaciones en la plataforma, el salto entre ellas y el backoffice al día | — |
 | F9 | Las diferencias con el backoffice, cerradas, y el e2e de las dos aplicaciones en el CI | — |
-| F10 | Recursos (personal, organigrama, flota y tablero) y mantenimiento adaptado a ellos | F10 |
+| F10 | Recursos (personal, organigrama, flota y tablero) y mantenimiento adaptado a ellos; cualificaciones, documentos, instrumentos y sus caducidades | F10 |
 
 ## Probar en local
 
@@ -393,10 +399,19 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     dónde está» ofrece solo lo que admite su movilidad.
   - El **Tablero de la flota** ordena los vehículos por vía y kp; uno remolcado está donde su portador.
     «Actualizar» lo vuelve a pedir.
+  - En **Personal**, «Abrir» (o un doble clic) lleva a la ficha de una persona, con su pestaña
+    **Cualificaciones**: cada una dice si está caducada, si caduca en 30 días o menos o si está vigente, y
+    «Añadir cualificación» ofrece los tipos que aún no tiene. Los tipos se mantienen en **Tipos de
+    cualificación** (un permiso de conducir dice cuál), y el editor de un modelo elige la **habilitación
+    del conductor**. La ficha de un vehículo tiene su pestaña **Documentos** (ITV, seguro…) y
+    **Instrumentos** lista las pértigas, los detectores y los equipos de medida con su calibración,
+    también los que caducan antes de una fecha.
   - En mantenimiento, con `mantenimiento.responsable`: un equipo de `mto-resources` no se modifica en
     **Equipos** (su fila lleva al organigrama); un **turno** de ese equipo copia su jefe, sus linemen y
-    su vehículo, y «Cerrar» pregunta dónde queda cada vehículo, que después sale en su ficha en
-    Recursos como dejado por el turno.
+    su vehículo, elige sus instrumentos, y «Cerrar» pregunta dónde queda cada vehículo, que después sale
+    en su ficha en Recursos como dejado por el turno. Para iniciarlo, nada de la dotación, de sus
+    vehículos ni de sus instrumentos puede estar caducado, y cada vehículo autopropulsado que exige una
+    habilitación necesita a alguien distinto de la dotación que la tenga.
 - **Notificaciones** (con `usuarios.responsable`, cuyo perfil recibe los avisos de las cuentas y lee el
   registro y los accesos; `notificacion.lector` lee la bandeja y el registro, y `notificacion.auditor`,
   además, los accesos):

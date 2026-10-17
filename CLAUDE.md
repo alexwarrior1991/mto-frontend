@@ -137,15 +137,21 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   su `payload` y los accesos; `searchActivity` rechaza antes de llamar la categoría `ACCESS`, y
   `searchAccess`, una IP que no es un literal, `isIpLiteral`) y `notification/links.js`
   (`notificationTarget`: a dónde lleva el enlace de una notificación).
-  `resources/` es `mto-resources`: `resources/values.js` (`resourcesPath`, `personLabel`, `unitLabel`),
+  `resources/` es `mto-resources`: `resources/values.js` (`resourcesPath`, `personLabel`, `unitLabel`, y
+  cómo está una caducidad, `expiryState`, con `EXPIRY_WARNING_DAYS`, 30),
   `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
   pueden colgar, `headCategories`, `LINEMAN_CATEGORIES` y la regla de 2 a 6, la movilidad con sus
-  categorías, los tipos de ubicación que admite cada una, `recordableKinds`, todos tolerantes),
+  categorías, los tipos de ubicación que admite cada una, `recordableKinds`, y `QUALIFICATION_KIND`,
+  `VEHICLE_DOCUMENT_KIND` e `INSTRUMENT_KIND`, todos tolerantes),
   `resources/people.js`, `resources/units.js` (el árbol, una unidad, sus hijas y sus linemen,
   `newUnitRequest` y `unitPatch`, con el vehículo por defecto de un equipo), `resources/fleet.js` (modelos
-  con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y sitios de aparcamiento) y `resources/vehicles.js`
-  (los vehículos, sus ubicaciones, `locationFields` y `locationRequest`, y el tablero, `fleetPositions`,
-  por vía y kp con el vehículo para desempatar, y `whereOf`).
+  con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y la habilitación de su conductor, y sitios de
+  aparcamiento), `resources/vehicles.js` (los vehículos, sus ubicaciones, `locationFields` y
+  `locationRequest`, el tablero, `fleetPositions`, por vía y kp con el vehículo para desempatar, y
+  `whereOf`, y sus documentos con caducidad, `offeredDocumentKinds`), `resources/qualifications.js` (el
+  catálogo de tipos de cualificación, `takesDrivingLicence`, y las de cada persona,
+  `offeredQualificationTypes`) y `resources/instruments.js` (los instrumentos con su calibración, y su
+  historial).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -278,16 +284,20 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `payload` clave a clave).
 
   `resources/` es el port de `ui/resources`:
-  - `PeoplePage` (con `?unitId=`) y `PersonEditorModal`;
+  - `PeoplePage` (con `?unitId=`) y `PersonEditorModal`; `PersonDetailPage` (la ficha, con `key` por id)
+    con `PersonQualificationsPanel` y `QualificationModal`;
+  - `QualificationTypesPage` y `QualificationTypeEditorModal` (el catálogo de tipos de cualificación), e
+    `InstrumentsPage` e `InstrumentEditorModal`; `ExpiryBadge`, cómo está una caducidad en una celda;
   - `OrganizationPage` (el árbol en `TreeTable`) y `UnitDetailPage` (la ficha, con `key` por id), con
     `UnitEditorModal`, `ChildUnitsPanel`, `TeamMembersPanel`, `TeamMembersModal` y `MemberModals`;
   - `VehicleTypesPage` y `VehicleTypeEditorModal` (por secciones según la movilidad),
     `ParkingSitesPage` y `ParkingSiteEditorModal`;
-  - `VehiclesPage`, `VehicleEditorModal`, `VehicleDetailPage` con `VehicleLocationsPanel`, `LocationModal`
-    y `FleetBoardPage`, el tablero;
-  - `ResourcesPickers.jsx` (`PersonSelect`, `PeopleMultiSelect` y `VehiclesMultiSelect`, que usan también
-    los turnos de mantenimiento), `useResources.js` (las claves `['resources', …]`), `resourcesForms.js`,
-    `resourcesTexts.js` y `resourcesRoutes.js`.
+  - `VehiclesPage`, `VehicleEditorModal`, `VehicleDetailPage` con `VehicleLocationsPanel`, `LocationModal`,
+    `VehicleDocumentsPanel` y `VehicleDocumentModal`, y `FleetBoardPage`, el tablero;
+  - `ResourcesPickers.jsx` (`PersonSelect`, `PeopleMultiSelect`, `VehiclesMultiSelect` e
+    `InstrumentsMultiSelect`, que usan también los turnos de mantenimiento), `useResources.js` (las claves
+    `['resources', …]`), `resourcesForms.js`, `resourcesTexts.js` (también `expiryText`) y
+    `resourcesRoutes.js`.
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -337,7 +347,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **Los errores se tipan en `api/errors.js`**, no en las pantallas, y se dicen en
   `ui/errors/messages.js` con la tabla de `UiErrors` del backoffice (`CON-001` pide recargar y
   `BUS-002`, `USR-409` y el código repetido de un catálogo del almacén, `MAT-409`, `WH-409`,
-  `SUP-409`, `PRJ-409` o `ASM-409`, no; los 409 de estado de mantenimiento no piden recargar; un 422
+  `SUP-409`, `PRJ-409` o `ASM-409`, o de recursos, `QTY-409` o `INT-409`, no; tampoco `QUA-001` ni
+  `VDO-409`, lo que una persona o un vehículo ya tienen; los 409 de estado de mantenimiento no piden recargar; un 422
   sin errores por campo es una regla de negocio; `NTF-404` y `ACT-404` dicen que esa notificación o
   esa línea ya no existen). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
@@ -531,14 +542,36 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   versión leída, nada se borra (`DELETE` desactiva o retira, con `resources-delete`) y reactivar es un
   `PATCH active=true`. El tablero se lee por vía y kp (`whereOf`: un remolcado está donde su portador)
   y se vuelve a pedir con «Actualizar», sin sondeo.
+- **Las cualificaciones y las caducidades son de `mto-resources`, y lo caducado lo decide el
+  servicio.** Una persona tiene cada tipo de cualificación una vez y un vehículo cada tipo de documento:
+  el alta solo ofrece los tipos activos que aún no tiene (`offeredQualificationTypes`,
+  `offeredDocumentKinds`), el tipo no cambia después y renovar es cambiar su caducidad; lo demás es el 409
+  `QUA-001` o `VDO-409`, con el diálogo abierto. Cómo está una caducidad (`expiryState`, `expiryText`):
+  «Caducada» («Caducado» un documento), «Caduca en N días» si faltan 30 o menos, «Vigente», o «No caduca»
+  / «Sin calibración» sin fecha; si la respuesta trae `expired` (o `calibrationExpired`), manda ella. Lo
+  evidente se comprueba antes de llamar: una caducidad no es anterior a la expedición o a la
+  calibración, un documento siempre la lleva y el permiso de conducir de un tipo solo existe (y se
+  exige) en uno de clase `DRIVING_LICENCE`; pasar a otra clase lo vacía. Las cualificaciones se
+  escriben con `resources-write` y los documentos y los instrumentos con `resources-fleet-write`;
+  quitarlas, quitarlos y retirar piden `resources-delete` y confirmación. Los tipos de cualificación son
+  un catálogo sin historial; los instrumentos tienen el suyo. La lista de Personal abre la ficha de una
+  persona (doble clic o «Abrir»), que es adonde lleva el aviso de una cualificación que caduca; el de un
+  documento lleva a la ficha del vehículo y el de una calibración, a los instrumentos. Un modelo dice la
+  habilitación que exige a su conductor: en el alta, vacía no viaja y el servicio pone la de su
+  movilidad y su permiso; al modificar, vaciarla viaja a `null`; la leída se ve aunque se haya retirado.
 - **Un equipo de mantenimiento que llega de `mto-resources` se lee** (`isSynchronizedTeam`): su fila
   lleva a su unidad y a su vehículo, no a «Modificar», que sería 409 `TEA-001`.
-- **La dotación y los vehículos de un turno son de `mto-resources`.** Con `resources-read` se eligen
-  allí (el jefe, cualquiera menos un operario; el supervisor, de supervisor para arriba; los linemen,
-  operarios o jefes de equipo; los vehículos, disponibles); en el alta lo vacío no viaja y lo copia el
-  servicio del equipo; al modificar, linemen y vehículos son conjuntos y quitarlos todos viaja a `null`.
-  Sin `resources-read` se leen y no viajan. Lo demás es el 409 `SHF-001` del servicio, y
-  `CRW-404`/`FLT-404` lo que aún no ha llegado por evento. Cerrar dice dónde queda cada vehículo (un
+- **La dotación, los vehículos y los instrumentos de un turno son de `mto-resources`.** Con
+  `resources-read` se eligen allí (el jefe, cualquiera menos un operario; el supervisor, de supervisor
+  para arriba; los linemen, operarios o jefes de equipo; los vehículos, disponibles; los instrumentos,
+  activos, y uno con la calibración caducada hoy se ofrece marcado, porque cuenta la fecha del turno);
+  en el alta lo vacío no viaja y la dotación y los vehículos los copia el servicio del equipo; al
+  modificar, linemen, vehículos e instrumentos son conjuntos y quitarlos todos viaja a `null`. Sin
+  `resources-read` se leen (`crewText`) y no viajan. Lo demás es el 409 `SHF-001` del servicio (también
+  nada caducado a la fecha del turno y, al iniciar, un conductor habilitado distinto por vehículo
+  autopropulsado), y `CRW-404`/`FLT-404`/`MSI-404` lo que aún no ha llegado por evento. La ficha enseña
+  los instrumentos con su calibración, y el parte, los suyos (`instruments`, o los del turno que trae).
+  Cerrar dice dónde queda cada vehículo (un
   sitio que alcanza por su movilidad, una vía y su kp, o un texto): solo viaja lo rellenado
   (`parkingsRequest`), lo evidente se dice en su fila antes de llamar (`parkingRowError`) y un error del
   servicio sobre `parkings[i]` cae en la fila de la que salió.
@@ -674,6 +707,8 @@ el esquema de su vía con un perfil y su ménsula en las dos aplicaciones. `reso
 equipo con la regla de 2 a 6, un modelo bivial 9A y un vehículo puesto en vía que sale en el tablero, y
 lleva un equipo de `mto-resources` a un turno de mantenimiento que, al cerrarse, deja su vehículo
 aparcado como del turno en `mto-resources` (`expect.poll`, porque llega por evento); usa códigos E2E,
-nunca `A` ni `B`, y lo desactiva o retira todo al acabar. El CI construye además la imagen y la prueba de humo
+nunca `A` ni `B`, y lo desactiva o retira todo al acabar. El jefe de ese turno lleva la habilitación
+`RR-OPERATOR` (la que exige su vehículo bivial para iniciarlo), y su ficha enseña sus cualificaciones y
+da de alta otra en pantalla. El CI construye además la imagen y la prueba de humo
 (`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no
 arranca).
