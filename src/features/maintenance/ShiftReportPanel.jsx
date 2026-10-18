@@ -5,6 +5,7 @@ import {useNavigate} from 'react-router'
 import {INSPECTION_KIND, INSPECTION_RESULT, REPORT_FORMATS, TASK_STATUS} from '../../api/maintenance/enums.js'
 import {downloadShiftReport} from '../../api/maintenance/reports.js'
 import {assetLabel} from '../../api/maintenance/values.js'
+import {INSTRUMENT_KIND} from '../../api/resources/enums.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {formatDate} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
@@ -14,9 +15,9 @@ import {useShiftReport} from './useMaintenance.js'
 
 /**
  * El parte diario del turno como lo compone el servicio (el port de ShiftReportPanel): sus recuentos,
- * una fila por tarea trabajada (un perfil o un aislador), las inspecciones registradas en el turno, y
- * el mismo parte en Excel o PDF, pedido con el token de la persona. Aquí no se cuenta nada: el número
- * de inspecciones también es del servicio.
+ * una fila por tarea trabajada (un perfil o un aislador), las inspecciones registradas en el turno, los
+ * instrumentos que llevó con su calibración, y el mismo parte en Excel o PDF, pedido con el token de la
+ * persona. Aquí no se cuenta nada: el número de inspecciones también es del servicio.
  */
 export default function ShiftReportPanel({shift}) {
     const navigate = useNavigate()
@@ -46,6 +47,12 @@ export default function ShiftReportPanel({shift}) {
         {key: 'findings', label: 'Observado', render: (row) => row.detectedDefects ?? ''},
         {key: 'opened', label: 'Generó', render: (row) => [row.generatedDefectCode, row.generatedOrderCode].filter(Boolean).join(', ')},
     ]
+    const instrumentColumns = [
+        {key: 'code', label: 'Código', render: (row) => row.code},
+        {key: 'name', label: 'Nombre', render: (row) => row.name ?? ''},
+        {key: 'kind', label: 'Tipo', render: (row) => INSTRUMENT_KIND.label(row.kind)},
+        {key: 'calibration', label: 'Calibración hasta', render: (row) => formatDate(row.calibrationExpiresOn)},
+    ]
 
     return (
         <Stack>
@@ -67,8 +74,16 @@ export default function ShiftReportPanel({shift}) {
                        emptyText={report.isError ? 'No se ha podido leer el parte.' : 'No se registró ninguna inspección en el turno.'}
                        rowActions={(row) => <RowActionButton label={`Abrir ${row.code}`} tooltip="Abrir la inspección" icon={IconExternalLink}
                                                              onClick={() => navigate(inspectionPath(row.inspectionId))}/>}/>
+            <Text fw={500}>Instrumentos</Text>
+            <DataTable ariaLabel={`Instrumentos de ${shift.code}`} columns={instrumentColumns} rows={instrumentsOf(data)} loading={report.isPending}
+                       emptyText={report.isError ? 'No se ha podido leer el parte.' : 'El turno no llevó instrumentos.'}/>
         </Stack>
     )
+}
+
+/** Los instrumentos del parte: los suyos, o los del turno que trae (un servicio anterior no trae ninguno). */
+function instrumentsOf(report) {
+    return report?.instruments ?? report?.shift?.instruments ?? []
 }
 
 function summary(report) {

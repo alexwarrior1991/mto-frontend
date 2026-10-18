@@ -4,6 +4,7 @@ import ExecutionPackagesPage from '../features/infrastructure/ExecutionPackagesP
 import ProfilesPage from '../features/infrastructure/ProfilesPage.jsx'
 import SectionInsulatorsPage from '../features/infrastructure/SectionInsulatorsPage.jsx'
 import StationsPage from '../features/infrastructure/StationsPage.jsx'
+import TrackAccessPointsPage from '../features/infrastructure/TrackAccessPointsPage.jsx'
 import TracksPage from '../features/infrastructure/TracksPage.jsx'
 import JobsPage from '../features/jobs/JobsPage.jsx'
 import AssetsPage from '../features/maintenance/AssetsPage.jsx'
@@ -23,9 +24,12 @@ import AccessPage from '../features/notifications/AccessPage.jsx'
 import ActivityPage from '../features/notifications/ActivityPage.jsx'
 import NotificationsPage from '../features/notifications/NotificationsPage.jsx'
 import FleetBoardPage from '../features/resources/FleetBoardPage.jsx'
+import InstrumentsPage from '../features/resources/InstrumentsPage.jsx'
 import OrganizationPage from '../features/resources/OrganizationPage.jsx'
 import ParkingSitesPage from '../features/resources/ParkingSitesPage.jsx'
 import PeoplePage from '../features/resources/PeoplePage.jsx'
+import PersonDetailPage from '../features/resources/PersonDetailPage.jsx'
+import QualificationTypesPage from '../features/resources/QualificationTypesPage.jsx'
 import UnitDetailPage from '../features/resources/UnitDetailPage.jsx'
 import VehicleDetailPage from '../features/resources/VehicleDetailPage.jsx'
 import VehiclesPage from '../features/resources/VehiclesPage.jsx'
@@ -57,6 +61,7 @@ export const PAGES = Object.freeze({
     profiles: ProfilesPage,
     disconnectors: DisconnectorsPage,
     sectionInsulators: SectionInsulatorsPage,
+    trackAccessPoints: TrackAccessPointsPage,
     jobs: JobsPage,
     users: UsersPage,
     userProfiles: UserProfilesPage,
@@ -84,6 +89,7 @@ export const PAGES = Object.freeze({
     maintenanceTaskTypes: TaskTypesPage,
     maintenanceTemplates: InspectionTemplatesPage,
     resourcesPeople: PeoplePage,
+    resourcesPerson: PersonDetailPage,
     resourcesOrganization: OrganizationPage,
     resourcesUnit: UnitDetailPage,
     resourcesVehicles: VehiclesPage,
@@ -91,6 +97,8 @@ export const PAGES = Object.freeze({
     resourcesBoard: FleetBoardPage,
     resourcesVehicleTypes: VehicleTypesPage,
     resourcesParkingSites: ParkingSitesPage,
+    resourcesQualificationTypes: QualificationTypesPage,
+    resourcesInstruments: InstrumentsPage,
     notifications: NotificationsPage,
     activity: ActivityPage,
     access: AccessPage,

@@ -4,9 +4,9 @@ import {prefixOf} from '../services.js'
 
 /**
  * Los maestros de infraestructura de mto-configuration: paquetes de ejecución, estaciones, vías,
- * perfiles, seccionadores y aisladores de sección. Es el port de MasterClient, MasterFilters,
- * TrackClient.schematic y BusinessEntityClient del backoffice. Los seis comparten la familia de
- * endpoints de CRUDController, así que van parametrizados por recurso.
+ * perfiles, seccionadores, aisladores de sección y puntos de acceso a la vía. Es el port de
+ * MasterClient, MasterFilters, TrackClient.schematic y BusinessEntityClient del backoffice. Los siete
+ * comparten la familia de endpoints de CRUDController, así que van parametrizados por recurso.
  *
  * Permisos que aplica el servicio: leer pide config-read; crear y modificar, config-write; borrar,
  * config-delete.
@@ -22,6 +22,9 @@ import {prefixOf} from '../services.js'
  * - Una referencia a catálogo se resuelve por su código. En un perfil, null es «no la toques» y {}
  *   (sin código) la quita.
  * - Borrar es lógico: la fila desaparece de las listas y lo que cuelga de ella se queda.
+ * - Las cifras de un aislador y de un punto de acceso (su KP, sus pesos, sus coordenadas) viajan como
+ *   números JSON; las de un perfil y el KP propio de un seccionador, como texto (README_API.md §4
+ *   quinquies: el texto lo obligaba la caché de esos maestros).
  */
 
 /** Las colecciones de hijos de cada maestro (README_API.md §4: «Dónde aplica»). */
@@ -32,6 +35,7 @@ export const MASTER_CHILDREN = Object.freeze({
     profiles: Object.freeze(['cantilevers']),
     disconnectors: Object.freeze([]),
     'section-insulators': Object.freeze(['switches']),
+    'track-access-points': Object.freeze([]),
 })
 
 /** Quitar una referencia opcional a catálogo de un perfil: sin código, porque null no la toca. */

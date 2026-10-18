@@ -44,6 +44,35 @@ export function optionalNumber({integer = false, signed = false} = {}) {
     }
 }
 
+/**
+ * Un número opcional con la columna del servicio (numeric(p, s)): como mucho integers cifras enteras y
+ * decimals decimales, contados como se escribieron; sin signo si la columna no admite negativos y, con
+ * limit, entre -limit y limit (las coordenadas). Lo que no es un número no viaja: Number('5,4') es NaN,
+ * que JSON convierte en null y borraría lo guardado. Valen también +5, 5. y .5.
+ */
+export function optionalDecimal({integers, decimals, signed = false, limit = null}) {
+    return (value) => {
+        const text = String(value ?? '').trim()
+        if (!text) {
+            return null
+        }
+        const match = /^([-+]?)(\d*)(?:\.(\d*))?$/.exec(text)
+        if (!match || (match[2] === '' && !match[3])) {
+            return 'Un número con punto decimal, como 12.5'
+        }
+        if (match[1] === '-' && !signed) {
+            return 'No puede ser negativo'
+        }
+        if ((match[3] ?? '').length > decimals) {
+            return `Como mucho ${decimals} decimales`
+        }
+        if (match[2].replace(/^0+/, '').length > integers) {
+            return `Como mucho ${integers} cifras enteras`
+        }
+        return limit !== null && Math.abs(Number(text)) > limit ? `Entre -${limit} y ${limit}` : null
+    }
+}
+
 /** De un número del DTO al campo de texto. */
 export function toText(value) {
     return value === null || value === undefined ? '' : String(value)

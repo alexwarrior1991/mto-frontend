@@ -15,6 +15,7 @@ import {formatDate, formatDateTime} from '../../ui/format.js'
 import LazyTabs from '../../ui/LazyTabs.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
+import {shiftInstrumentText} from '../resources/resourcesTexts.js'
 import {useParkingSites} from '../resources/useResources.js'
 import AssignTasksModal from './AssignTasksModal.jsx'
 import {SHIFTS_PATH} from './maintenanceRoutes.js'
@@ -51,10 +52,11 @@ function vehicleText(vehicle, siteName, trackName) {
 
 /**
  * La cabecera (equipo, posesión, vías, ventana prevista y real, corte de tensión, minutos netos,
- * seccionadores abiertos, la dotación y los vehículos con dónde quedó cada uno), los botones que su
- * estado admite y las pestañas de tareas, perfiles y el parte, que piden sus datos la primera vez que se
- * abren. Modificar, asignar tareas, iniciar, cerrar y cancelar piden maintenance-write; solo se ofrece lo
- * que el estado admite, pero decide el servicio. Los sitios se nombran con resources-read.
+ * seccionadores abiertos, la dotación, los vehículos con dónde quedó cada uno y los instrumentos con su
+ * calibración), los botones que su estado admite y las pestañas de tareas, perfiles y el parte, que
+ * piden sus datos la primera vez que se abren. Modificar, asignar tareas, iniciar, cerrar y cancelar
+ * piden maintenance-write; solo se ofrece lo que el estado admite, pero decide el servicio. Los sitios se
+ * nombran con resources-read.
  */
 function ShiftDetail({shiftId}) {
     const session = useSession()
@@ -138,6 +140,11 @@ function ShiftDetail({shiftId}) {
                 {(current.vehicles ?? []).length > 0 && (
                     <Text size="sm" aria-label="Vehículos del turno">
                         {`Vehículos: ${current.vehicles.map((vehicle) => vehicleText(vehicle, siteName, names.trackName)).join(', ')}`}
+                    </Text>
+                )}
+                {(current.instruments ?? []).length > 0 && (
+                    <Text size="sm" aria-label="Instrumentos del turno">
+                        {`Instrumentos: ${current.instruments.map(shiftInstrumentText).join(', ')}`}
                     </Text>
                 )}
                 {current.personnel?.trim() && <Text size="sm">{`Personal: ${current.personnel}`}</Text>}

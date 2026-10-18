@@ -1,6 +1,6 @@
 import {Badge, Button, CloseButton, Group, MultiSelect, Stack, Text, TextInput, Title} from '@mantine/core'
 import {useDebouncedValue} from '@mantine/hooks'
-import {IconBan, IconCircleCheck, IconHistory, IconPencil, IconPlus} from '@tabler/icons-react'
+import {IconArrowRight, IconBan, IconCircleCheck, IconHistory, IconPencil, IconPlus} from '@tabler/icons-react'
 import {useState} from 'react'
 import {useNavigate, useSearchParams} from 'react-router'
 import {PERSON_CATEGORY} from '../../api/resources/enums.js'
@@ -16,8 +16,8 @@ import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import {shortId} from '../maintenance/useMaintenanceNames.js'
 import PersonEditorModal from './PersonEditorModal.jsx'
-import {PEOPLE_PATH} from './resourcesRoutes.js'
-import {countText, describePerson, employerText, personState} from './resourcesTexts.js'
+import {PEOPLE_PATH, personPath} from './resourcesRoutes.js'
+import {countText, DEACTIVATE_PERSON_TEXT, describePerson, employerText, personState} from './resourcesTexts.js'
 import {RESOURCES_PAGE_SIZE, usePeopleList, usePersonAction, useUnit} from './useResources.js'
 
 const SEARCH_DELAY_MS = 300
@@ -29,8 +29,8 @@ const SEARCH_DELAY_MS = 300
  * - No se borra nunca: desactivar es un DELETE (resources-delete) y reactivar, un PATCH active=true
  *   (resources-write). Quien dirige una unidad no se desactiva hasta que tenga otro jefe, y un lineman
  *   sale de su equipo hoy salvo que lo dejara con menos de 2: lo dice el servicio (409 UNI-001).
- * - El doble clic abre el editor si se puede modificar; un clic no abre nada. La columna de acciones
- *   existe siempre: el historial es lectura.
+ * - Una fila abre la ficha de la persona (con sus cualificaciones) con doble clic o con su botón; un clic
+ *   no abre nada. La columna de acciones existe siempre: abrir y el historial son lectura.
  * - Con ?unitId= (desde la ficha de una unidad) enseña solo quien la dirige y sus linemen de ahora; un
  *   id que no es un UUID no filtra. El nombre de la unidad se pide a su servicio, y si no se puede
  *   leer se enseña el id. «Quitar» vuelve a la lista entera.
@@ -72,6 +72,7 @@ export default function PeoplePage({title}) {
     }
     const reactivate = (person) => acting.mutate({action: 'reactivate', person},
         {onSuccess: () => notifySuccess(`Reactivada ${personLabel(person)}`)})
+    const open = (person) => navigate(personPath(person.id))
 
     const columns = [
         {key: 'code', label: 'Código', sortField: 'code', render: (person) => person.code},
@@ -86,6 +87,7 @@ export default function PeoplePage({title}) {
 
     const actions = (person) => (
         <>
+            <RowActionButton label={`Abrir ${person.code}`} tooltip="Abrir" icon={IconArrowRight} onClick={() => open(person)}/>
             <RowActionButton label={`Historial de ${person.code}`} tooltip="Historial" icon={IconHistory} onClick={() => setHistory(person)}/>
             {canWrite && (
                 <RowActionButton label={`Modificar ${person.code}`} tooltip="Modificar" icon={IconPencil} onClick={() => setEditing({person})}/>
@@ -125,7 +127,7 @@ export default function PeoplePage({title}) {
                              emptyText={emptyText(list, filtering)} sort={sort} onSortChange={setSort} page={page}
                              pageSize={RESOURCES_PAGE_SIZE} totalElements={list.data?.totalElements ?? 0}
                              onPageChange={(next) => setPaging({key: listKey, page: next})} rowActions={actions}
-                             onRowDoubleClick={canWrite ? (person) => setEditing({person}) : null} minWidth={1100}/>
+                             onRowDoubleClick={open} minWidth={1100}/>
             {editing && <PersonEditorModal person={editing.person} onClose={() => setEditing(null)}/>}
             {history && (
                 <RevisionsModal label={history.code} path={personRevisionsPath(history.id)} describe={describePerson}
@@ -134,8 +136,7 @@ export default function PeoplePage({title}) {
             {deactivating && (
                 <ConfirmModal title={`Desactivar ${personLabel(deactivating)}`} confirmLabel="Desactivar" cancelLabel="Volver"
                               loading={acting.isPending} onConfirm={deactivate} onClose={() => setDeactivating(null)}>
-                    {'No se borra: deja de poder entrar en equipos y turnos nuevos. Si es lineman de un equipo, sale de él hoy, salvo que '
-                        + 'lo dejara con menos de 2. Quien dirige una unidad necesita antes otro jefe. Se puede reactivar.'}
+                    {DEACTIVATE_PERSON_TEXT}
                 </ConfirmModal>
             )}
         </Stack>

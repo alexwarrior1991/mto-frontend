@@ -10,14 +10,18 @@ import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {DATE_TIME_FORMAT, parseTypedDateTime} from '../../ui/typedDates.js'
 import {ReferenceSelect} from '../maintenance/MaintenancePickers.jsx'
 import {optionalCoordinate, optionalFleetKp} from './resourcesForms.js'
-import {resourcesKey, useReachableSites, useRecordLocation} from './useResources.js'
+import {accessPointLabel} from './resourcesTexts.js'
+import {resourcesKey, useReachableSites, useRecordLocation, useTrackAccessPoints} from './useResources.js'
 
 /**
  * Registrar dónde está un vehículo, a mano (el port de VehicleLocationDialog, resources-location-write).
  * Solo se ofrecen los tipos que admite su movilidad y los campos de cada tipo; en uno de solo vía, los
- * sitios con acceso por vía, y en uno de solo carretera, los que tienen acceso por carretera. Lo
- * evidente se comprueba antes de llamar; lo demás lo dice el servicio (409 VEH-001) con el diálogo
- * abierto.
+ * sitios con acceso por vía, y en uno de solo carretera, los que tienen acceso por carretera. Con una
+ * vía elegida se ofrece, opcional, el punto de acceso por el que entró, entre los activos de esa vía que
+ * conoce mto-resources (el maestro de mto-configuration); cambiar de vía lo vacía. Lo evidente se
+ * comprueba antes de llamar; lo demás lo dice el servicio con el diálogo abierto: 409 VEH-001 (también
+ * un acceso que no admite biviales, que no es de esa vía, que no es preparado para un modelo que lo
+ * exige o que no aguanta su peso) y 404 TAP-404 (el punto ya no está o aún no ha llegado a Recursos).
  *
  * @param {object} names los nombres de mto-configuration, con las vías
  */
@@ -29,8 +33,8 @@ export default function LocationModal({vehicle, names, onClose}) {
     const form = useForm({
         mode: 'controlled',
         initialValues: {
-            kind: 'PARKED', parkingSiteId: null, executionPackageId: null, trackId: null, kp: '', accessPoint: '', latitude: '', longitude: '',
-            description: '', carrierVehicleId: null, attachment: null, observedAt: null,
+            kind: 'PARKED', parkingSiteId: null, executionPackageId: null, trackId: null, kp: '', accessPointId: null, accessPoint: '', latitude: '',
+            longitude: '', description: '', carrierVehicleId: null, attachment: null, observedAt: null,
         },
         validate: {
             parkingSiteId: (value, values) => {
@@ -58,6 +62,17 @@ export default function LocationModal({vehicle, names, onClose}) {
     })
     const shown = locationFields(form.values.kind, mobility, {readsConfiguration: reads})
     const packageId = form.values.executionPackageId === null ? null : Number(form.values.executionPackageId)
+    const trackId = shown.trackId && form.values.trackId !== null ? Number(form.values.trackId) : null
+    const accessPoints = useTrackAccessPoints(trackId)
+    const accessPointOptions = (accessPoints.data ?? []).map((point) => ({value: String(point.id), label: accessPointLabel(point)}))
+    // El punto de acceso es uno de los de la vía: otra vía lo vacía.
+    const trackInput = form.getInputProps('trackId')
+    const chooseTrack = (value) => {
+        trackInput.onChange(value)
+        if (value !== form.values.trackId) {
+            form.setFieldValue('accessPointId', null)
+        }
+    }
     const siteOptions = (sites.data?.content ?? []).map((site) => ({value: site.id, label: unitLabel(site)}))
     const searchCarriers = async (text, {signal}) => {
         const page = await searchVehicles({search: text, active: true, size: 20}, {signal})
@@ -94,11 +109,20 @@ export default function LocationModal({vehicle, names, onClose}) {
                         {shown.trackId && (
                             <ReferenceSelect label="Vía" withAsterisk={form.values.kind === 'ON_TRACK'}
                                              options={packageId === null ? names.trackOptions : names.trackOptionsIn(packageId)}
-                                             {...form.getInputProps('trackId')}/>
+                                             {...trackInput} onChange={chooseTrack}/>
                         )}
                         {shown.kp && <TextInput label="KP" {...form.getInputProps('kp')}/>}
+                        {shown.accessPointId && trackId !== null && (
+                            <Select label="Punto de acceso" clearable searchable data={accessPointOptions}
+                                    nothingFoundMessage="Nada coincide"
+                                    placeholder={accessPoints.isSuccess && accessPointOptions.length === 0 ? 'La vía no tiene ninguno' : undefined}
+                                    description={accessPoints.isError ? 'No se han podido leer los puntos de acceso de la vía'
+                                        : 'Opcional: por dónde entró, entre los de la vía'}
+                                    {...form.getInputProps('accessPointId')}/>
+                        )}
                         {shown.accessPoint && (
-                            <TextInput label="Punto de acceso" maxLength={150} description="Dónde encarriló o desencarriló"
+                            <TextInput label="Acceso (texto)" maxLength={150}
+                                       description="Dónde encarriló o desencarriló, si no es un punto de acceso de la lista"
                                        {...form.getInputProps('accessPoint')}/>
                         )}
                         {shown.coordinates && <TextInput label="Latitud" {...form.getInputProps('latitude')}/>}

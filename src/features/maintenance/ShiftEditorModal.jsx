@@ -16,7 +16,7 @@ import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {DATE_FORMAT, DATE_TIME_FORMAT, parseTypedDate, parseTypedDateTime} from '../../ui/typedDates.js'
-import {PeopleMultiSelect, PersonSelect, VehiclesMultiSelect} from '../resources/ResourcesPickers.jsx'
+import {InstrumentsMultiSelect, PeopleMultiSelect, PersonSelect, VehiclesMultiSelect} from '../resources/ResourcesPickers.jsx'
 import {saveErrors} from './maintenanceErrors.js'
 import {dateTimeAfter, kpAfter, maxLength, optionalKp, required} from './maintenanceForms.js'
 import {AssetsMultiPicker, ReferenceSelect, ReferencesMultiSelect, TeamSelect} from './MaintenancePickers.jsx'
@@ -35,12 +35,14 @@ const MEASUREMENT_LENGTH = 500
  * seccionadores enteros si cambiaron, y la versión leída. Que una vía desviada pida posesión total lo
  * dice el servicio al trabajar sus tareas.
  *
- * La dotación y los vehículos son de mto-resources y se buscan allí con resources-read: el jefe,
- * cualquiera menos un operario; el supervisor, de supervisor para arriba; los linemen, operarios o
- * jefes de equipo; los vehículos, activos y disponibles. En el alta, lo que se deje vacío lo copia el
- * servicio del equipo si es de mto-resources. Las demás reglas (de 2 a 6 linemen para iniciar, las
- * plazas, el remolque, una persona o un vehículo en otro turno del día) las dice el servicio con 409
- * SHF-001, con el diálogo abierto. Sin resources-read la dotación se lee y no viaja.
+ * La dotación, los vehículos y los instrumentos son de mto-resources y se buscan allí con
+ * resources-read: el jefe, cualquiera menos un operario; el supervisor, de supervisor para arriba; los
+ * linemen, operarios o jefes de equipo; los vehículos, activos y disponibles; los instrumentos, activos.
+ * En el alta, la dotación y los vehículos que se dejen vacíos los copia el servicio del equipo si es de
+ * mto-resources. Las demás reglas (de 2 a 6 linemen para iniciar, las plazas, el remolque, una persona o
+ * un vehículo en otro turno del día, nada caducado a la fecha del turno, un conductor habilitado
+ * distinto por vehículo al iniciar) las dice el servicio con 409 SHF-001, con el diálogo abierto; un
+ * instrumento que aún no le ha llegado es un 404 MSI-404. Sin resources-read se leen y no viajan.
  *
  * Las propiedades del formulario se llaman como los campos de la petición, para que los errores del
  * servicio caigan en su campo.
@@ -129,6 +131,9 @@ export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
                             <VehiclesMultiSelect label="Vehículos" current={shift?.vehicles ?? []}
                                                  description={creating ? 'Vacío: el del equipo, si es de mto-resources' : null}
                                                  {...form.getInputProps('vehicleIds')}/>
+                            <InstrumentsMultiSelect label="Instrumentos" current={shift?.instruments ?? []}
+                                                    description="Pértigas, detectores y equipos de medida, con la calibración vigente a la fecha del turno"
+                                                    {...form.getInputProps('instrumentIds')}/>
                         </>
                     )}
                     {!readsResources && !creating && <Text size="sm" aria-label="Dotación del turno">{crewText(shift)}</Text>}
@@ -139,7 +144,9 @@ export default function ShiftEditorModal({shift, onClose, onSaved = () => {}}) {
                                    {...form.getInputProps('vehicle')}/>
                         <TextInput label="Puntos de puesta a tierra" maxLength={EARTHING_LENGTH} {...form.getInputProps('earthingPoints')}/>
                         <TextInput label="Estacionamiento" maxLength={PARKING_LENGTH} {...form.getInputProps('parkingPlace')}/>
-                        <TextInput label="Equipos de medida" maxLength={MEASUREMENT_LENGTH} {...form.getInputProps('measurementEquipment')}/>
+                        <TextInput label="Equipos de medida" maxLength={MEASUREMENT_LENGTH}
+                                   description={readsResources ? 'Texto de los turnos de antes: los instrumentos se eligen arriba' : null}
+                                   {...form.getInputProps('measurementEquipment')}/>
                     </SimpleGrid>
                     <Textarea label="Personal" rows={2} {...form.getInputProps('personnel')}/>
                     <Textarea label="Observaciones" rows={3} {...form.getInputProps('observations')}/>

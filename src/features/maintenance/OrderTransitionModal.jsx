@@ -10,6 +10,7 @@ import {notifyApiError} from '../../ui/errors/notifyError.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
 import {saveErrors} from './maintenanceErrors.js'
+import {LEADER_HINT} from './maintenanceTexts.js'
 import {TeamSelect} from './MaintenancePickers.jsx'
 import {useOrderTransition, useTeams} from './useMaintenance.js'
 
@@ -86,7 +87,7 @@ export default function OrderTransitionModal({kind, order, canForce, onClose}) {
                     {kind === 'assign' && (
                         <>
                             <TeamSelect label="Equipo" teams={teams.data} current={order.team} {...form.getInputProps('teamId')}/>
-                            <TextInput label="Persona" maxLength={USER_LENGTH} {...form.getInputProps('assignedUser')}/>
+                            <TextInput label="Persona" description={LEADER_HINT} maxLength={USER_LENGTH} {...form.getInputProps('assignedUser')}/>
                         </>
                     )}
                     {kind === 'complete' && (

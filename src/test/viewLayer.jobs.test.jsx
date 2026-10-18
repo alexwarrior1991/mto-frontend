@@ -286,7 +286,7 @@ describe('lanzar y seguir', () => {
         expect(cells(dataRows()[0])[0]).toBe('Exportación de TRACK 1 (EP4)')
     })
 
-    it('republicar acota con la vía solo los perfiles, y con la estación los seccionadores y aisladores', async () => {
+    it('republicar acota con la vía los perfiles y los puntos de acceso, y con la estación los seccionadores y aisladores', async () => {
         serveReferences()
         serveJobs([])
         const republished = []
@@ -311,11 +311,20 @@ describe('lanzar y seguir', () => {
         await user.click(within(republisher).getByRole('button', {name: 'Republicar'}))
         expect(await screen.findByText('Trabajo encolado: Republicado de seccionadores')).toBeInTheDocument()
 
+        // Los puntos de acceso se acotan por vía, como los perfiles: la estación deja de aplicar y se vacía.
+        await choose(user, republisher, 'Qué republicar', 'Puntos de acceso a vía')
+        expect(within(republisher).getByRole('combobox', {name: 'Solo la estación'})).toBeDisabled()
+        expect(within(republisher).getByRole('combobox', {name: 'Solo la estación'})).toHaveValue('')
+        await choose(user, republisher, 'Solo la vía', 'TRACK 1 (EP4)')
+        await user.click(within(republisher).getByRole('button', {name: 'Republicar'}))
+        expect(await screen.findByText('Trabajo encolado: Republicado de puntos de acceso a vía')).toBeInTheDocument()
+
         await choose(user, republisher, 'Qué republicar', 'Todo')
         await user.click(within(republisher).getByRole('button', {name: 'Republicar'}))
         expect(await screen.findByText('Trabajo encolado: Republicado de todo')).toBeInTheDocument()
 
-        expect(republished).toEqual(['?entity=profile&trackId=3', '?entity=disconnector&stationId=12', '?entity=all'])
+        expect(republished).toEqual(['?entity=profile&trackId=3', '?entity=disconnector&stationId=12', '?entity=track-access-point&trackId=3',
+            '?entity=all'])
     })
 
     it('un 429 se apunta como rechazado y dice cuándo volver a intentarlo; no hay nada que seguir', async () => {

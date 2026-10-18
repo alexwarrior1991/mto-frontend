@@ -252,3 +252,38 @@ export function recordableKinds(mobility) {
 export const VEHICLE_ATTACHMENT = defineEnum({TOWED: 'Remolcado', CARRIED: 'Transportado'})
 
 export const LOCATION_SOURCE = defineEnum({MANUAL: 'A mano', SHIFT: 'Turno', FIELD: 'Campo', TELEMATICS: 'Telemática'})
+
+/**
+ * El tipo de un punto de acceso a la vía: el maestro de mto-configuration, que mto-resources guarda de su
+ * evento y ofrece al registrar dónde está un vehículo.
+ */
+export const ACCESS_POINT_KIND = defineEnum({PREPARED_ACCESS: 'Acceso preparado', LEVEL_CROSSING: 'Paso a nivel', DEPOT: 'Base o cochera'})
+
+/**
+ * La clase de un tipo de cualificación. Un permiso de conducir dice cuál (B, C o C+E), y solo él: lo
+ * exige el servicio (400 VAL-001), y el editor solo lo ofrece con esa clase.
+ */
+export const QUALIFICATION_KIND = defineEnum({
+    DRIVING_LICENCE: 'Permiso de conducir',
+    VEHICLE_OPERATION: 'Habilitación de vehículo',
+    SAFETY: 'Seguridad',
+    OTHER: 'Otra',
+})
+
+/** Un documento de un vehículo con su caducidad: uno de cada tipo por vehículo (409 VDO-409). */
+export const VEHICLE_DOCUMENT_KIND = defineEnum({
+    ROAD_INSPECTION: 'Inspección técnica (ITV)',
+    RAIL_INSPECTION: 'Inspección ferroviaria',
+    INSURANCE: 'Seguro',
+    CRANE_CERTIFICATE: 'Certificado de la grúa',
+    PLATFORM_CERTIFICATE: 'Certificado de la plataforma',
+    OTHER: 'Otro',
+})
+
+/** Un instrumento del turno: pértigas de puesta a tierra, detectores de tensión y equipos de medida. */
+export const INSTRUMENT_KIND = defineEnum({
+    EARTHING_POLE: 'Pértiga de puesta a tierra',
+    VOLTAGE_DETECTOR: 'Detector de tensión',
+    MEASURING: 'Equipo de medida',
+    OTHER: 'Otro',
+})

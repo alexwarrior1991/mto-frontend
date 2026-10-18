@@ -98,3 +98,19 @@ export function optionalCoordinate(limit) {
         return Math.abs(Number(text)) <= limit ? null : `Entre -${limit} y ${limit}`
     }
 }
+
+export const QUALIFICATION_TYPE_LENGTHS = Object.freeze({code: 32, name: 120, description: 500})
+export const INSTRUMENT_LENGTHS = Object.freeze({code: 32, name: 120, serialNumber: 60, notes: 500})
+/** Una cualificación de una persona y un documento de un vehículo: su referencia y sus notas. */
+export const EXPIRY_LENGTHS = Object.freeze({reference: 60, notes: 500})
+
+/**
+ * Una fecha (YYYY-MM-DD) que no puede ser anterior a otra del formulario: la caducidad, a la expedición
+ * o a la calibración. Si falta alguna, nada que comparar; lo demás lo dice el servicio (400 VAL-001).
+ */
+export function dateNotBefore(startField, message) {
+    return (value, values) => {
+        const start = values[startField]
+        return !value || !start || value >= start ? null : message
+    }
+}
