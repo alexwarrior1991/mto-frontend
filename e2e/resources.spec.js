@@ -395,6 +395,8 @@ test('una ausencia se da de alta en la ficha, y mantenimiento no deja a la perso
     await chooseOption(page, adding, 'Clase', 'Vacaciones')
     await adding.getByRole('textbox', {name: 'Desde'}).fill(from.typed)
     await adding.getByRole('textbox', {name: 'Hasta'}).fill(to.typed)
+    // El calendario de la fecha se queda abierto encima de los botones hasta salir del campo.
+    await adding.getByRole('textbox', {name: 'Hasta'}).press('Tab')
     await adding.getByRole('button', {name: 'Guardar'}).click()
     await expect(page.getByText(`Guardada la ausencia de ${absent.code}`)).toBeVisible()
     await expect(page.getByRole('table', {name: `Ausencias de ${absent.code}`}).getByRole('row').filter({hasText: 'Vacaciones'}))
