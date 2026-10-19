@@ -34,6 +34,7 @@
       "resources-fleet-write",
       "resources-location-write",
       "resources-read",
+      "resources-telematics-write",
       "resources-write"
     ],
     "mto-stock-api": [

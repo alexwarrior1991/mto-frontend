@@ -676,10 +676,54 @@ describe('los catálogos', () => {
 
         expect(firstColumn('Tipos de tarea')).toEqual(['RG-01', 'RG-04'])
         expect(textsOf(dataRows('Tipos de tarea')[1]))
-            .toEqual(['RG-04', 'Revisión del hilo de contacto', 'Conductores aéreos', 'Vano', '12.5', '', 'Sí', 'No', 'Sí'])
+            .toEqual(['RG-04', 'Revisión del hilo de contacto', 'Conductores aéreos', 'Vano', '12.5', '', 'Sí', 'No', 'Sí', '—'])
+        expect(screen.queryByRole('button', {name: /^Equipo de/})).not.toBeInTheDocument()
         await choose(user, document.body, 'Grupo funcional', 'Conductores aéreos')
         await waitFor(() => expect(firstColumn('Tipos de tarea')).toEqual(['RG-04']))
         expect(param(readsOf(requests, `${BASE}/task-types`).at(-1), 'functionalGroup')).toBe('OVERHEAD_CONDUCTORS')
+    })
+
+    it('el equipo exigido sale en su columna, y sin maintenance-supervise no se cambia', async () => {
+        serveMaintenance({taskTypes: EQUIPPED_TYPES})
+        await open('/mantenimiento/tipos-de-tarea', loginAs('mantenimiento.tecnico'), 'Tipos de tarea', 2)
+
+        expect(dataRows('Tipos de tarea').map((cells) => cells[9].textContent)).toEqual(['Desconocido, Puesta a tierra', 'Plataforma aislada'])
+        expect(screen.queryByRole('button', {name: /^Equipo de/})).not.toBeInTheDocument()
+    })
+
+    it('quien supervisa cambia el equipo como un conjunto con la versión leída, lo desconocido se queda y una versión vieja pide recargar con el diálogo abierto', async () => {
+        serveMaintenance({taskTypes: EQUIPPED_TYPES})
+        const patches = recordWrites('patch', `${BASE}/task-types/:code`, (body, call) => call === 1
+            ? maintenanceError(409, 'CON-001', 'Task type RG-04 was changed by someone else')
+            : HttpResponse.json({...EQUIPPED_TYPES[1], ...body, version: 3}))
+        const {user} = await open('/mantenimiento/tipos-de-tarea', loginAs('mantenimiento.responsable'), 'Tipos de tarea', 2)
+
+        await user.click(screen.getByRole('button', {name: 'Equipo de RG-04'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Equipo que exige RG-04'})
+        expect(within(dialog).getByRole('checkbox', {name: 'Plataforma aislada'})).toBeChecked()
+        expect(within(dialog).getByRole('checkbox', {name: 'Puesta a tierra'})).not.toBeChecked()
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Puesta a tierra'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toEqual({body: {requiredEquipment: ['INSULATED_PLATFORM', 'EARTHING'], version: 2}, contentType: MERGE_PATCH})
+        expect(await screen.findByText('Conflicto con otro cambio: recarga y vuelve a intentarlo.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Equipo que exige RG-04'})).toBeInTheDocument()
+
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Plataforma aislada'}))
+        await user.click(within(dialog).getByRole('checkbox', {name: 'Puesta a tierra'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.map((write) => write.body)).toEqual([
+            {requiredEquipment: ['INSULATED_PLATFORM', 'EARTHING'], version: 2}, {requiredEquipment: null, version: 2}]))
+        expect(await screen.findByText('Guardado el equipo de RG-04')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Equipo que exige RG-04'})).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Equipo de RG-01'}))
+        const other = await screen.findByRole('dialog', {name: 'Equipo que exige RG-01'})
+        expect(within(other).getByRole('checkbox', {name: 'Puesta a tierra'})).toBeChecked()
+        await user.click(within(other).getByRole('checkbox', {name: 'Puesta a tierra'}))
+        await user.click(within(other).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches.at(-1).body).toEqual({requiredEquipment: ['CRANE_LICENCE'], version: 5}))
     })
 
     it('las plantillas enseñan los puntos de la activa al abrir, y los de otra al elegirla', async () => {
@@ -698,6 +742,16 @@ describe('los catálogos', () => {
         expect(await screen.findByText('La plantilla no tiene puntos.')).toBeInTheDocument()
     })
 })
+
+/** Dos tipos con su equipo exigido: uno con un valor que esta aplicación no conoce, que se conserva. */
+const EQUIPPED_TYPES = Object.freeze([
+    {id: 't1', code: 'RG-01', description: 'Revisión visual', functionalGroup: 'STRUCTURAL_SUPPORTS', standardMinutesPerUnit: 10, unit: 'PROFILE',
+        fixedMinutes: 2, requiresFullPossession: false, diagnostic: false, active: true, orderIndex: 1, requiredEquipment: ['CRANE_LICENCE', 'EARTHING'],
+        version: 5},
+    {id: 't2', code: 'RG-04', description: 'Revisión del hilo de contacto', functionalGroup: 'OVERHEAD_CONDUCTORS', standardMinutesPerUnit: 12.5,
+        unit: 'SPAN', fixedMinutes: null, requiresFullPossession: true, diagnostic: false, active: true, orderIndex: 4,
+        requiredEquipment: ['INSULATED_PLATFORM'], version: 2},
+])
 
 const TASK1 = '3c3c3c3c-0000-4000-8000-000000000021'
 const TASK2 = '3c3c3c3c-0000-4000-8000-000000000022'

@@ -101,6 +101,24 @@ export function optionalCoordinate(limit) {
 
 export const QUALIFICATION_TYPE_LENGTHS = Object.freeze({code: 32, name: 120, description: 500})
 export const INSTRUMENT_LENGTHS = Object.freeze({code: 32, name: 120, serialNumber: 60, notes: 500})
+/** Una ausencia: sus notas. */
+export const ABSENCE_LENGTHS = Object.freeze({notes: 500})
+/** Una reparación: su descripción y su taller. */
+export const REPAIR_LENGTHS = Object.freeze({description: 500, workshop: 150})
+/** El dispositivo GPS de un vehículo: como mucho 64, solo letras, cifras y . : - _ (el patrón del servicio). */
+export const TELEMATICS_DEVICE_LENGTH = 64
+
+export function telematicsDevice(value) {
+    const text = String(value ?? '').trim()
+    if (!text) {
+        return null
+    }
+    if (text.length > TELEMATICS_DEVICE_LENGTH) {
+        return `Como mucho ${TELEMATICS_DEVICE_LENGTH} caracteres`
+    }
+    return /^[A-Za-z0-9_.:-]+$/.test(text) ? null : "Solo letras, cifras y '.', ':', '-' o '_'"
+}
+
 /** Una cualificación de una persona y un documento de un vehículo: su referencia y sus notas. */
 export const EXPIRY_LENGTHS = Object.freeze({reference: 60, notes: 500})
 

@@ -3,6 +3,7 @@ import {http, HttpResponse} from 'msw'
 import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
+import {formatDateTime} from '../ui/format.js'
 import {renderRoute} from './render.jsx'
 import {server} from './server.js'
 import {loginAs, sessionWith} from './session.js'
@@ -68,12 +69,16 @@ function daysFromToday(days) {
  * la ficha de cada persona con sus cualificaciones, el catálogo de tipos y los instrumentos, con sus
  * filtros; qualifications y documents se pueden cambiar en mitad de un caso.
  */
-function serveResources({people = [], qualificationTypes = [], qualifications = {}, instruments = []} = {}) {
+function serveResources({people = [], qualificationTypes = [], qualifications = {}, instruments = [], absences = {}} = {}) {
     const requests = []
     server.use(
         http.get(`${BASE}/people/:id/qualifications`, ({request, params}) => {
             requests.push(new URL(request.url))
             return HttpResponse.json(qualifications[params.id] ?? [])
+        }),
+        http.get(`${BASE}/people/:id/absences`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(absences[params.id] ?? [])
         }),
         http.get(`${BASE}/people/:id`, ({request, params}) => {
             requests.push(new URL(request.url))
@@ -212,7 +217,7 @@ describe('el menú y las rutas', () => {
             ['Organigrama', '/recursos/organigrama'], ['Vehículos', '/recursos/flota'], ['Tablero de la flota', '/recursos/flota/tablero'],
             ['Modelos de vehículo', '/recursos/flota/modelos'],
             ['Sitios de aparcamiento', '/recursos/flota/aparcamientos'], ['Tipos de cualificación', '/recursos/cualificaciones'],
-            ['Instrumentos', '/recursos/instrumentos']])
+            ['Instrumentos', '/recursos/instrumentos'], ['Puestos y perfiles', '/recursos/discrepancias']])
         expect(buildMenu(loginAs('config.lector')).some((item) => item.key === 'recursos')).toBe(false)
         expect(buildMenu(loginAs('mantenimiento.lector')).some((item) => item.key === 'recursos')).toBe(true)
     })
@@ -1245,12 +1250,16 @@ function vehicle(id, code, type, position, active = true, extra = {}) {
  * La flota simulada: los vehículos, cada uno por su id, sus ubicaciones, sus documentos, los sitios y los
  * puntos de acceso, con los catálogos y los nombres.
  */
-function serveVehicles({vehicles = [], locations = [], types = [], sites = [], documents = {}, accessPoints = []} = {}) {
+function serveVehicles({vehicles = [], locations = [], types = [], sites = [], documents = {}, accessPoints = [], repairs = {}} = {}) {
     const requests = serveFleetCatalogues({types, sites, accessPoints})
     server.use(
         http.get(`${BASE}/vehicles/:id/documents`, ({request, params}) => {
             requests.push(new URL(request.url))
             return HttpResponse.json(documents[params.id] ?? [])
+        }),
+        http.get(`${BASE}/vehicles/:id/repairs`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            return HttpResponse.json(repairs[params.id] ?? [])
         }),
     )
     server.use(
@@ -1861,5 +1870,322 @@ describe('los documentos de un vehículo', () => {
         const confirm = await screen.findByRole('dialog', {name: 'Quitar Inspección técnica (ITV) de DR-01 · Vehículo DR-01'})
         await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
         await waitFor(() => expect(deletes.map((write) => write.params.documentId)).toEqual(['bc1d2e3f-0000-4000-8000-000000000002']))
+    })
+})
+
+describe('las ausencias de una persona', () => {
+    function absence(n, kind, startsOn, endsOn, notes = null) {
+        return {id: `cd2e3f40-0000-4000-8000-00000000000${n}`, personId: PERSON1, kind, startsOn, endsOn, notes, version: 1, audit: null}
+    }
+
+    const VACATION = absence(1, 'VACATION', '2026-11-02', '2026-11-13', 'Otoño')
+    const SABBATICAL = absence(2, 'SABBATICAL', '2026-01-05', '2026-01-09')
+
+    it('la pestaña se pide al abrirla, dice cuántos días dura cada una y quien solo lee no las toca', async () => {
+        const requests = serveResources({people: [YOSSI], absences: {[PERSON1]: [VACATION, SABBATICAL]}})
+        const {user} = await openPerson(loginAs('recursos.lector'))
+        expect(requests.some((url) => url.pathname === `${BASE}/people/${PERSON1}/absences`)).toBe(false)
+
+        await user.click(screen.getByRole('tab', {name: 'Ausencias'}))
+        await waitFor(() => expect(firstColumn('Ausencias de PER-000003')).toHaveLength(2))
+        expect(dataRows('Ausencias de PER-000003').map(textsOf)).toEqual([
+            ['Vacaciones', '02/11/2026', '13/11/2026', '12', 'Otoño'],
+            ['Desconocido', '05/01/2026', '09/01/2026', '5', ''],
+        ])
+        expect(screen.getByText('2 ausencias')).toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Nueva ausencia'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: /la ausencia desde/})).not.toBeInTheDocument()
+    })
+
+    it('el alta comprueba lo evidente antes de llamar y un solape (ABS-001) deja el diálogo abierto; modificar manda lo cambiado con la versión', async () => {
+        serveResources({people: [YOSSI], absences: {[PERSON1]: [VACATION, SABBATICAL]}})
+        const posts = recordWrites('post', `${BASE}/people/:id/absences`, (body, call) => (call === 1
+            ? resourcesError(409, 'ABS-001', 'Yossi Cohen is already absent from 2026-12-12 to 2026-12-20')
+            : HttpResponse.json(absence(3, 'SICK_LEAVE', '2026-12-10', '2026-12-14'), {status: 201})))
+        const patches = recordWrites('patch', `${BASE}/people/:id/absences/:absenceId`, () => HttpResponse.json(VACATION))
+        const {user} = await openPerson(loginAs('recursos.gestor'))
+        await user.click(screen.getByRole('tab', {name: 'Ausencias'}))
+        await waitFor(() => expect(firstColumn('Ausencias de PER-000003')).toHaveLength(2))
+        // Quitar pide resources-delete, que el gestor no tiene; una de una clase desconocida no ofrece nada.
+        expect(actionsOf(rowOf('Ausencias de PER-000003', 'Vacaciones'))).toEqual(['Modificar la ausencia desde 02/11/2026'])
+        expect(actionsOf(rowOf('Ausencias de PER-000003', 'Desconocido'))).toEqual([])
+
+        await user.click(screen.getByRole('button', {name: 'Nueva ausencia'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva ausencia de PER-000003 · Yossi Cohen'})
+        expect(within(dialog).getByText('Solo la ve Recursos: mantenimiento recibe las fechas')).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('La clase es obligatoria')).toBeInTheDocument()
+        expect(within(dialog).getByText('El inicio es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('El fin es obligatorio')).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('combobox', {name: 'Clase'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['Vacaciones', 'Baja', 'Formación', 'Asuntos propios', 'Otra'])
+        await user.click(screen.getByRole('option', {name: 'Baja'}))
+        await typeInto(user, dialog, 'Desde', '10/12/2026')
+        await typeInto(user, dialog, 'Hasta', '01/12/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El fin no puede ser anterior al inicio')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+
+        await typeInto(user, dialog, 'Hasta', '14/12/2026')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('La persona ya está ausente en esas fechas: cambia esa ausencia en vez de añadir otra. '
+            + 'Yossi Cohen is already absent from 2026-12-12 to 2026-12-20')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nueva ausencia de PER-000003 · Yossi Cohen'})).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(await screen.findByText('Guardada la ausencia de PER-000003')).toBeInTheDocument()
+        expect(posts.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'SICK_LEAVE', startsOn: '2026-12-10', endsOn: '2026-12-14'})))
+
+        await user.click(screen.getByRole('button', {name: 'Modificar la ausencia desde 02/11/2026'}))
+        const editor = await screen.findByRole('dialog', {name: 'Modificar la ausencia de PER-000003 · Yossi Cohen'})
+        expect(within(editor).getByRole('textbox', {name: 'Hasta'})).toHaveValue('13/11/2026')
+        await typeInto(user, editor, 'Hasta', '20/11/2026')
+        await typeInto(user, editor, 'Notas', '')
+        await user.click(within(editor).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH, params: {id: PERSON1, absenceId: VACATION.id},
+            body: {endsOn: '2026-11-20', notes: null, version: 1}})
+    })
+
+    it('quitar una pide resources-delete y confirmación, y dice que la persona vuelve a estar disponible', async () => {
+        serveResources({people: [YOSSI], absences: {[PERSON1]: [VACATION]}})
+        const deletes = recordWrites('delete', `${BASE}/people/:id/absences/:absenceId`, () => new HttpResponse(null, {status: 204}))
+        const {user} = await openPerson(loginAs('recursos.responsable'))
+        await user.click(screen.getByRole('tab', {name: 'Ausencias'}))
+        await waitFor(() => expect(firstColumn('Ausencias de PER-000003')).toHaveLength(1))
+        expect(actionsOf(rowOf('Ausencias de PER-000003', 'Vacaciones')))
+            .toEqual(['Modificar la ausencia desde 02/11/2026', 'Quitar la ausencia desde 02/11/2026'])
+
+        await user.click(screen.getByRole('button', {name: 'Quitar la ausencia desde 02/11/2026'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Quitar la ausencia de PER-000003 · Yossi Cohen'})
+        expect(confirm).toHaveTextContent('vuelve a estar disponible del 02/11/2026 al 13/11/2026 para los turnos de mantenimiento')
+        expect(deletes).toHaveLength(0)
+        await user.click(within(confirm).getByRole('button', {name: 'Quitar'}))
+        expect(await screen.findByText('Quitada la ausencia de PER-000003 desde 02/11/2026')).toBeInTheDocument()
+        expect(deletes.map((write) => [write.params.id, write.params.absenceId])).toEqual([[PERSON1, VACATION.id]])
+    })
+})
+
+describe('el taller de un vehículo', () => {
+    function repair(n, status, extra = {}) {
+        return {
+            id: `de3f4051-0000-4000-8000-00000000000${n}`, code: `REP-00000${n}`, vehicleId: VEHICLE1, kind: 'BREAKDOWN', status, immobilises: true,
+            description: `Reparación ${n}`, workshop: null, plannedFrom: null, plannedTo: null, openedAt: null, closedAt: null, odometerKm: null,
+            engineHours: null, cost: null, notes: null, version: 1, audit: null, ...extra,
+        }
+    }
+
+    const PLANNED = repair(3, 'PLANNED', {kind: 'SERVICE', plannedFrom: '2026-11-09', plannedTo: '2026-11-11', workshop: 'Taller Norte'})
+    const OPEN = repair(2, 'OPEN', {openedAt: '2026-10-19T06:10:00Z', plannedTo: '2026-10-24'})
+    const CLOSED = repair(1, 'CLOSED', {kind: 'INSPECTION', openedAt: '2026-09-01T06:00:00Z', closedAt: '2026-09-03T15:30:00Z', cost: 1250.5})
+    const ON_HOLD = repair(4, 'ON_HOLD', {kind: 'PAINT'})
+
+    it('la pestaña se pide al abrirla y dice el estado, las fechas y el coste de cada una; quien solo lee no toca nada', async () => {
+        const requests = serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], repairs: {[VEHICLE1]: [PLANNED, OPEN, CLOSED, ON_HOLD]}})
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.lector')})
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+        expect(requests.some((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}/repairs`)).toBe(false)
+
+        await user.click(screen.getByRole('tab', {name: 'Taller'}))
+        await waitFor(() => expect(firstColumn('Taller de DR-01')).toHaveLength(4))
+        expect(dataRows('Taller de DR-01').map(textsOf)).toEqual([
+            ['REP-000003', 'Revisión', 'Planificada', 'Sí', '09/11/2026 – 11/11/2026', '', '', 'Taller Norte', ''],
+            ['REP-000002', 'Avería', 'Abierta', 'Sí', '… – 24/10/2026', formatDateTime('2026-10-19T06:10:00Z'), '', '', ''],
+            ['REP-000001', 'Inspección', 'Cerrada', 'Sí', '', formatDateTime('2026-09-01T06:00:00Z'), formatDateTime('2026-09-03T15:30:00Z'), '',
+                '1250.5'],
+            ['REP-000004', 'Desconocido', 'Desconocido', 'Sí', '', '', '', '', ''],
+        ])
+        expect(screen.queryByRole('button', {name: 'Nueva reparación'})).not.toBeInTheDocument()
+        expect(actionsOf(rowOf('Taller de DR-01', 'REP-000003'))).toEqual([])
+    })
+
+    it('cada estado ofrece lo suyo, el alta planifica o abre ahora comprobando lo evidente, y modificar una cerrada no toca sus fechas', async () => {
+        serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], repairs: {[VEHICLE1]: [PLANNED, OPEN, CLOSED, ON_HOLD]}})
+        const posts = recordWrites('post', `${BASE}/vehicles/:id/repairs`, (body) => HttpResponse.json({...PLANNED, ...body, code: 'REP-000005'},
+            {status: 201}))
+        const patches = recordWrites('patch', `${BASE}/vehicles/:id/repairs/:repairId`, () => HttpResponse.json(CLOSED))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.gestor')})
+        await user.click(await screen.findByRole('tab', {name: 'Taller'}))
+        await waitFor(() => expect(firstColumn('Taller de DR-01')).toHaveLength(4))
+        expect(['REP-000003', 'REP-000002', 'REP-000001', 'REP-000004'].map((code) => actionsOf(rowOf('Taller de DR-01', code)))).toEqual([
+            ['Abrir REP-000003', 'Modificar REP-000003', 'Cancelar REP-000003'],
+            ['Cerrar REP-000002', 'Modificar REP-000002', 'Cancelar REP-000002'],
+            ['Modificar REP-000001'],
+            [],
+        ])
+
+        await user.click(screen.getByRole('button', {name: 'Nueva reparación'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva reparación de DR-01 · Vehículo DR-01'})
+        expect(within(dialog).getByRole('checkbox', {name: 'Inmoviliza el vehículo'})).toBeChecked()
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('La clase es obligatoria')).toBeInTheDocument()
+        expect(within(dialog).getByText('La descripción es obligatoria')).toBeInTheDocument()
+        expect(within(dialog).getByText('Una planificada dice desde cuándo')).toBeInTheDocument()
+        await choose(user, dialog, 'Clase', 'Revisión')
+        await typeInto(user, dialog, 'Descripción', 'Revisión anual')
+        await typeInto(user, dialog, 'Previsto desde', '09/11/2026')
+        await typeInto(user, dialog, 'Previsto hasta', '01/11/2026')
+        await typeInto(user, dialog, 'Coste', '12.345')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El fin previsto no puede ser anterior al inicio')).toBeInTheDocument()
+        expect(within(dialog).getByText('Como mucho 2 decimales')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+        await typeInto(user, dialog, 'Previsto hasta', '11/11/2026')
+        await typeInto(user, dialog, 'Coste', '1250.50')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(await screen.findByText('Guardada REP-000005 de DR-01')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Nueva reparación'}))
+        const now = await screen.findByRole('dialog', {name: 'Nueva reparación de DR-01 · Vehículo DR-01'})
+        await user.click(within(now).getByRole('radio', {name: 'Abierta ahora'}))
+        await choose(user, now, 'Clase', 'Avería')
+        await typeInto(user, now, 'Descripción', 'Fuga hidráulica')
+        await user.click(within(now).getByRole('checkbox', {name: 'Inmoviliza el vehículo'}))
+        await user.click(within(now).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(posts).toHaveLength(2))
+        expect(posts.map((write) => write.body)).toEqual([
+            {status: 'PLANNED', kind: 'SERVICE', immobilises: true, description: 'Revisión anual', plannedFrom: '2026-11-09', plannedTo: '2026-11-11',
+                cost: 1250.5},
+            {status: 'OPEN', kind: 'BREAKDOWN', immobilises: false, description: 'Fuga hidráulica'},
+        ])
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Modificar REP-000001'}))
+        const editor = await screen.findByRole('dialog', {name: 'Modificar REP-000001 de DR-01 · Vehículo DR-01'})
+        expect(within(editor).queryByRole('radio', {name: 'Abierta ahora'})).not.toBeInTheDocument()
+        expect(within(editor).getByRole('checkbox', {name: 'Inmoviliza el vehículo'})).toBeDisabled()
+        expect(within(editor).getByRole('textbox', {name: 'Previsto desde'})).toBeDisabled()
+        expect(within(editor).getByText('Cerrada o cancelada: sus fechas previstas ya no cambian.')).toBeInTheDocument()
+        await typeInto(user, editor, 'Coste', '18450')
+        await typeInto(user, editor, 'Notas', 'Pagada')
+        await user.click(within(editor).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH, params: {id: VEHICLE1, repairId: CLOSED.id},
+            body: {cost: 18450, notes: 'Pagada', version: 1}})
+    })
+
+    it('abrir, cerrar y cancelar se confirman con su efecto en el vehículo, y un REP-001 se dice sin recargar', async () => {
+        serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null)], repairs: {[VEHICLE1]: [PLANNED, OPEN]}})
+        const transitions = recordWrites('post', `${BASE}/vehicles/:id/repairs/:repairId/:transition`, (body, call) => (call === 1
+            ? resourcesError(409, 'REP-001', 'Repair REP-000003 is CLOSED: it cannot become OPEN')
+            : HttpResponse.json(OPEN)))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.responsable')})
+        await user.click(await screen.findByRole('tab', {name: 'Taller'}))
+        await waitFor(() => expect(firstColumn('Taller de DR-01')).toHaveLength(2))
+
+        await user.click(screen.getByRole('button', {name: 'Abrir REP-000003'}))
+        const opening = await screen.findByRole('dialog', {name: 'Abrir REP-000003 de DR-01 · Vehículo DR-01'})
+        expect(opening).toHaveTextContent('queda «En reparación» y fuera de los turnos hasta que se cierre')
+        expect(transitions).toHaveLength(0)
+        await user.click(within(opening).getByRole('button', {name: 'Abrir la reparación'}))
+        expect(await screen.findByText('La reparación no admite ese cambio en su estado. Repair REP-000003 is CLOSED: it cannot become OPEN'))
+            .toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        await user.click(screen.getByRole('button', {name: 'Abrir REP-000003'}))
+        await user.click(within(await screen.findByRole('dialog', {name: 'Abrir REP-000003 de DR-01 · Vehículo DR-01'})).getByRole('button', {name: 'Abrir la reparación'}))
+        expect(await screen.findByText('Abierta REP-000003')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Cerrar REP-000002'}))
+        const closing = await screen.findByRole('dialog', {name: 'Cerrar REP-000002 de DR-01 · Vehículo DR-01'})
+        expect(closing).toHaveTextContent('vuelve a «Operativo»')
+        await user.click(within(closing).getByRole('button', {name: 'Cerrar la reparación'}))
+        expect(await screen.findByText('Cerrada REP-000002')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Cancelar REP-000003'}))
+        const cancelling = await screen.findByRole('dialog', {name: 'Cancelar REP-000003 de DR-01 · Vehículo DR-01'})
+        expect(cancelling).toHaveTextContent('Se cancela y no se puede deshacer')
+        await user.click(within(cancelling).getByRole('button', {name: 'Volver'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        expect(transitions.map((write) => [write.params.repairId, write.params.transition, write.body])).toEqual([
+            [PLANNED.id, 'open', null], [PLANNED.id, 'open', null], [OPEN.id, 'close', null]])
+    })
+})
+
+describe('el dispositivo GPS de un vehículo', () => {
+    it('la ficha lo dice, una posición del GPS se lee «GPS», y el editor lo comprueba antes de llamar y lo vacía a null', async () => {
+        const telematics = {...location('ON_TRACK', {trackId: 12, kp: 10.5}), kind: 'ON_ROAD', trackId: null, kp: null, executionPackageId: null,
+            latitude: 32.08, longitude: 34.78, source: 'TELEMATICS', recordedBy: 'service-account-mto-telematics-svc'}
+        const van = vehicle(VEHICLE1, 'UN-01', ROAD_RAIL_MODEL, telematics, true, {telematicsDeviceId: 'GPS-4471'})
+        serveVehicles({vehicles: [van], locations: [telematics], types: [unimog()]})
+        const patches = recordWrites('patch', `${BASE}/vehicles/:id`, () => HttpResponse.json(van))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.gestor')})
+
+        expect(await screen.findByRole('heading', {name: 'UN-01 · Vehículo UN-01'})).toBeInTheDocument()
+        expect(screen.getByLabelText('Resumen del vehículo')).toHaveTextContent('GPS GPS-4471')
+        expect(screen.getByLabelText('Dónde está')).toHaveTextContent('GPS')
+        await waitFor(() => expect(textsOf(dataRows('Ubicaciones de UN-01')[0])[3]).toBe('GPS'))
+
+        await user.click(screen.getByRole('button', {name: 'Modificar'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar UN-01 · Vehículo UN-01'})
+        expect(within(dialog).getByRole('textbox', {name: 'Dispositivo GPS'})).toHaveValue('GPS-4471')
+        await typeInto(user, dialog, 'Dispositivo GPS', 'GPS 4471')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText("Solo letras, cifras y '.', ':', '-' o '_'")).toBeInTheDocument()
+        expect(patches).toHaveLength(0)
+        await typeInto(user, dialog, 'Dispositivo GPS', '')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        expect(patches[0]).toMatchObject({contentType: MERGE_PATCH, body: {telematicsDeviceId: null, version: 6}})
+    })
+})
+
+describe('puestos y perfiles', () => {
+    const REPORT = Object.freeze({
+        generatedAt: '2026-10-19T07:00:00Z', peopleChecked: 42, usersWithPosition: 39,
+        wrongProfile: [{personId: PERSON1, personCode: 'PER-000003', fullName: 'Yossi Cohen', username: 'equipo.jefe', category: 'TEAM_LEADER',
+            personActive: true, expectedProfile: 'mto-position-team-leader', profiles: ['mto-position-worker']}],
+        severalProfiles: [],
+        withoutProfile: [],
+        withoutRecord: [{personId: null, personCode: null, fullName: null, username: 'old.user', category: null, personActive: null, expectedProfile: null,
+            profiles: ['mto-position-worker', 'mto-position-supervisor']}],
+    })
+
+    it('enseña las cuatro secciones con «Nada» en las vacías, cada persona lleva a su ficha, y Keycloak caído se dice aquí con «Reintentar»', async () => {
+        const reads = []
+        server.use(http.get(`${BASE}/reports/position-discrepancies`, ({request}) => {
+            reads.push(new URL(request.url))
+            return reads.length === 1
+                ? resourcesError(503, 'KCK-503', 'Keycloak cannot be read now')
+                : HttpResponse.json(REPORT)
+        }))
+        const {user} = renderRoute('/recursos/discrepancias', {session: loginAs('recursos.lector')})
+
+        expect(await screen.findByRole('heading', {name: 'Puestos y perfiles'})).toBeInTheDocument()
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+            'No se ha podido calcular el informe: No se puede leer Keycloak ahora mismo. Keycloak cannot be read now Inténtalo más tarde.')
+        // El fallo se dice en su sitio, no también en un aviso.
+        expect(screen.queryByText('No se puede leer Keycloak ahora mismo. Keycloak cannot be read now Inténtalo más tarde.')).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Reintentar'}))
+
+        expect(await screen.findByRole('heading', {name: 'Con otro perfil'})).toBeInTheDocument()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.getByLabelText('Resumen del informe')).toHaveTextContent(
+            `Calculado ${formatDateTime('2026-10-19T07:00:00Z')} · 42 personas con usuario · 39 usuarios con perfil de puesto`)
+        expect(screen.getAllByRole('heading', {level: 4}).map((heading) => heading.textContent))
+            .toEqual(['Con otro perfil', 'Con varios perfiles', 'Sin perfil de puesto', 'Con perfil y sin ficha'])
+        expect(screen.getAllByText('Nada')).toHaveLength(2)
+        expect(dataRows('Con otro perfil').map(textsOf)).toEqual([['PER-000003 · Yossi Cohen', 'equipo.jefe', 'Jefe de equipo',
+            'mto-position-team-leader', 'mto-position-worker']])
+        expect(screen.getByRole('link', {name: 'PER-000003 · Yossi Cohen'})).toHaveAttribute('href', `/recursos/personal/${PERSON1}`)
+        expect(dataRows('Con perfil y sin ficha').map(textsOf)).toEqual([['', 'old.user', '', '',
+            'mto-position-worker, mto-position-supervisor']])
+
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        await waitFor(() => expect(reads).toHaveLength(3))
+    })
+
+    it('sin resources-read no se abre ni se pide', async () => {
+        const reads = []
+        server.use(http.get(`${BASE}/reports/position-discrepancies`, ({request}) => {
+            reads.push(new URL(request.url))
+            return HttpResponse.json(REPORT)
+        }))
+        renderRoute('/recursos/discrepancias', {session: loginAs('config.lector')})
+
+        expect(await screen.findByText('No tienes permiso para abrir esta pantalla')).toBeInTheDocument()
+        expect(reads).toEqual([])
     })
 })

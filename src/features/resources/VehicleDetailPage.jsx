@@ -30,6 +30,7 @@ import {useVehicle, useVehicleAction} from './useResources.js'
 import VehicleDocumentsPanel from './VehicleDocumentsPanel.jsx'
 import VehicleEditorModal from './VehicleEditorModal.jsx'
 import VehicleLocationsPanel from './VehicleLocationsPanel.jsx'
+import VehicleRepairsPanel from './VehicleRepairsPanel.jsx'
 
 /** recursos/flota/:vehicleId: la ficha de un vehículo (el port de VehicleDetailView), con key por id. */
 export default function VehicleDetailPage() {
@@ -38,9 +39,10 @@ export default function VehicleDetailPage() {
 }
 
 /**
- * Su modelo, sus datos, «Dónde está» (el tipo, el sitio, la vía y el kp, el acceso, el origen y la hora;
- * uno que va con otro dice con quién y dónde está su portador) y las pestañas «Ubicaciones» y
- * «Documentos» (con su caducidad: es la ficha a la que lleva el aviso de uno que caduca). Registrar
+ * Su modelo, sus datos (también su dispositivo GPS), «Dónde está» (el tipo, el sitio, la vía y el kp, el
+ * acceso, el origen y la hora; uno que va con otro dice con quién y dónde está su portador) y las pestañas
+ * «Ubicaciones», «Documentos» (con su caducidad: es la ficha a la que lleva el aviso de uno que caduca) y
+ * «Taller» (sus reparaciones, que mandan en su estado). Registrar
  * dónde está pide resources-location-write; modificar y escribir sus documentos, resources-fleet-write;
  * retirar y quitar un documento, resources-delete.
  */
@@ -108,7 +110,8 @@ function VehicleDetail({vehicleId}) {
                 <Text size="sm">
                     {join(current.statusReason ? `Motivo: ${current.statusReason}` : null, current.serialNumber ? `N.º serie ${current.serialNumber}` : null,
                         current.manufactureYear ? `Año ${current.manufactureYear}` : null, current.odometerKm == null ? null : `${current.odometerKm} km`,
-                        current.engineHours == null ? null : `${current.engineHours} h de motor`)}
+                        current.engineHours == null ? null : `${current.engineHours} h de motor`,
+                        current.telematicsDeviceId ? `GPS ${current.telematicsDeviceId}` : null)}
                 </Text>
             </Stack>
             <Title order={4}>Dónde está</Title>
@@ -140,6 +143,7 @@ function VehicleDetail({vehicleId}) {
                     render: () => <VehicleLocationsPanel vehicle={current} names={names} readsMaintenance={readsMaintenance}/>},
                 {value: 'documents', label: 'Documentos',
                     render: () => <VehicleDocumentsPanel vehicle={current} canWrite={canWrite} canDelete={canDelete}/>},
+                {value: 'repairs', label: 'Taller', render: () => <VehicleRepairsPanel vehicle={current} canWrite={canWrite}/>},
             ]}/>
             {dialog === 'edit' && <VehicleEditorModal vehicle={current} onClose={close}/>}
             {dialog === 'locate' && <LocationModal vehicle={current} names={names} onClose={close}/>}

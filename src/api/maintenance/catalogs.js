@@ -1,5 +1,7 @@
 import {textOrNull} from '../bodies.js'
 import {apiFetch} from '../http.js'
+import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
+import {TASK_EQUIPMENT} from './enums.js'
 import {maintenancePath} from './values.js'
 
 /**
@@ -9,7 +11,9 @@ import {maintenancePath} from './values.js'
  *   demás, y no tienen versión: base y vehículo a null se borran, así que el null viaja. No hay
  *   borrado: un equipo se retira con active=false. Un código repetido es un 409 TEA-409.
  * - Los tipos de tarea del plan (RG-xx, RP-xx) y las plantillas de inspección los mantiene el
- *   servicio: aquí solo se leen.
+ *   servicio. De un tipo solo se cambia el equipo que exige (requiredEquipment: plataforma aislada,
+ *   puesta a tierra), con maintenance-supervise y un merge-patch con la versión leída: una tarea de ese
+ *   tipo solo se trabaja en un turno que lo lleva (409 SHF-001).
  */
 
 export function listTeams({signal} = {}) {
@@ -28,6 +32,22 @@ export function updateTeam(id, body) {
 /** Los tipos de tarea; los filtros solo viajan si vienen. */
 export function listTaskTypes({functionalGroup = null, requiresFullPossession = null, diagnostic = null} = {}, {signal} = {}) {
     return apiFetch(maintenancePath('task-types'), {query: {functionalGroup, requiresFullPossession, diagnostic}, signal})
+}
+
+/** El equipo exigido de un tipo de tarea (por su código): merge-patch; 409 CON-001 con una versión vieja. */
+export function patchTaskType(code, patch) {
+    return apiFetch(maintenancePath('task-types', code), {method: 'PATCH', json: patch, contentType: MERGE_PATCH})
+}
+
+/**
+ * El equipo exigido, comparado como conjunto: lo que cambió y la versión, o null si nada. Quitarlo todo
+ * viaja a null (el servicio lo deja vaciar). Lo que esta aplicación no conoce se conserva.
+ */
+export function taskTypeEquipmentPatch(type, chosen) {
+    const unknown = (type.requiredEquipment ?? []).filter((equipment) => !TASK_EQUIPMENT.isKnown(equipment))
+    const next = [...unknown, ...chosen.filter((equipment) => TASK_EQUIPMENT.isKnown(equipment))]
+    return buildMergePatch(type, {requiredEquipment: next.length === 0 ? null : next},
+        {fields: ['requiredEquipment'], setFields: ['requiredEquipment'], version: type.version})
 }
 
 /** Todas las versiones de cada plantilla, también las que ya no son la activa. */

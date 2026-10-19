@@ -22,6 +22,8 @@ import {resourcesPath} from './values.js'
  *   caducidad, que no se vacía. Escribir pide resources-fleet-write y quitar (un borrado físico que el
  *   historial guarda), resources-delete. Uno caducado deja el vehículo fuera de los turnos (409 SHF-001
  *   de mto-maintenance).
+ * - Su dispositivo GPS (telematicsDeviceId), opcional y único (409 VEH-409): por él llegan sus posiciones,
+ *   que se ven con origen «GPS». Vaciarlo viaja a null.
  */
 
 export const BY_CODE = Object.freeze(['code,asc'])
@@ -98,6 +100,7 @@ function vehicleValues(values, type) {
         odometerKm: numberOrNull(values.odometerKm),
         engineHours: numberOrNull(values.engineHours),
         notes: textOrNull(values.notes),
+        telematicsDeviceId: textOrNull(values.telematicsDeviceId),
     }
 }
 
@@ -107,7 +110,7 @@ export function newVehicleRequest(values, type) {
 }
 
 const VEHICLE_FIELDS = Object.freeze(['name', 'typeId', 'registrationPlate', 'railVehicleNumber', 'serialNumber', 'manufactureYear', 'owner',
-    'ownerCompany', 'operationalStatus', 'statusReason', 'odometerKm', 'engineHours', 'notes'])
+    'ownerCompany', 'operationalStatus', 'statusReason', 'odometerKm', 'engineHours', 'notes', 'telematicsDeviceId'])
 
 /** La modificación: lo que cambió, lo vaciado a null y la versión. null si no cambió nada. */
 export function vehiclePatch(original, values, type) {

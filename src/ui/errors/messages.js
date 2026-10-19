@@ -33,6 +33,11 @@ export function errorMessage(error) {
         return 'El servicio no acepta tu token: puede que le falte su audiencia. Mira el diagnóstico de Inicio.'
     }
     if (error instanceof ForbiddenError) {
+        // mto-maintenance: el permiso está, pero lo que se escribe es de un EP fuera del ámbito de la
+        // persona (sus equipos de mto-resources). El texto del servicio dice cuál es y cuáles son los suyos.
+        if (error.code === 'SCP-403') {
+            return 'Queda fuera de tu ámbito.' + detail(error)
+        }
         return 'No tienes permiso para esta operación.'
     }
     if (error instanceof NotFoundError) {
@@ -90,6 +95,12 @@ function notFoundMessage(error) {
             return 'Ese tipo de cualificación no existe.'
         case 'INT-404':
             return 'Ese instrumento no existe.'
+        // mto-resources: una ausencia o una reparación que ya no está (otra persona la quitó, o nunca fue
+        // de esa persona o de ese vehículo).
+        case 'ABS-404':
+            return 'Esa ausencia ya no existe: puede que otra persona la haya quitado.'
+        case 'REP-404':
+            return 'Esa reparación no existe.'
         // mto-resources: el punto de acceso a la vía elegido al registrar dónde está un vehículo. Es el
         // maestro de mto-configuration, que llega por evento: puede que lo hayan borrado o que aún no
         // haya llegado. Se relee la lista del desplegable.
@@ -181,6 +192,12 @@ function conflictMessage(error) {
         // mto-resources: las reglas del organigrama (de 2 a 6 linemen, el nivel del padre, la categoria
         // del jefe, una persona en otro equipo) y las de la flota (donde puede estar un vehiculo segun su
         // movilidad, el remolque, un vehiculo retirado). El detalle dice cual.
+        // mto-resources: dos ausencias de la misma persona no se solapan, y una reparación solo admite lo que
+        // su estado deja. Recargar no lo arregla.
+        case 'ABS-001':
+            return 'La persona ya está ausente en esas fechas: cambia esa ausencia en vez de añadir otra.' + detail(error)
+        case 'REP-001':
+            return 'La reparación no admite ese cambio en su estado.' + detail(error)
         case 'UNI-001':
             return 'El organigrama no admite ese cambio.' + detail(error)
         case 'VEH-001':
@@ -197,6 +214,10 @@ function unavailableMessage(error) {
     // mto-maintenance no ha podido hablar con mto-stock: la linea se queda como estaba.
     if (error.code === 'STK-503') {
         return 'El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde.' + detail(error)
+    }
+    // mto-resources no puede leer Keycloak para su informe de puestos: pasará, vale reintentarlo.
+    if (error.code === 'KCK-503') {
+        return 'No se puede leer Keycloak ahora mismo.' + detail(error) + retryIn(error)
     }
     // Un 502 no es transitorio (mto-users sin SMTP, por ejemplo): su detalle es lo unico que lo explica.
     if (error.status === 502) {

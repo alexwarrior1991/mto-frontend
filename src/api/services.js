@@ -58,7 +58,10 @@ export const SERVICES = Object.freeze([
         name: 'mto-resources',
         clientId: 'mto-resources-api',
         prefix: '/api/resources',
-        roles: ['resources-read', 'resources-write', 'resources-fleet-write', 'resources-location-write', 'resources-delete'],
+        // resources-telematics-write es de la pasarela de los GPS (una cuenta de servicio): está en el catálogo
+        // porque es un rol del cliente, pero ninguna pantalla lo pide.
+        roles: ['resources-read', 'resources-write', 'resources-fleet-write', 'resources-location-write', 'resources-delete',
+            'resources-telematics-write'],
         probe: {permission: 'resources-read', path: '/api/resources/vehicle-types', query: {page: 0, size: 1}},
     },
 ])

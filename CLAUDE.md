@@ -111,8 +111,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `isPendingDefect`…);
   - `maintenance/assets.js` (la búsqueda, el alta de un tramo, `assetPatch`, desactivar con `DELETE`
     y reactivar; quién lo desactivó, `isDisabledAtSource` e `isDisabledLocally`, y `canReactivate`) y
-    `maintenance/catalogs.js` (los equipos, que se escriben enteros, los tipos de tarea y las
-    plantillas de inspección);
+    `maintenance/catalogs.js` (los equipos, que se escriben enteros, los tipos de tarea y el equipo que
+    exige cada uno, `taskTypeEquipmentPatch`, y las plantillas de inspección);
   - `maintenance/orders.js` (las órdenes, sus transiciones con su cuerpo, `transitionRequest`, y sus
     estados; `orderPatch`, con lo que admite su estado), `maintenance/tasks.js` (las tareas de una
     orden, generarlas, iniciarlas y completarlas, `completeRequest`, y su checklist) y
@@ -142,7 +142,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
   pueden colgar, `headCategories`, `LINEMAN_CATEGORIES` y la regla de 2 a 6, la movilidad con sus
   categorías, los tipos de ubicación que admite cada una, `recordableKinds`, y `QUALIFICATION_KIND`,
-  `VEHICLE_DOCUMENT_KIND`, `INSTRUMENT_KIND` y `ACCESS_POINT_KIND`, todos tolerantes),
+  `VEHICLE_DOCUMENT_KIND`, `INSTRUMENT_KIND`, `ACCESS_POINT_KIND`, `ABSENCE_KIND`, `REPAIR_KIND` y
+  `REPAIR_STATUS`, todos tolerantes),
   `resources/people.js`, `resources/units.js` (el árbol, una unidad, sus hijas y sus linemen,
   `newUnitRequest` y `unitPatch`, con el vehículo por defecto de un equipo), `resources/fleet.js` (modelos
   con sus cifras por sección, `VEHICLE_TYPE_FIGURES`, y la habilitación de su conductor, sitios de
@@ -150,10 +151,15 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `mto-configuration`), `resources/vehicles.js` (los vehículos, sus ubicaciones, `locationFields` y
   `locationRequest`, con `accessPointId`, y `accessPointText`, el punto de una ubicación: el de
   `trackAccessPoint`, o el texto libre de `accessPoint`; el tablero, `fleetPositions`, por vía y kp con el vehículo para desempatar, y
-  `whereOf`, y sus documentos con caducidad, `offeredDocumentKinds`), `resources/qualifications.js` (el
+  `whereOf`, y sus documentos con caducidad, `offeredDocumentKinds`; también su dispositivo GPS,
+  `telematicsDeviceId`), `resources/qualifications.js` (el
   catálogo de tipos de cualificación, `takesDrivingLicence`, y las de cada persona,
-  `offeredQualificationTypes`) y `resources/instruments.js` (los instrumentos con su calibración, y su
-  historial).
+  `offeredQualificationTypes`), `resources/instruments.js` (los instrumentos con su calibración, y su
+  historial), `resources/absences.js` (las ausencias de una persona, `absencePatch` y `absenceDays`),
+  `resources/repairs.js` (el taller de un vehículo: sus reparaciones, cada transición su `POST`,
+  `repairActions`, lo que admite cada estado, y `repairPatch`, lo que su estado deja cambiar) y
+  `resources/reports.js` (el informe de puestos y perfiles, `positionDiscrepancies`, y sus cuatro
+  secciones, `DISCREPANCY_SECTIONS`).
 - `auth/` — OIDC con `oidc-client-ts` + `react-oidc-context`. `userManager.js` (token en memoria,
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
@@ -265,7 +271,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     el defecto y la orden correctiva que genera), y `DefectsPage` y `DefectDetailPage`
     (`DefectEditorModal` y `DefectTransitionModals`);
   - `ReportsPage` (el avance y el mes, con sus descargas) y los catálogos: `TeamsPage` (con
-    `TeamEditorModal`), `TaskTypesPage` e `InspectionTemplatesPage`;
+    `TeamEditorModal`), `TaskTypesPage` (con `TaskEquipmentModal`, el equipo que exige un tipo) e
+    `InspectionTemplatesPage`;
   - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos, los tipos de tarea y
     las referencias de `mto-configuration`), `useMaintenance.js` (las claves `['maintenance', …]`,
     las consultas y las escrituras con lo que releen), `useMaintenanceNames.js` (el port de
@@ -289,7 +296,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
 
   `resources/` es el port de `ui/resources`:
   - `PeoplePage` (con `?unitId=`) y `PersonEditorModal`; `PersonDetailPage` (la ficha, con `key` por id)
-    con `PersonQualificationsPanel` y `QualificationModal`;
+    con `PersonQualificationsPanel` y `QualificationModal`, y `PersonAbsencesPanel` y `AbsenceModal`;
   - `QualificationTypesPage` y `QualificationTypeEditorModal` (el catálogo de tipos de cualificación), e
     `InstrumentsPage` e `InstrumentEditorModal`; `ExpiryBadge`, cómo está una caducidad en una celda;
   - `OrganizationPage` (el árbol en `TreeTable`) y `UnitDetailPage` (la ficha, con `key` por id), con
@@ -297,7 +304,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `VehicleTypesPage` y `VehicleTypeEditorModal` (por secciones según la movilidad),
     `ParkingSitesPage` y `ParkingSiteEditorModal`;
   - `VehiclesPage`, `VehicleEditorModal`, `VehicleDetailPage` con `VehicleLocationsPanel`, `LocationModal`,
-    `VehicleDocumentsPanel` y `VehicleDocumentModal`, y `FleetBoardPage`, el tablero;
+    `VehicleDocumentsPanel` y `VehicleDocumentModal`, y `VehicleRepairsPanel` y `RepairModal` (el taller), y
+    `FleetBoardPage`, el tablero;
+  - `PositionDiscrepanciesPage`, puestos y perfiles (`recursos/discrepancias`);
   - `ResourcesPickers.jsx` (`PersonSelect`, `PeopleMultiSelect`, `VehiclesMultiSelect` e
     `InstrumentsMultiSelect`, que usan también los turnos de mantenimiento), `useResources.js` (las claves
     `['resources', …]`), `resourcesForms.js`, `resourcesTexts.js` (también `expiryText`) y
@@ -355,7 +364,9 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `VDO-409`, lo que una persona o un vehículo ya tienen; los 409 de estado de mantenimiento no piden recargar; un 422
   sin errores por campo es una regla de negocio; `NTF-404` y `ACT-404` dicen que esa notificación o
   esa línea ya no existen, y `TAP-404`, que ese punto de acceso ya no está o aún no ha llegado a
-  Recursos). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  Recursos; `ABS-001` y `REP-001` tampoco piden recargar; el 403 `SCP-403` de mantenimiento no es «sin
+  permiso»: es «fuera de tu ámbito», con el detalle del servicio, que dice el EP; y el 503 `KCK-503`,
+  Keycloak que Recursos no puede leer ahora). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -584,6 +595,38 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   documento lleva a la ficha del vehículo y el de una calibración, a los instrumentos. Un modelo dice la
   habilitación que exige a su conductor: en el alta, vacía no viaja y el servicio pone la de su
   movilidad y su permiso; al modificar, vaciarla viaja a `null`; la leída se ve aunque se haya retirado.
+- **Las ausencias de una persona y el taller de un vehículo son de `mto-resources`, y mantenimiento solo
+  recibe sus fechas.** La ficha de una persona lleva «Ausencias» (`PersonAbsencesPanel`): su clase, desde y
+  hasta (los dos incluidos) y cuántos días; el alta y la modificación con `resources-write` (merge-patch con
+  la versión leída), quitarla con `resources-delete` y confirmación, y una de una clase desconocida no
+  ofrece nada. Lo evidente (la clase, las dos fechas, un fin no anterior al inicio) se comprueba antes de
+  llamar; un solape es el 409 `ABS-001`, con el diálogo abierto. La ficha de un vehículo lleva «Taller»
+  (`VehicleRepairsPanel`), con `resources-fleet-write`: una reparación nace planificada (dice desde cuándo)
+  o «Abierta ahora»; cada fila ofrece lo que admite su estado (`repairActions`: planificada, abrir,
+  modificar y cancelar; abierta, cerrar, modificar y cancelar; cerrada o cancelada, modificar; una
+  desconocida, nada), y abrir, cerrar y cancelar se confirman diciendo su efecto en el vehículo (una que
+  inmoviliza, abierta, lo deja «En reparación»; cerrar o cancelar la última lo devuelve a «Operativo»). Al
+  modificar, las fechas previstas solo cambian planificada o abierta y si inmoviliza, solo planificada
+  (`repairPatch`); lo demás es el 409 `REP-001`. Guardar o mover una reparación relee todo lo de recursos,
+  también la cabecera del vehículo. Que una persona ausente o un vehículo en el taller no entren en un turno
+  de esas fechas lo dice mantenimiento con su 409 `SHF-001`.
+- **El dispositivo GPS de un vehículo es un campo más del vehículo** («Dispositivo GPS»,
+  `telematicsDeviceId`, letras, cifras y `.:-_`, 64 como mucho, comprobado antes de llamar; vaciarlo viaja a
+  `null`). Por él llegan sus posiciones de carretera, que se leen con el origen «GPS». Mandarlas es de la
+  cuenta de servicio de la pasarela (`resources-telematics-write`, que ningún perfil lleva y que aquí no
+  abre nada).
+- **Puestos y perfiles se calcula en `mto-resources` al pedirlo** (`recursos/discrepancias`, con
+  `resources-read`): dónde no casan el perfil de puesto de Keycloak y la categoría de la ficha, en cuatro
+  secciones («Con otro perfil», «Con varios perfiles», «Sin perfil de puesto», «Con perfil y sin ficha»),
+  cada persona con el enlace a su ficha y «Nada» en una sección vacía. Si Keycloak no responde (503
+  `KCK-503`), se dice en la pantalla con «Reintentar» y sin aviso aparte; «Actualizar» lo vuelve a pedir.
+  Dice, no arregla.
+- **El equipo que exige un tipo de tarea lo cambia quien supervisa** (`TaskTypesPage`, columna «Equipo
+  exigido» y su botón «Equipo de …», con `maintenance-supervise` **y** `maintenance-write`):
+  `PATCH /task-types/{code}` merge-patch con la versión leída, el equipo como conjunto, quitarlo todo
+  viaja a `null` y lo que esta aplicación no conoce se conserva (`taskTypeEquipmentPatch`); una versión
+  vieja es el 409 `CON-001` con el diálogo abierto. Que una tarea de ese tipo entre en un turno que no lo
+  lleva es el 409 `SHF-001` del servicio.
 - **Un equipo de mantenimiento que llega de `mto-resources` se lee** (`isSynchronizedTeam`): su fila
   lleva a su unidad y a su vehículo, no a «Modificar», que sería 409 `TEA-001`.
 - **La dotación, los vehículos y los instrumentos de un turno son de `mto-resources`.** Con
@@ -737,6 +780,11 @@ nunca `A` ni `B`, y lo desactiva o retira todo al acabar. Su vehículo bivial se
 de acceso de su vía, que da de alta `config.responsable` por la API y llega a `mto-resources` por evento
 (`expect.poll`), y su ficha lo nombra. El jefe de ese turno lleva la habilitación
 `RR-OPERATOR` (la que exige su vehículo bivial para iniciarlo), y su ficha enseña sus cualificaciones y
-da de alta otra en pantalla. El CI construye además la imagen y la prueba de humo
+da de alta otra en pantalla. Además da de alta en pantalla una ausencia de una persona sin turno y espera
+(`expect.poll`) a que mantenimiento, cuando le llega, no la deje en un turno de esas fechas (409 `SHF-001`;
+mientras no llega, el turno de prueba se cancela en el acto); abre una reparación «ahora» que deja el
+vehículo «En reparación» y lo devuelve a «Operativo» al cerrarla; y abre puestos y perfiles con sus cuatro
+secciones. Ninguna de sus personas lleva usuario: con el de un usuario de desarrollo, el ámbito por EP de
+mantenimiento limitaría a ese usuario a los EP de sus equipos. El CI construye además la imagen y la prueba de humo
 (`/config.json`, la CSP, el fallback de la SPA, el 503 sin gateway y que sin su configuración no
 arranca).

@@ -243,3 +243,9 @@ export function isSyncFailed(status) {
 export function inspectionFoundSomething(result) {
     return result === 'MINOR_DEFECT' || result === 'MAJOR_DEFECT' || result === 'UNSAFE'
 }
+
+/** El equipo que exige un tipo de tarea: la tarea solo se trabaja en un turno que lo lleva (409 SHF-001). */
+export const TASK_EQUIPMENT = defineEnum({
+    INSULATED_PLATFORM: 'Plataforma aislada',
+    EARTHING: 'Puesta a tierra',
+})

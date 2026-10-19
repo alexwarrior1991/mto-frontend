@@ -2,7 +2,7 @@ import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack
 import {useEffect, useRef} from 'react'
 import {NotFoundError} from '../../api/errors.js'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
-import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, updateTeam} from '../../api/maintenance/catalogs.js'
+import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, patchTaskType, updateTeam} from '../../api/maintenance/catalogs.js'
 import {listOrderMaterials, patchMaterial, registerMaterial, removeMaterial, syncMaterial} from '../../api/maintenance/materials.js'
 import {createDefect, getDefect, listDefectHistory, patchDefect, searchDefects, transitionDefect} from '../../api/maintenance/defects.js'
 import {isOpenOrder} from '../../api/maintenance/enums.js'
@@ -85,6 +85,19 @@ export function useTaskTypes(functionalGroup = null) {
         queryKey: maintenanceKey('task-types', functionalGroup),
         queryFn: ({signal}) => listTaskTypes({functionalGroup}, {signal}),
         staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * El equipo exigido de un tipo de tarea, desde su diálogo, que trata él mismo sus errores (CON-001 con el
+ * diálogo abierto). Se relee el catálogo.
+ */
+export function useSaveTaskTypeEquipment() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({code, patch}) => patchTaskType(code, patch),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: maintenanceKey('task-types')}),
     })
 }
 

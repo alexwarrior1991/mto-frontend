@@ -251,7 +251,7 @@ export function recordableKinds(mobility) {
 
 export const VEHICLE_ATTACHMENT = defineEnum({TOWED: 'Remolcado', CARRIED: 'Transportado'})
 
-export const LOCATION_SOURCE = defineEnum({MANUAL: 'A mano', SHIFT: 'Turno', FIELD: 'Campo', TELEMATICS: 'Telemática'})
+export const LOCATION_SOURCE = defineEnum({MANUAL: 'A mano', SHIFT: 'Turno', FIELD: 'Campo', TELEMATICS: 'GPS'})
 
 /**
  * El tipo de un punto de acceso a la vía: el maestro de mto-configuration, que mto-resources guarda de su
@@ -286,4 +286,30 @@ export const INSTRUMENT_KIND = defineEnum({
     VOLTAGE_DETECTOR: 'Detector de tensión',
     MEASURING: 'Equipo de medida',
     OTHER: 'Otro',
+})
+
+/** Por qué no está una persona. Solo lo ve quien lee mto-resources: el evento lleva el periodo, nunca la clase. */
+export const ABSENCE_KIND = defineEnum({
+    VACATION: 'Vacaciones',
+    SICK_LEAVE: 'Baja',
+    TRAINING: 'Formación',
+    PERSONAL: 'Asuntos propios',
+    OTHER: 'Otra',
+})
+
+/** Qué se le hace a un vehículo en el taller. */
+export const REPAIR_KIND = defineEnum({
+    BREAKDOWN: 'Avería',
+    SERVICE: 'Revisión',
+    INSPECTION: 'Inspección',
+    MODIFICATION: 'Modificación',
+    OTHER: 'Otra',
+})
+
+/** PLANNED → OPEN → CLOSED, o CANCELLED desde las dos primeras. */
+export const REPAIR_STATUS = defineEnum({
+    PLANNED: 'Planificada',
+    OPEN: 'Abierta',
+    CLOSED: 'Cerrada',
+    CANCELLED: 'Cancelada',
 })
