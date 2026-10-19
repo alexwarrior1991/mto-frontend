@@ -171,6 +171,14 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     que entró el vehículo entre los activos de esa vía que conoce `mto-resources`, y la ubicación lo
     nombra. Si no le vale (no admite biviales, no es de esa vía, no es preparado para un modelo que lo
     exige o no aguanta su peso), lo dice el servicio con el diálogo abierto.
+  - Disponibilidad, taller y puestos: la ficha de una persona lleva sus **ausencias** y la de un
+    vehículo, su **taller** (reparaciones planificadas o abiertas ahora, que mandan en su estado), y
+    mantenimiento no deja en un turno a quien está ausente ni el vehículo que está en el taller esas
+    fechas. Un vehículo dice su **dispositivo GPS**, y sus posiciones de carretera se leen con el origen
+    «GPS». **Puestos y perfiles** (`recursos/discrepancias`) dice dónde no casan el perfil de puesto de
+    Keycloak y la categoría de cada persona. En mantenimiento, quien supervisa dice el **equipo que exige**
+    cada tipo de tarea (plataforma aislada, puesta a tierra), y lo que queda fuera del ámbito de una
+    persona (los EP de sus equipos) lo dice el servicio con su motivo.
 
 | Fase | Contenido | Equivale en el backoffice |
 |---|---|---|
@@ -183,7 +191,7 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
 | F7 | Notificaciones: la campana, la bandeja, la actividad y los accesos | F9 |
 | F8 | Convivencia: las dos aplicaciones en la plataforma, el salto entre ellas y el backoffice al día | — |
 | F9 | Las diferencias con el backoffice, cerradas, y el e2e de las dos aplicaciones en el CI | — |
-| F10 | Recursos (personal, organigrama, flota y tablero) y mantenimiento adaptado a ellos; cualificaciones, documentos, instrumentos y sus caducidades | F10 |
+| F10 | Recursos (personal, organigrama, flota y tablero) y mantenimiento adaptado a ellos; cualificaciones, documentos, instrumentos y sus caducidades; ausencias, taller, GPS, puestos y perfiles y el equipo exigido de un tipo de tarea | F10 |
 
 ## Probar en local
 
@@ -424,12 +432,20 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     del conductor**. La ficha de un vehículo tiene su pestaña **Documentos** (ITV, seguro…) y
     **Instrumentos** lista las pértigas, los detectores y los equipos de medida con su calibración,
     también los que caducan antes de una fecha.
+  - En la ficha de una persona, **Ausencias** («Nueva ausencia»: la clase, desde y hasta, los dos
+    incluidos). En la de un vehículo, **Taller**: «Nueva reparación» la planifica o la abre ahora; abierta,
+    deja el vehículo «En reparación», y «Cerrar» lo devuelve a «Operativo». El editor del vehículo lleva su
+    «Dispositivo GPS».
+  - **Puestos y perfiles** compara el perfil de puesto de Keycloak con la categoría de cada persona, en
+    cuatro secciones; si Keycloak no responde, lo dice ahí mismo con «Reintentar».
   - En mantenimiento, con `mantenimiento.responsable`: un equipo de `mto-resources` no se modifica en
     **Equipos** (su fila lleva al organigrama); un **turno** de ese equipo copia su jefe, sus linemen y
     su vehículo, elige sus instrumentos, y «Cerrar» pregunta dónde queda cada vehículo, que después sale
     en su ficha en Recursos como dejado por el turno. Para iniciarlo, nada de la dotación, de sus
     vehículos ni de sus instrumentos puede estar caducado, y cada vehículo autopropulsado que exige una
-    habilitación necesita a alguien distinto de la dotación que la tenga.
+    habilitación necesita a alguien distinto de la dotación que la tenga. Una persona ausente o un vehículo
+    en el taller esa fecha tampoco entran. En **Tipos de tarea**, «Equipo» (con `maintenance-supervise`)
+    dice el equipo que exige cada tipo.
 - **Notificaciones** (con `usuarios.responsable`, cuyo perfil recibe los avisos de las cuentas y lee el
   registro y los accesos; `notificacion.lector` lee la bandeja y el registro, y `notificacion.auditor`,
   además, los accesos):

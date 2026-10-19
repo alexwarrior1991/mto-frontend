@@ -13,6 +13,7 @@ import {errorMessage} from '../../ui/errors/messages.js'
 import LazyTabs from '../../ui/LazyTabs.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
+import PersonAbsencesPanel from './PersonAbsencesPanel.jsx'
 import PersonEditorModal from './PersonEditorModal.jsx'
 import PersonQualificationsPanel from './PersonQualificationsPanel.jsx'
 import {PEOPLE_PATH} from './resourcesRoutes.js'
@@ -28,8 +29,8 @@ export default function PersonDetailPage() {
 /**
  * La cabecera de una persona (su código y su nombre, su categoría, su empresa, su usuario y si está
  * activa), con lo que la lista ofrece de ella: modificar y reactivar piden resources-write; desactivar,
- * resources-delete y confirmación. La pestaña «Cualificaciones» pide sus datos al abrirse. Es la ficha a
- * la que lleva el aviso de una cualificación que caduca.
+ * resources-delete y confirmación. Las pestañas «Cualificaciones» y «Ausencias» piden sus datos al
+ * abrirse. Es la ficha a la que lleva el aviso de una cualificación que caduca.
  */
 function PersonDetail({personId}) {
     const session = useSession()
@@ -91,8 +92,12 @@ function PersonDetail({personId}) {
                     <Button leftSection={<IconCircleCheck size={16}/>} loading={acting.isPending} onClick={reactivate}>Reactivar</Button>
                 )}
             </Group>
-            <LazyTabs tabs={[{value: 'qualifications', label: 'Cualificaciones',
-                render: () => <PersonQualificationsPanel person={current} canWrite={canWrite} canDelete={canDelete}/>}]}/>
+            <LazyTabs tabs={[
+                {value: 'qualifications', label: 'Cualificaciones',
+                    render: () => <PersonQualificationsPanel person={current} canWrite={canWrite} canDelete={canDelete}/>},
+                {value: 'absences', label: 'Ausencias',
+                    render: () => <PersonAbsencesPanel person={current} canWrite={canWrite} canDelete={canDelete}/>},
+            ]}/>
             {dialog === 'edit' && <PersonEditorModal person={current} onClose={close}/>}
             {dialog === 'history' && (
                 <RevisionsModal label={current.code} path={personRevisionsPath(current.id)} describe={describePerson} onClose={close}/>

@@ -39,6 +39,7 @@ import {
     IconTrain,
     IconTruck,
     IconUserCog,
+    IconUserQuestion,
     IconUsers,
     IconUsersGroup,
 } from '@tabler/icons-react'
@@ -84,6 +85,7 @@ export const MENU_ICONS = Object.freeze({
     parkingSites: IconParking,
     qualifications: IconCertificate,
     instruments: IconRuler2,
+    discrepancies: IconUserQuestion,
     notifications: IconBell,
     activity: IconActivity,
     access: IconLogin,

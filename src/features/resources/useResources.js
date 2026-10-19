@@ -19,6 +19,7 @@ import {
     retireInstrument,
     searchInstruments,
 } from '../../api/resources/instruments.js'
+import {addAbsence, listAbsences, patchAbsence, removeAbsence} from '../../api/resources/absences.js'
 import {createPerson, deactivatePerson, getPerson, patchPerson, reactivatePerson, searchPeople} from '../../api/resources/people.js'
 import {
     addPersonQualification,
@@ -32,6 +33,8 @@ import {
     retireQualificationType,
     searchQualificationTypes,
 } from '../../api/resources/qualifications.js'
+import {createRepair, listRepairs, patchRepair, transitionRepair} from '../../api/resources/repairs.js'
+import {positionDiscrepancies} from '../../api/resources/reports.js'
 import {
     addVehicleDocument,
     createVehicle,
@@ -148,6 +151,37 @@ export function useRemovePersonQualification(personId) {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (qualification) => removePersonQualification(personId, qualification.id),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Las ausencias de una persona, enteras. */
+export function usePersonAbsences(personId) {
+    return useQuery({
+        queryKey: resourcesKey('people', 'absences', personId),
+        queryFn: ({signal}) => listAbsences(personId, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * El alta o la modificación de una ausencia, desde su diálogo, que trata él mismo sus errores (el 409
+ * ABS-001 con el diálogo abierto). Cambia la persona (su versión y lo que publica): se relee todo el módulo.
+ */
+export function useSaveAbsence(personId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? addAbsence(personId, body) : patchAbsence(personId, id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Quitar una ausencia (DELETE); haya ido bien o no, se relee. */
+export function useRemoveAbsence(personId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (absence) => removeAbsence(personId, absence.id),
         onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
     })
 }
@@ -411,6 +445,54 @@ export function useSaveVehicleDocument(vehicleId) {
         mutationFn: ({id = null, body}) => (id === null ? addVehicleDocument(vehicleId, body) : patchVehicleDocument(vehicleId, id, body)),
         meta: {notifyError: false},
         onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/** Las reparaciones de un vehículo, enteras, la más reciente primero. */
+export function useVehicleRepairs(vehicleId) {
+    return useQuery({
+        queryKey: resourcesKey('vehicles', 'repairs', vehicleId),
+        queryFn: ({signal}) => listRepairs(vehicleId, {signal}),
+        staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * El alta o la modificación de una reparación, desde su diálogo, que trata él mismo sus errores. Puede
+ * cambiar el estado del vehículo (su cabecera): se relee todo el módulo.
+ */
+export function useSaveRepair(vehicleId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id = null, body}) => (id === null ? createRepair(vehicleId, body) : patchRepair(vehicleId, id, body)),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/**
+ * Abrir, cerrar o cancelar una reparación; haya ido bien o no, se relee (la reparación y el estado del
+ * vehículo): si el servicio dice que no (409 REP-001), se enseña cómo está.
+ */
+export function useRepairTransition(vehicleId) {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({repair, transition}) => transitionRepair(vehicleId, repair.id, transition),
+        onSettled: () => queryClient.invalidateQueries({queryKey: resourcesKey()}),
+    })
+}
+
+/**
+ * El informe de puestos y perfiles. Su fallo lo enseña la pantalla en su sitio, con «Reintentar» (un
+ * Keycloak que no responde es el 503 KCK-503): no se avisa.
+ */
+export function usePositionDiscrepancies() {
+    return useQuery({
+        queryKey: resourcesKey('reports', 'position-discrepancies'),
+        queryFn: ({signal}) => positionDiscrepancies({signal}),
+        staleTime: NOT_FRESH,
+        retry: false,
+        meta: {notifyError: false},
     })
 }
 

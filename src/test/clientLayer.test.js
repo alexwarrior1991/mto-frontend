@@ -82,7 +82,16 @@ import {
     searchAssets,
     trackSectionRequest,
 } from '../api/maintenance/assets.js'
-import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, teamRequest, updateTeam} from '../api/maintenance/catalogs.js'
+import {
+    createTeam,
+    listInspectionTemplates,
+    listTaskTypes,
+    listTeams,
+    patchTaskType,
+    taskTypeEquipmentPatch,
+    teamRequest,
+    updateTeam,
+} from '../api/maintenance/catalogs.js'
 import {
     createDefect,
     defectPatch,
@@ -104,6 +113,7 @@ import {
     PRIORITY,
     STOCK_REQUEST,
     STOCK_SYNC_STATUS,
+    TASK_EQUIPMENT,
     TASK_STATUS,
 } from '../api/maintenance/enums.js'
 import {
@@ -212,7 +222,9 @@ import {actorText, subjectText} from '../api/notification/values.js'
 import {hasNextOffsetPage, sortParam, sortWithTieBreak, toOffsetParams, toPage, toPageParams, toUsersPage, USERS_MAX_PAGE} from '../api/paging.js'
 import {runProbe, SERVICE_PROBES} from '../api/probes.js'
 import {listRevisions, REVISION_OPERATION, REVISIONS_PAGE_SIZE} from '../api/revisions.js'
+import {absenceDays, absenceFormValues, absencePatch, absenceRequest, addAbsence, listAbsences, patchAbsence, removeAbsence} from '../api/resources/absences.js'
 import {
+    ABSENCE_KIND,
     ACCESS_POINT_KIND,
     canHangFrom,
     capabilityLabel,
@@ -224,9 +236,12 @@ import {
     INSTRUMENT_KIND,
     LINEMAN_CATEGORIES,
     LOCATION_KIND,
+    LOCATION_SOURCE,
     PERSON_CATEGORY,
     QUALIFICATION_KIND,
     recordableKinds,
+    REPAIR_KIND,
+    REPAIR_STATUS,
     UNIT_KIND,
     VEHICLE_CATEGORY,
     VEHICLE_DOCUMENT_KIND,
@@ -313,6 +328,18 @@ import {
     unitRevisionsPath,
 } from '../api/resources/units.js'
 import {daysBetween, EXPIRY_WARNING_DAYS, expiryState, personLabel, unitLabel} from '../api/resources/values.js'
+import {
+    createRepair,
+    isLiveRepair,
+    listRepairs,
+    patchRepair,
+    repairActions,
+    repairFormValues,
+    repairPatch,
+    repairRequest,
+    transitionRepair,
+} from '../api/resources/repairs.js'
+import {DISCREPANCY_SECTIONS, positionDiscrepancies} from '../api/resources/reports.js'
 import {
     accessPointText,
     addVehicleDocument,
@@ -837,6 +864,24 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Ese documento ya no existe: puede que otra persona lo haya quitado.')
         expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'QTY-404'})}))).toBe('Ese tipo de cualificación no existe.')
         expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'INT-404'})}))).toBe('Ese instrumento no existe.')
+    })
+
+    it('fase 5: las ausencias y el taller no piden recargar, el ámbito por EP dice el del servicio y Keycloak caído se reintenta', () => {
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'ABS-001', detail: 'Avi Levi is already absent from 2026-11-02 to 2026-11-13'})})))
+            .toBe('La persona ya está ausente en esas fechas: cambia esa ausencia en vez de añadir otra. Avi Levi is already absent from 2026-11-02 to 2026-11-13')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'REP-001', detail: 'Repair REP-000001 is PLANNED: it cannot become CLOSED'})})))
+            .toBe('La reparación no admite ese cambio en su estado. Repair REP-000001 is PLANNED: it cannot become CLOSED')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'ABS-404'})})))
+            .toBe('Esa ausencia ya no existe: puede que otra persona la haya quitado.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'REP-404'})}))).toBe('Esa reparación no existe.')
+        const outOfScope = new ForbiddenError(403, {problem: problem({code: 'SCP-403', detail: 'MO-000012 is in execution package 14, outside the scope of Eli Katz (PER-000010) (4, 5)'})})
+        expect(errorMessage(outOfScope))
+            .toBe('Queda fuera de tu ámbito. MO-000012 is in execution package 14, outside the scope of Eli Katz (PER-000010) (4, 5)')
+        expect(errorMessage(new ForbiddenError(403, {problem: problem({code: 'AUTH-403'})}))).toBe('No tienes permiso para esta operación.')
+        expect(errorMessage(new UnavailableError(503, {problem: problem({code: 'KCK-503', detail: 'Keycloak answered 500'})})))
+            .toBe('No se puede leer Keycloak ahora mismo. Keycloak answered 500 Inténtalo más tarde.')
+        expect(errorMessage(new UnavailableError(503, {problem: problem({code: 'KCK-503'}), retryAfterSeconds: 30})))
+            .toBe('No se puede leer Keycloak ahora mismo. Inténtalo en 30 s.')
     })
 
     it('mto-users: un usuario repetido no pide recargar, una sesión o una credencial ajenas se dicen así y el KC-400 trae el texto de Keycloak', () => {
@@ -2373,6 +2418,23 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(templates[0].items[0].code).toBe('P-01')
     })
 
+    it('el equipo exigido de un tipo de tarea viaja como conjunto con su versión, quitarlo todo es null y lo desconocido se conserva', async () => {
+        useToken()
+        const type = {code: 'RG-05', requiredEquipment: ['EARTHING', 'INSULATED_PLATFORM'], version: 3}
+        const patches = record('patch', `${BASE}/task-types/:code`, () => HttpResponse.json(type))
+
+        await patchTaskType('RG-05', taskTypeEquipmentPatch(type, ['EARTHING']))
+
+        expect(patches[0].url.pathname).toBe(`${BASE}/task-types/RG-05`)
+        expect([patches[0].headers.get('content-type'), json(patches[0])]).toEqual([MERGE_PATCH, {requiredEquipment: ['EARTHING'], version: 3}])
+        expect(taskTypeEquipmentPatch(type, ['INSULATED_PLATFORM', 'EARTHING'])).toBeNull()
+        expect(taskTypeEquipmentPatch(type, [])).toEqual({requiredEquipment: null, version: 3})
+        expect(taskTypeEquipmentPatch({code: 'RG-01', requiredEquipment: [], version: 0}, [])).toBeNull()
+        expect(taskTypeEquipmentPatch({code: 'RG-06', requiredEquipment: ['CRANE_LICENCE', 'EARTHING'], version: 1}, []))
+            .toEqual({requiredEquipment: ['CRANE_LICENCE'], version: 1})
+        expect(TASK_EQUIPMENT.label('CRANE_LICENCE')).toBe('Desconocido')
+    })
+
     it('el ciclo de una orden: el alta sin lo vacío, la modificación con lo cambiado y cada transición con su cuerpo', async () => {
         useToken()
         const posts = record('post', `${BASE}/orders`, () => HttpResponse.json(order('DRAFT'), {status: 201}))
@@ -3350,6 +3412,99 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
         expect(VEHICLE_DOCUMENT_KIND.label(list[1].kind)).toBe('Desconocido')
         expect(offeredDocumentKinds(VEHICLE_DOCUMENT_KIND.selectable(), list).map((option) => option.value))
             .toEqual(['RAIL_INSPECTION', 'INSURANCE', 'CRANE_CERTIFICATE', 'PLATFORM_CERTIFICATE', 'OTHER'])
+    })
+
+    it('las ausencias de una persona: la lista, el alta sin lo vacío, la modificación con la versión, quitar y los días que dura', async () => {
+        useToken()
+        const PERSON = '5f6a7b8c-0000-4000-8000-000000000001'
+        const ABSENCE = 'cd2e3f40-0000-4000-8000-000000000001'
+        const absence = {id: ABSENCE, personId: PERSON, kind: 'VACATION', startsOn: '2026-11-02', endsOn: '2026-11-13', notes: 'Otoño', version: 2}
+        const lists = record('get', `${BASE}/people/:id/absences`, () => HttpResponse.json([absence, {...absence, id: 'x', kind: 'SABBATICAL'}]))
+        const posts = record('post', `${BASE}/people/:id/absences`, () => HttpResponse.json(absence, {status: 201}))
+        const patches = record('patch', `${BASE}/people/:id/absences/:absenceId`, () => HttpResponse.json(absence))
+        const deletes = record('delete', `${BASE}/people/:id/absences/:absenceId`, () => new HttpResponse(null, {status: 204}))
+
+        const list = await listAbsences(PERSON)
+        await addAbsence(PERSON, absenceRequest({kind: 'SICK_LEAVE', startsOn: '2026-12-01', endsOn: '2026-12-03', notes: ' '}))
+        const values = absenceFormValues(absence)
+        await patchAbsence(PERSON, ABSENCE, absencePatch(absence, {...values, endsOn: '2026-11-20', notes: ''}))
+        await removeAbsence(PERSON, ABSENCE)
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/people/${PERSON}/absences`)
+        expect(json(posts[0])).toEqual({kind: 'SICK_LEAVE', startsOn: '2026-12-01', endsOn: '2026-12-03'})
+        expect(patches[0].url.pathname).toBe(`${BASE}/people/${PERSON}/absences/${ABSENCE}`)
+        expect([patches[0].headers.get('content-type'), json(patches[0])]).toEqual([MERGE_PATCH, {endsOn: '2026-11-20', notes: null, version: 2}])
+        expect(deletes[0].url.pathname).toBe(`${BASE}/people/${PERSON}/absences/${ABSENCE}`)
+        expect(absencePatch(absence, values)).toBeNull()
+        expect(absenceDays(absence)).toBe(12)
+        expect(absenceDays({startsOn: '2026-11-02', endsOn: '2026-11-02'})).toBe(1)
+        expect(ABSENCE_KIND.label(list[1].kind)).toBe('Desconocido')
+    })
+
+    it('el taller de un vehículo: planificar o abrir, modificar con lo que su estado deja, cada transición su POST y lo que admite cada estado', async () => {
+        useToken()
+        const VEHICLE = '9d0e1f20-0000-4000-8000-000000000002'
+        const REPAIR = 'de3f4051-0000-4000-8000-000000000001'
+        const open = {id: REPAIR, code: 'REP-000007', vehicleId: VEHICLE, kind: 'BREAKDOWN', status: 'OPEN', immobilises: true, description: 'Fuga',
+            workshop: null, plannedFrom: null, plannedTo: '2026-10-24', openedAt: '2026-10-19T06:10:00Z', closedAt: null, odometerKm: 48210,
+            engineHours: 3120.5, cost: null, notes: null, version: 1}
+        const lists = record('get', `${BASE}/vehicles/:id/repairs`, () => HttpResponse.json([open, {...open, id: 'y', status: 'ON_HOLD', kind: 'PAINT'}]))
+        const posts = record('post', `${BASE}/vehicles/:id/repairs`, () => HttpResponse.json(open, {status: 201}))
+        const patches = record('patch', `${BASE}/vehicles/:id/repairs/:repairId`, () => HttpResponse.json(open))
+        const transitions = record('post', `${BASE}/vehicles/:id/repairs/:repairId/:transition`, () => HttpResponse.json(open))
+
+        const list = await listRepairs(VEHICLE)
+        await createRepair(VEHICLE, repairRequest({...repairFormValues(null), kind: 'SERVICE', description: ' Revisión anual ', workshop: '',
+            plannedFrom: '2026-11-09', plannedTo: '2026-11-11', cost: '1250.50'}))
+        await createRepair(VEHICLE, repairRequest({...repairFormValues(null), status: 'OPEN', kind: 'BREAKDOWN', immobilises: false, description: 'Luz'}))
+        const values = repairFormValues(open)
+        await patchRepair(VEHICLE, REPAIR, repairPatch(open, {...values, plannedTo: null, cost: '18450', immobilises: false}))
+        await transitionRepair(VEHICLE, REPAIR, 'close')
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/vehicles/${VEHICLE}/repairs`)
+        expect(posts.map(json)).toEqual([
+            {status: 'PLANNED', kind: 'SERVICE', immobilises: true, description: 'Revisión anual', plannedFrom: '2026-11-09', plannedTo: '2026-11-11',
+                cost: 1250.5},
+            {status: 'OPEN', kind: 'BREAKDOWN', immobilises: false, description: 'Luz'},
+        ])
+        expect([patches[0].headers.get('content-type'), json(patches[0])]).toEqual([MERGE_PATCH, {plannedTo: null, cost: 18450, version: 1}])
+        expect(transitions[0].url.pathname).toBe(`${BASE}/vehicles/${VEHICLE}/repairs/${REPAIR}/close`)
+        expect(repairPatch(open, values)).toBeNull()
+        const closed = {...open, status: 'CLOSED'}
+        expect(repairPatch(closed, {...repairFormValues(closed), plannedTo: '2026-12-01', notes: 'Pagada'})).toEqual({notes: 'Pagada', version: 1})
+        expect(['PLANNED', 'OPEN', 'CLOSED', 'CANCELLED', 'ON_HOLD'].map((status) => repairActions({status})))
+            .toEqual([['open', 'edit', 'cancel'], ['close', 'edit', 'cancel'], ['edit'], ['edit'], []])
+        expect([isLiveRepair({status: 'OPEN'}), isLiveRepair({status: 'CLOSED'})]).toEqual([true, false])
+        expect([REPAIR_STATUS.label(list[1].status), REPAIR_KIND.label(list[1].kind)]).toEqual(['Desconocido', 'Desconocido'])
+    })
+
+    it('el dispositivo GPS de un vehículo viaja en el alta y en la modificación, vaciarlo es null, y su origen se lee «GPS»', () => {
+        const type = {id: 't', mobility: 'ROAD_ONLY', transportModeAuthorised: false}
+        const vehicle = {id: 'v1', code: 'VAN-1', type, registrationPlate: '12-345-67', owner: 'OWN', operationalStatus: 'OPERATIONAL',
+            telematicsDeviceId: 'GPS-4471', version: 3}
+        const values = {code: 'VAN-1', typeId: 't', registrationPlate: '12-345-67', owner: 'OWN', operationalStatus: 'OPERATIONAL',
+            telematicsDeviceId: ' GPS-4471 '}
+        expect(newVehicleRequest(values, type).telematicsDeviceId).toBe('GPS-4471')
+        expect(vehiclePatch(vehicle, values, type)).toBeNull()
+        expect(vehiclePatch(vehicle, {...values, telematicsDeviceId: ''}, type)).toEqual({telematicsDeviceId: null, version: 3})
+        expect(LOCATION_SOURCE.label('TELEMATICS')).toBe('GPS')
+    })
+
+    it('el informe de puestos y perfiles se pide entero y en cuatro secciones, y Keycloak caído es su 503 KCK-503', async () => {
+        useToken()
+        const report = {generatedAt: '2026-10-19T07:00:00Z', peopleChecked: 3, usersWithPosition: 2, wrongProfile: [], severalProfiles: [],
+            withoutProfile: [], withoutRecord: [{personId: null, username: 'old.user', profiles: ['mto-position-worker']}]}
+        const gets = record('get', `${BASE}/reports/position-discrepancies`, () => HttpResponse.json(report))
+
+        expect(await positionDiscrepancies()).toEqual(report)
+        expect(gets[0].url.pathname).toBe(`${BASE}/reports/position-discrepancies`)
+        expect(DISCREPANCY_SECTIONS.map((section) => section.key)).toEqual(['wrongProfile', 'severalProfiles', 'withoutProfile', 'withoutRecord'])
+
+        server.use(http.get(`${BASE}/reports/position-discrepancies`, () => HttpResponse.json({status: 503, error: 'Service Unavailable',
+            message: 'Keycloak cannot be read now', errorCode: 'KCK-503'}, {status: 503})))
+        const error = await positionDiscrepancies().catch((failure) => failure)
+        expect(error).toBeInstanceOf(UnavailableError)
+        expect(error.code).toBe('KCK-503')
     })
 
     it('los instrumentos: la búsqueda con «calibración caduca antes de», el alta, la modificación con lo vaciado, retirar, reactivar y su historial', async () => {

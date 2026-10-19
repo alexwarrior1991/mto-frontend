@@ -49,6 +49,7 @@ export const P = Object.freeze({
     RESOURCES_FLEET_WRITE: 'resources-fleet-write',
     RESOURCES_LOCATION_WRITE: 'resources-location-write',
     RESOURCES_DELETE: 'resources-delete',
+    RESOURCES_TELEMATICS_WRITE: 'resources-telematics-write',
 })
 
 /** Los roles de cada cliente del catalogo que trae el token, en el orden del catalogo. */

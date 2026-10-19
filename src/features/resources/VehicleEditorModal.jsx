@@ -8,7 +8,7 @@ import {unitLabel} from '../../api/resources/values.js'
 import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
-import {maxLength, optionalFigure, requiredText} from './resourcesForms.js'
+import {maxLength, optionalFigure, requiredText, TELEMATICS_DEVICE_LENGTH, telematicsDevice} from './resourcesForms.js'
 import {resourcesKey, useSaveVehicle} from './useResources.js'
 
 const LENGTHS = Object.freeze({code: 32, name: 150, plate: 20, railNumber: 30, serial: 60, company: 150, reason: 500})
@@ -26,8 +26,10 @@ async function searchTypes(text, {signal}) {
  * El alta y la modificación de un vehículo (el port de VehicleEditorDialog). Exige lo que pide su
  * modelo: matrícula si va por carretera (y ninguna en uno de solo vía), número ferroviario si su modelo
  * va por vía abierta (y ninguno en uno de solo carretera), la empresa si no es propio y el motivo si no
- * está operativo. Que la matrícula o el número no los tenga otro, o que el modelo no esté retirado, lo
- * dice el servicio (409 VEH-409, VEH-001) con el diálogo abierto.
+ * está operativo. Su dispositivo GPS es opcional (vaciarlo viaja a null).
+ * Que la matrícula, el número o el GPS no los tenga otro, o que el modelo no esté retirado, lo dice el
+ * servicio (409 VEH-409, VEH-001) con el diálogo abierto; también que vuelva a operativo con una
+ * reparación abierta que lo inmoviliza.
  *
  * @param {object|null} vehicle el vehículo que se modifica, o null para el alta
  */
@@ -51,6 +53,7 @@ export default function VehicleEditorModal({vehicle, onClose, onSaved = () => {}
             odometerKm: vehicle?.odometerKm == null ? '' : String(vehicle.odometerKm),
             engineHours: vehicle?.engineHours == null ? '' : String(vehicle.engineHours),
             notes: vehicle?.notes ?? '',
+            telematicsDeviceId: vehicle?.telematicsDeviceId ?? '',
         },
         validate: {
             code: creating ? requiredText('El código es obligatorio', LENGTHS.code) : null,
@@ -71,6 +74,7 @@ export default function VehicleEditorModal({vehicle, onClose, onSaved = () => {}
                 ? 'Uno que no está operativo dice por qué' : maxLength(LENGTHS.reason)(value)),
             odometerKm: optionalFigure({integers: 0, decimals: 0, min: 0}),
             engineHours: optionalFigure({integers: 9, decimals: 1}),
+            telematicsDeviceId: telematicsDevice,
         },
     })
     const saving = useSaveVehicle()
@@ -126,6 +130,8 @@ export default function VehicleEditorModal({vehicle, onClose, onSaved = () => {}
                         <TextInput label="Km" {...form.getInputProps('odometerKm')}/>
                         <TextInput label="Horas de motor" {...form.getInputProps('engineHours')}/>
                     </SimpleGrid>
+                    <TextInput label="Dispositivo GPS" maxLength={TELEMATICS_DEVICE_LENGTH}
+                               description="Por él llegan sus posiciones de carretera; vacío, sin GPS" {...form.getInputProps('telematicsDeviceId')}/>
                     <Textarea label="Notas" rows={2} {...form.getInputProps('notes')}/>
                     <Group justify="flex-end">
                         <Button variant="default" onClick={onClose}>Cancelar</Button>

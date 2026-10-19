@@ -15,7 +15,15 @@ import {signIn} from './keycloak.js'
  *   se inicia (su jefe está habilitado para conducir la bivial) y se cierra diciendo dónde queda el
  *   vehículo, y mto-resources lo apunta como del turno;
  * - las cualificaciones: la ficha de una persona enseña las suyas con cómo está cada una, y una nueva se
- *   da de alta en pantalla.
+ *   da de alta en pantalla;
+ * - las ausencias: una se da de alta en la ficha de una persona y mantenimiento, cuando le llega por evento,
+ *   no la deja en un turno de esas fechas (409 SHF-001);
+ * - el taller: una reparación abierta ahora deja el vehículo «En reparación» y, al cerrarla, vuelve a
+ *   «Operativo»;
+ * - puestos y perfiles: el informe se calcula leyendo Keycloak y enseña sus cuatro secciones.
+ *
+ * Ninguna persona de aquí lleva usuario: una ficha con el de un usuario de desarrollo (equipo.jefe,
+ * mantenimiento.responsable…) limitaría lo que ese usuario escribe en mantenimiento a los EP de sus equipos.
  *
  * Las personas, la vía y lo que no recorre la pantalla se ponen por la API antes y se quitan al acabar:
  * en mto-resources nada se borra, se desactiva o se retira.
@@ -34,6 +42,16 @@ const MODEL = {code: `E2E-M${SUFFIX}`, name: `Bivial e2e ${SUFFIX}`}
 const VEHICLE = {code: `E2E-V${SUFFIX}`, name: `Camión e2e ${SUFFIX}`}
 const SHIFT_VEHICLE = {code: `E2E-W${SUFFIX}`, name: `Dresina e2e ${SUFFIX}`}
 const ACCESS_POINT = `E2E-AP-${SUFFIX}`
+const REPAIR_VEHICLE = {code: `E2E-X${SUFFIX}`, name: `Furgón e2e ${SUFFIX}`}
+
+/** Un día a tantos de hoy: como se escribe en un campo de fecha y como viaja. */
+function daysFromToday(days) {
+    const date = new Date()
+    date.setDate(date.getDate() + days)
+    const pad = (value) => String(value).padStart(2, '0')
+    return {typed: `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`,
+        iso: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`}
+}
 
 /** Por el menú y no con goto: recargar la página es volver a entrar por el SSO. */
 async function openFromMenu(page, group, name) {
@@ -96,6 +114,8 @@ test.beforeAll(async ({playwright}) => {
         created.linemen = [await person('Uno', 'WORKER'), await person('Dos', 'WORKER'), await person('Tres', 'WORKER')]
         created.shiftLeader = await person('Jefe', 'TEAM_LEADER')
         created.shiftLinemen = [await person('Cuatro', 'WORKER'), await person('Cinco', 'WORKER')]
+        // La de la ausencia, sola: su turno de prueba no puede tocar el del equipo.
+        created.absent = await person('Ausente', 'WORKER')
         // El jefe del turno conduce su vehículo: un modelo bivial autopropulsado exige RR-OPERATOR (la semilla de
         // V8) y, sin nadie habilitado en la dotación, mantenimiento no deja iniciar el turno (409 SHF-001).
         const operator = (await resources.get('/api/resources/qualification-types?search=RR-OPERATOR&size=5')).content
@@ -111,6 +131,9 @@ test.beforeAll(async ({playwright}) => {
         created.types.push(type)
         created.shiftVehicle = await resources.post('/api/resources/vehicles', {...SHIFT_VEHICLE, typeId: type.id, registrationPlate: `E2E-${SUFFIX}`})
         created.vehicles.push(created.shiftVehicle)
+        created.repairVehicle = await resources.post('/api/resources/vehicles', {...REPAIR_VEHICLE, typeId: type.id,
+            registrationPlate: `E2E-${SUFFIX}-R`})
+        created.vehicles.push(created.repairVehicle)
         created.shiftTeam = await resources.post('/api/resources/units', {
             ...SHIFT_TEAM, kind: 'TEAM', discipline: 'MAINTENANCE', parentId: MAINTENANCE_DEPARTMENT, headPersonId: created.shiftLeader.id,
             memberPersonIds: created.shiftLinemen.map((lineman) => lineman.id), executionPackageIds: [created.package.id],
@@ -351,4 +374,89 @@ test('la ficha de una persona enseña sus cualificaciones con cómo está cada u
     await adding.getByRole('button', {name: 'Guardar'}).click()
     await expect(page.getByText(`Guardada LIC-B de ${leader.code}`)).toBeVisible()
     await expect(qualifications.getByRole('row').filter({hasText: 'LIC-B'})).toContainText('Vigente')
+})
+
+test('una ausencia se da de alta en la ficha, y mantenimiento no deja a la persona en un turno de esas fechas', async ({page, playwright}) => {
+    // Con la espera del evento de la persona, más margen.
+    test.setTimeout(180_000)
+    const absent = created.absent
+    const from = daysFromToday(60)
+    const to = daysFromToday(64)
+    await page.goto('/recursos/personal')
+    await signIn(page, 'recursos.responsable')
+    await expect(page.getByRole('heading', {name: 'Personal', level: 2})).toBeVisible()
+    await page.getByRole('textbox', {name: 'Buscar'}).fill(absent.code)
+    await page.getByRole('button', {name: `Abrir ${absent.code}`}).click()
+    await expect(page.getByRole('heading', {name: personLabel(absent), level: 2})).toBeVisible()
+
+    await page.getByRole('tab', {name: 'Ausencias'}).click()
+    await page.getByRole('button', {name: 'Nueva ausencia'}).click()
+    const adding = page.getByRole('dialog', {name: `Nueva ausencia de ${personLabel(absent)}`})
+    await chooseOption(page, adding, 'Clase', 'Vacaciones')
+    await adding.getByRole('textbox', {name: 'Desde'}).fill(from.typed)
+    await adding.getByRole('textbox', {name: 'Hasta'}).fill(to.typed)
+    await adding.getByRole('button', {name: 'Guardar'}).click()
+    await expect(page.getByText(`Guardada la ausencia de ${absent.code}`)).toBeVisible()
+    await expect(page.getByRole('table', {name: `Ausencias de ${absent.code}`}).getByRole('row').filter({hasText: 'Vacaciones'}))
+        .toContainText(`${from.typed}${to.typed}5`)
+
+    // La ausencia llega a mantenimiento con la persona (solo sus fechas). Mientras no llega, el turno se crea y
+    // se cancela en el acto, para que no la tenga ocupada esa noche; cuando llega, el alta es un 409 SHF-001.
+    const maintenance = await apiAs(playwright, 'mantenimiento.responsable')
+    try {
+        await expect.poll(async () => {
+            try {
+                const shift = await maintenance.post('/api/maintenance/shifts', {
+                    shiftDate: daysFromToday(62).iso, possessionType: 'FULL', executionPackageId: created.package.id, trackIds: [created.track.id],
+                    linemanPersonIds: [absent.id],
+                })
+                await maintenance.post(`/api/maintenance/shifts/${shift.id}/cancel`, {reason: 'e2e: la ausencia aún no había llegado'})
+                return `creado ${shift.code}`
+            } catch (failure) {
+                return failure.message
+            }
+        }, {timeout: 90_000, intervals: [2_000]}).toMatch(/: 409 [\s\S]*not available that day[\s\S]*SHF-001/)
+    } finally {
+        await maintenance.dispose()
+    }
+})
+
+test('una reparación abierta ahora deja el vehículo «En reparación», y al cerrarla vuelve a «Operativo»', async ({page}) => {
+    const vehicle = created.repairVehicle
+    await page.goto(`/recursos/flota/${vehicle.id}`)
+    await signIn(page, 'recursos.responsable')
+    await expect(page.getByRole('heading', {name: `${REPAIR_VEHICLE.code} · ${REPAIR_VEHICLE.name}`, level: 2})).toBeVisible()
+    const status = page.getByLabel('Estado operativo', {exact: true})
+    await expect(status).toHaveText('Operativo')
+
+    await page.getByRole('tab', {name: 'Taller'}).click()
+    await page.getByRole('button', {name: 'Nueva reparación'}).click()
+    const adding = page.getByRole('dialog', {name: `Nueva reparación de ${REPAIR_VEHICLE.code} · ${REPAIR_VEHICLE.name}`})
+    await adding.getByText('Abierta ahora', {exact: true}).click()
+    await chooseOption(page, adding, 'Clase', 'Avería')
+    await adding.getByRole('textbox', {name: 'Descripción'}).fill(`Fuga hidráulica e2e ${SUFFIX}`)
+    await adding.getByRole('button', {name: 'Guardar'}).click()
+    await expect(page.getByText(new RegExp(`^Guardada REP-\\d+ de ${REPAIR_VEHICLE.code}$`))).toBeVisible()
+    await expect(status).toHaveText('En reparación')
+
+    // La abierta es la única que se puede cerrar; su código sale del nombre de su botón.
+    const workshop = page.getByRole('table', {name: `Taller de ${REPAIR_VEHICLE.code}`})
+    const closeButton = workshop.getByRole('button', {name: /^Cerrar REP-\d+$/})
+    const code = (await closeButton.getAttribute('aria-label')).replace('Cerrar ', '')
+    await closeButton.click()
+    await page.getByRole('dialog', {name: `Cerrar ${code} de ${REPAIR_VEHICLE.code} · ${REPAIR_VEHICLE.name}`})
+        .getByRole('button', {name: 'Cerrar la reparación'}).click()
+    await expect(page.getByText(`Cerrada ${code}`)).toBeVisible()
+    await expect(workshop.getByRole('row').filter({hasText: code})).toContainText('Cerrada')
+    await expect(status).toHaveText('Operativo')
+})
+
+test('puestos y perfiles se calcula leyendo Keycloak y enseña sus cuatro secciones', async ({page}) => {
+    await page.goto('/recursos/discrepancias')
+    await signIn(page, 'recursos.lector')
+    await expect(page.getByRole('heading', {name: 'Puestos y perfiles', level: 2})).toBeVisible()
+    await expect(page.getByLabel('Resumen del informe')).toContainText('personas con usuario')
+    await expect(page.getByRole('heading', {level: 4})).toHaveText(['Con otro perfil', 'Con varios perfiles', 'Sin perfil de puesto',
+        'Con perfil y sin ficha'])
+    await expect(page.getByRole('alert')).toHaveCount(0)
 })

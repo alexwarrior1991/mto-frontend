@@ -6,6 +6,7 @@ import {describe, expect, it, vi} from 'vitest'
 import {configureHttp} from '../api/http.js'
 import {SERVICES} from '../api/services.js'
 import AppProviders from '../app/AppProviders.jsx'
+import {buildMenu} from '../app/navigation.js'
 import {decodeJwtPayload} from '../auth/claims.js'
 import {P, permissionsFrom, ROLE_CATALOG} from '../auth/permissions.js'
 import RequirePermission from '../auth/RequirePermission.jsx'
@@ -50,6 +51,15 @@ describe('permisos: roles de cliente de los seis clientes de API', () => {
         expect(session.has(P.RESOURCES_READ)).toBe(false)
         expect(session.realmRoles).toEqual(['maintenance-read', 'mto-admin', 'mto-position-team-leader', 'notification-access-read',
             'resources-read', 'stock-read', 'users-read'])
+    })
+
+    it('resources-telematics-write es de la cuenta de servicio de los GPS: se reconoce, pero no abre ninguna pantalla', () => {
+        const claims = decodeJwtPayload(fakeAccessToken({clientRoles: {'mto-resources-api': ['resources-telematics-write']}}))
+        expect([...permissionsFrom(claims)]).toEqual(['resources-telematics-write'])
+
+        const session = sessionWith([P.RESOURCES_TELEMATICS_WRITE])
+        expect(session.has(P.RESOURCES_READ)).toBe(false)
+        expect(buildMenu(session)).toEqual(buildMenu(sessionWith([])))
     })
 
     it('el catalogo coincide con los roles de cliente del realm (sin los de operacion) y no se repite entre clientes', () => {
