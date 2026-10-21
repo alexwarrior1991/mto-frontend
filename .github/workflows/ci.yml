@@ -104,13 +104,17 @@ jobs:
       # de verdad, sin Keycloak ni gateway detras: la configuracion sale de las variables, la CSP esta,
       # cualquier ruta es la SPA, /api sin gateway es un 503 que la SPA sabe leer y, sin su
       # configuracion, el contenedor no arranca.
+      #
+      # Corre con un UID cualquiera del grupo 0 (--user), como en OpenShift con la SCC restricted-v2:
+      # que arranque con el 101 de nginx-unprivileged no prueba que arranque con el que asigna el
+      # cluster, que tiene que poder generar la configuracion de nginx en /etc/nginx/conf.d.
       - name: Smoke test the image
         if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/master' }}
         run: |
           set -eu
           IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
           BASE=http://localhost:4200
-          docker run -d --name mto-frontend-smoke -p 4200:8080 \
+          docker run -d --name mto-frontend-smoke --user 1000680000:0 -p 4200:8080 \
             -e MTO_OIDC_AUTHORITY=http://localhost:8082/realms/mto \
             -e MTO_GATEWAY_URL=http://127.0.0.1:9 \
             -e MTO_ENVIRONMENT=smoke \
@@ -151,7 +155,7 @@ jobs:
 
           echo "sin su configuracion no arranca"
           set +e
-          timeout 30 docker run --name mto-frontend-missing -e MTO_OIDC_AUTHORITY=http://localhost:8082/realms/mto \
+          timeout 30 docker run --name mto-frontend-missing --user 1000680000:0 -e MTO_OIDC_AUTHORITY=http://localhost:8082/realms/mto \
             "$IMAGE" > /tmp/missing.log 2>&1
           STATUS=$?
           set -e
