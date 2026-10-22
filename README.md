@@ -563,6 +563,13 @@ La imagen sirve la SPA en el 8080 con nginx sin privilegios, reenvía `/api/` al
 CSP que solo deja ejecutar lo propio y llamar al origen y al realm, y responde un 503
 `problem+json` si el gateway no contesta.
 
+Arranca igual con el UID aleatorio del grupo 0 que asigna OpenShift (SCC `restricted-v2`): la base
+`nginx-unprivileged` deja escribir al grupo 0 en `/etc/nginx/conf.d`, donde se genera la
+configuración al arrancar, en `/var/cache/nginx` y en `/tmp`, y el script de comprobación se instala
+legible y ejecutable por cualquiera. La prueba de humo del CI corre la imagen con
+`--user 1000680000:0` para que no se rompa sin verlo. Una réplica no guarda nada (el token vive en el
+navegador), así que la ruta no necesita afinidad de sesión.
+
 ## Pruebas
 
 | Fichero | Qué cubre |
