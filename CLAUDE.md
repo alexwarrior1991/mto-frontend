@@ -422,9 +422,13 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - Una referencia a catálogo viaja como `{id, code}`, porque el servicio la resuelve por código. Si
     no se toca, vuelve la leída; si se vacía una opcional del perfil, viaja `{}` (`null` es «no la
     toques»).
-  - El seccionador de un perfil se enseña pero no se cambia desde el perfil, y viaja como se leyó: el
-    vínculo es del seccionador y se cambia en su editor (su `profileId`, opcional: los de los
-    pórticos de subestación y los de puesta a tierra no están en un poste). Uno sin poste lleva su
+  - Los seccionadores de un perfil (un poste admite varios: `disconnectors`, en el orden del servicio, y
+    de un servicio anterior solo `disconnector`, que se lee como una lista de uno, `disconnectorsOf`) se
+    enseñan pero no se cambian desde el perfil, y viajan como se leyeron: no son hijos del perfil
+    (`MASTER_CHILDREN`), el servicio los ignora al escribirlo, y el vínculo es de cada seccionador y se
+    cambia en su editor (su `profileId`, opcional: los de los pórticos de subestación y los de puesta a
+    tierra no están en un poste). El esquema de vía dibuja los de un poste uno encima de otro, y su
+    resumen cuenta seccionadores, no postes. Uno sin poste lleva su
     propio `kp` (texto, comprobado y recortado como el del perfil) y su `trackId`; con poste el KP es
     el del perfil, así que elegirlo lo vacía y viaja a `null`, como en el backoffice. La vía no: con
     poste, `trackId` es la que maniobra cuando no es la del poste (en un haz de vías, en talleres y

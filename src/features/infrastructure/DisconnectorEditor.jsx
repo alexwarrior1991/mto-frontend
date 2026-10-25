@@ -24,7 +24,7 @@ const FUNCTIONS = 'disconnector-functions'
  * un 400 sobre la estación que se enseña en su campo con el diálogo abierto. Es aquí, y no en
  * el perfil, donde se cambia de qué perfil cuelga: el vínculo es del seccionador. El perfil es
  * opcional, porque los de los pórticos de subestación y los de puesta a tierra no están en un poste,
- * y vaciarlo lo desvincula. Un perfil que ya tiene seccionador no admite otro (409 BUS-002). Uno sin
+ * y vaciarlo lo desvincula. Un poste admite varios seccionadores (V29 de mto-configuration). Uno sin
  * poste lleva su propio KP y su vía (V26 de mto-configuration). Con poste, el KP es el del perfil, así
  * que elegirlo lo vacía y no se ofrece. La vía no: en un haz de vías (talleres, cocheras) un
  * seccionador cuelga a veces del poste de una vía y maniobra otra, o une dos que no son la del poste,

@@ -50,8 +50,8 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
   - Alta, modificación sobre la fila leída (con su versión) y borrado (lógico) con confirmación.
   - Las ménsulas de un perfil, con su brazo de atirantado, y las agujas de un aislador.
   - El esquema de una vía, en una llamada.
-  - El seccionador de un perfil se cambia desde el editor del seccionador; en el perfil se enseña,
-    pero no se cambia.
+  - Los seccionadores de un perfil (un poste puede llevar varios) se cambian desde el editor de cada
+    seccionador; en el perfil se enseñan, pero no se cambian.
   - Las listas de seccionadores y aisladores necesitan `mto-configuration` con su arreglo
     (alexwarrior1991/mto-configuration#30): sin él, con datos, responden 500.
   - **Accesos a vía** (`infraestructura/accesos`): por donde un vehículo bivial sale de la carretera y
@@ -332,8 +332,9 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
     columnas vuelven a pedirla.
   - Las referencias salen por su nombre («VIA 1 (EP4)»), y `#id` si no se conocen.
   - En **Vías**, el icono de cada fila abre el **esquema**, también con `config.lector`: un poste
-    por perfil, con sus ménsulas, su seccionador y los aisladores entre sus vecinos por KP. El
-    detalle de cada elemento sale al pasar por encima.
+    por perfil, con sus ménsulas, sus seccionadores (los de un mismo poste, uno encima de otro) y los
+    aisladores entre sus vecinos por KP. El resumen cuenta los seccionadores, no los postes que los
+    llevan. El detalle de cada elemento sale al pasar por encima.
   - En **Perfiles**, las ménsulas (hasta tres) se añaden, modifican y quitan dentro del editor y se
     guardan con el perfil; en **Aisladores de sección**, igual con las agujas.
   - En **Seccionadores**, el perfil se busca escribiendo su identificador, y se puede quitar: los de

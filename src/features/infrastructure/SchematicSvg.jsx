@@ -1,5 +1,5 @@
 import {
-    ARM_LENGTH, armDirection, armTitle, disconnectorDetail, disconnectorTitle, HEIGHT, insulatorDetail, insulatorTitle,
+    ARM_LENGTH, armDirection, armTitle, disconnectorDetail, disconnectorTitle, disconnectorY, HEIGHT, insulatorDetail, insulatorTitle,
     insulatorX, join, LINE_Y, MARGIN, POLE_TOP, poleTitle, switchLabel, width, xOf,
 } from './schematicLayout.js'
 
@@ -27,8 +27,8 @@ const STYLE = Object.freeze({
 /**
  * El dibujo de una vía: una línea recta (la vía) y, sobre ella, un poste por perfil a distancia
  * uniforme, con su código, su tipo y estado, su KP, sus seccionamientos, sus ménsulas como brazos
- * cortos (con el tipo, hacia el lado que da el signo de railPoleDistance) y su seccionador como un
- * rombo. Los aisladores van sobre la línea, entre sus vecinos por KP, con sus agujas. Cada elemento
+ * cortos (con el tipo, hacia el lado que da el signo de railPoleDistance) y cada uno de sus
+ * seccionadores como un rombo, al otro lado: los de un mismo poste, uno encima de otro. Los aisladores van sobre la línea, entre sus vecinos por KP, con sus agujas. Cada elemento
  * lleva su detalle en un <title>, que el navegador enseña al pasar por encima.
  *
  * Todo texto del servicio se pinta como texto de React, que lo escapa: nada se convierte en HTML.
@@ -82,13 +82,15 @@ function Pole({profile, x}) {
             {profile.sectionings.length > 0 && (
                 <text {...STYLE.sectioning} x={x} y={LINE_Y + 38}>{profile.sectionings.join(', ')}</text>
             )}
-            {profile.disconnector && <Disconnector disconnector={profile.disconnector} x={x - direction * 16} direction={direction}/>}
+            {profile.disconnectors.map((disconnector, index) => (
+                <Disconnector key={`disconnector-${disconnector.id ?? index}`} disconnector={disconnector} x={x - direction * 16}
+                              y={disconnectorY(index)} direction={direction}/>
+            ))}
         </g>
     )
 }
 
-function Disconnector({disconnector, x, direction}) {
-    const y = LINE_Y - 60
+function Disconnector({disconnector, x, y, direction}) {
     const anchor = direction < 0 ? 'start' : 'end'
     const detail = disconnectorDetail(disconnector)
     return (
