@@ -5,7 +5,7 @@ import {assetLabel} from '../../api/maintenance/values.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {errorMessage} from '../../ui/errors/messages.js'
 import {notifySuccess, notifyWarning} from '../../ui/notifySuccess.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {useAssignTask, useOpenOrdersOnTrack, useOrderTasks} from './useMaintenance.js'
 
 /**

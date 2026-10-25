@@ -65,8 +65,9 @@ export function sortParam(sort) {
 }
 
 /**
- * El orden de una lista de mto-stock, mto-maintenance o mto-notification: el de la columna elegida o,
- * sin ella, el de la pantalla, y siempre un desempate al final (id,asc salvo que se diga otro).
+ * El orden de una lista de mto-stock, mto-maintenance, mto-resources o mto-notification: el de la
+ * columna elegida o, sin ella, el de la pantalla, y siempre un desempate al final (id,asc salvo que se
+ * diga otro).
  *
  * - mto-stock no tiene orden por defecto, y uno desconocido es un 500.
  * - El de mto-maintenance no es único (dos turnos del mismo día, dos perfiles en el mismo kp), y la

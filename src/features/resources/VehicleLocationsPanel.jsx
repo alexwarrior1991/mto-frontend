@@ -9,7 +9,7 @@ import DataTable from '../../ui/DataTable.jsx'
 import {formatDateTime} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
-import {shiftPath} from '../maintenance/maintenanceRoutes.js'
+import {shiftPath} from '../links.js'
 import {placeText} from './resourcesTexts.js'
 import {useVehicleLocations} from './useResources.js'
 

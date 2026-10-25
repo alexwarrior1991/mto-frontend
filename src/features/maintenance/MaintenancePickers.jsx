@@ -4,7 +4,6 @@ import {isActiveTeam} from '../../api/maintenance/catalogs.js'
 import {assetLabel, taskTypeLabel, teamLabel} from '../../api/maintenance/values.js'
 import ServerSearchMultiSelect from '../../ui/ServerSearchMultiSelect.jsx'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
-import {withCurrent} from '../infrastructure/references.js'
 import {maintenanceKey} from './useMaintenance.js'
 
 /**
@@ -84,22 +83,4 @@ export function TaskTypesSelect({types, value, onChange, ...props}) {
     const missing = (value ?? []).filter((code) => !options.some((option) => option.value === code)).map((code) => ({value: code, label: code}))
     return <MultiSelect {...props} data={[...missing, ...options]} value={value ?? []} onChange={onChange} searchable clearable
                         nothingFoundMessage="Ningún tipo de tarea"/>
-}
-
-/**
- * Una vía, una estación o un paquete de mto-configuration. El valor es el id como texto; el que ya
- * tenía el campo se ve aunque no esté en la lista (sin config-read la lista está vacía), como #id.
- */
-export function ReferenceSelect({options, value, onChange, ...props}) {
-    return <Select {...props} data={withCurrent(options ?? [], value)} value={value ?? null} onChange={onChange} clearable searchable
-                   nothingFoundMessage="Nada coincide"/>
-}
-
-/** Varias vías (las de un turno) o paquetes (los de un equipo), con lo que ya tenía el campo aunque no se sepa nombrar. */
-export function ReferencesMultiSelect({options, value, onChange, ...props}) {
-    const values = value ?? []
-    const known = new Set((options ?? []).map((option) => option.value))
-    const missing = values.filter((id) => !known.has(id)).map((id) => ({value: id, label: `#${id}`}))
-    return <MultiSelect {...props} data={[...missing, ...(options ?? [])]} value={values} onChange={onChange} searchable clearable
-                        nothingFoundMessage="Nada coincide"/>
 }

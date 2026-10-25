@@ -13,12 +13,12 @@ import DataTable from '../../ui/DataTable.jsx'
 import {errorMessage} from '../../ui/errors/messages.js'
 import {formatDate, formatQuantity} from '../../ui/format.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import CheckItemsModal from './CheckItemsModal.jsx'
 import InspectionEditorModal from './InspectionEditorModal.jsx'
 import {CorrectiveOrderModal, DefectFromInspectionModal} from './InspectionOutcomeModals.jsx'
 import {defectPath, INSPECTIONS_PATH, orderPath} from './maintenanceRoutes.js'
 import {describeInspection, kp} from './maintenanceTexts.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {useInspection, useSaveInspectionItem} from './useMaintenance.js'
 
 /** mantenimiento/inspecciones/:inspectionId: la ficha de una inspección (el port de InspectionDetailView), con key por id. */

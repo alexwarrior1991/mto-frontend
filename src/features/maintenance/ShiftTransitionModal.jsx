@@ -8,11 +8,11 @@ import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import {DATE_TIME_FORMAT, parseTypedDateTime} from '../../ui/typedDates.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {useParkingSites} from '../resources/useResources.js'
 import {saveErrors} from './maintenanceErrors.js'
 import {optionalKp, optionalNonNegativeInteger} from './maintenanceForms.js'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {useShiftTransition} from './useMaintenance.js'
 
 const TRANSITIONS = Object.freeze({

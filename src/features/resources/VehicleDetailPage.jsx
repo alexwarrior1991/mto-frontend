@@ -13,7 +13,7 @@ import {errorMessage} from '../../ui/errors/messages.js'
 import LazyTabs from '../../ui/LazyTabs.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RevisionsModal from '../../ui/RevisionsModal.jsx'
-import {useConfigurationNames} from '../maintenance/useMaintenanceNames.js'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import LocationModal from './LocationModal.jsx'
 import {FLEET_PATH} from './resourcesRoutes.js'
 import {

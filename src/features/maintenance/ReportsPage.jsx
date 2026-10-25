@@ -10,9 +10,9 @@ import DataTable from '../../ui/DataTable.jsx'
 import {formatPercent, formatQuantity} from '../../ui/format.js'
 import LazyTabs from '../../ui/LazyTabs.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {countText} from './maintenanceTexts.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 
 const MONTHS = 24
 

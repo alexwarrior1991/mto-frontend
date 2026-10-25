@@ -9,7 +9,7 @@ import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
 import {DATE_TIME_FORMAT, parseTypedDateTime} from '../../ui/typedDates.js'
-import {ReferenceSelect} from '../maintenance/MaintenancePickers.jsx'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
 import {optionalCoordinate, optionalFleetKp} from './resourcesForms.js'
 import {accessPointLabel} from './resourcesTexts.js'
 import {resourcesKey, useReachableSites, useRecordLocation, useTrackAccessPoints} from './useResources.js'
@@ -40,7 +40,7 @@ export default function LocationModal({vehicle, names, onClose}) {
     const form = useForm({
         mode: 'controlled',
         initialValues: {
-            // El primero que admite su movilidad: aparcado, o «Desconocido» con una movilidad que no se conoce.
+            // El primero que admite su movilidad: aparcado, o «Desconocida» con una movilidad que no se conoce.
             kind: recordableKinds(mobility)[0], parkingSiteId: null, executionPackageId: null, trackId: null, kp: '', accessPointId: null, accessPoint: '', latitude: '',
             longitude: '', description: '', carrierVehicleId: null, attachment: null, observedAt: null,
         },

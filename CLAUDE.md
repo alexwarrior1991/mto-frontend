@@ -65,7 +65,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `TooManyRequestsError` 429 con el cuerpo, `UnavailableError` 502/503/504, `NetworkError`),
   `correlation.js`, `paging.js` (las tres formas de paginar, y `toPageParams` y `toOffsetParams`, de
   la página de la pantalla a la del servicio; `sortWithTieBreak`, el orden con su desempate: el id
-  en `mto-stock` y `mto-maintenance`, la fecha o la secuencia en `mto-notification`), `enums.js`
+  en `mto-stock`, `mto-maintenance` y `mto-resources`, la fecha o la secuencia en `mto-notification`), `enums.js`
   (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`, con `setFields` para
   las listas que el servicio guarda como conjunto), `bodies.js` (cómo viaja un cuerpo en cualquier
   servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `idOrNull`), `dates.js` (también
@@ -175,8 +175,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `AppHeader` con «Abrir en el backoffice» y la campana, `MainMenu`) y `pages/` (Inicio con el
   diagnóstico y las sondas, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
-  `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `ErrorNotice.jsx`),
-  `format.js`, `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
+  `notifyError.js`; `serverValidation.js`, el port de `ServerValidation`; `saveErrors.js`, lo que hace un
+  editor cuando el servicio dice que no: cada error en su campo y el diálogo abierto; `ErrorNotice.jsx`),
+  `format.js` (también `shortId`, el `#id` de lo que no se sabe nombrar), `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
   (el aviso verde de tres segundos), `ConfirmModal.jsx` (confirmar lo que no se deshace),
   `ServerDataTable.jsx` (la lista paginada en el servidor: orden de una columna asc → desc → sin
   orden, `Pagination` y acciones por fila), `DataTable.jsx` (una lista que ya está entera en la
@@ -214,7 +215,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     DTO a formulario y vuelta, y `optionalDecimal`, una cifra con su columna), `useMasters.js` (listas,
     escrituras y referencias), `useCatalogues.js` (varios catálogos para los desplegables, con la caché
     de `catalogues/`) y los enumerados de cada maestro, que vuelven como se leyeron
-    (`installationTypes.js`, `disconnectorStates.js`, `accessPointKinds.js`).
+    (`installationTypes.js`, `disconnectorStates.js`, `accessPointKinds.js`);
+  - `useConfigurationNames.js` y `ReferencePickers.jsx` (`ReferenceSelect`, `ReferencesMultiSelect`):
+    los nombres y los desplegables de las vías, estaciones y paquetes de `mto-configuration`, que
+    mantenimiento y recursos solo guardan como id.
 
   `jobs/` es el port de `ui/jobs`:
   - `JobsPage` (el port de `JobsView`): los lanzadores que permite la sesión y el historial;
@@ -273,10 +277,11 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `ReportsPage` (el avance y el mes, con sus descargas) y los catálogos: `TeamsPage` (con
     `TeamEditorModal`), `TaskTypesPage` (con `TaskEquipmentModal`, el equipo que exige un tipo) e
     `InspectionTemplatesPage`;
-  - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos, los tipos de tarea y
-    las referencias de `mto-configuration`), `useMaintenance.js` (las claves `['maintenance', …]`,
+  - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos y los tipos de tarea),
+    `useMaintenance.js` (las claves `['maintenance', …]`,
     las consultas y las escrituras con lo que releen), `useMaintenanceNames.js` (el port de
-    `MaintenanceNames`), `maintenanceForms.js` (lo que exigen los formularios), `maintenanceErrors.js`
+    `MaintenanceNames`: los almacenes y proyectos de `mto-stock`; los de `mto-configuration` salen de
+    `infrastructure/useConfigurationNames.js`), `maintenanceForms.js` (lo que exigen los formularios), `maintenanceErrors.js`
     (`saveErrors`: el error del servicio en su campo, con el diálogo abierto), `maintenanceRoutes.js`
     y `maintenanceTexts.js` (kp, avance, el estado de un activo, recuentos y las líneas del
     historial).
@@ -311,6 +316,12 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `InstrumentsMultiSelect`, que usan también los turnos de mantenimiento), `useResources.js` (las claves
     `['resources', …]`), `resourcesForms.js`, `resourcesTexts.js` (también `expiryText`) y
     `resourcesRoutes.js`.
+
+  Entre módulos: mantenimiento usa lo de recursos (sus desplegables, sus consultas, sus textos y sus
+  rutas: un turno lleva su dotación) y recursos no usa nada de mantenimiento. Lo que comparten los dos
+  vive fuera de ambos: los nombres y desplegables de `mto-configuration` en `infrastructure/`, el
+  `#id` en `ui/format.js`, y la ruta de un turno, que recursos enlaza desde una ubicación, en
+  `features/links.js` (`maintenanceRoutes.js` la reexporta).
 - `main.jsx` — el arranque: `/config.json`, el `UserManager`, `configureHttp` y el render.
 
 Fuera de `src/`: `docker/` (las plantillas de nginx y el script que comprueba las variables al
@@ -515,7 +526,7 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   intervalo del preventivo. `enabledAtSource` y `disabledLocally` son dos voces y el estado dice
   quién lo desactivó. Cualquier activo se desactiva aquí (`DELETE`, con `maintenance-delete` y
   confirmación), y solo se reactiva lo que se desactivó aquí con el origen activo (`canReactivate`).
-- **Los nombres de otros servicios se piden a su servicio** (`useMaintenanceNames.js`): vías,
+- **Los nombres de otros servicios se piden a su servicio** (`useConfigurationNames.js` y `useMaintenanceNames.js`): vías,
   estaciones y paquetes a `mto-configuration`, almacenes y proyectos a `mto-stock`, con el token de
   la persona. Sin `config-read` o sin `stock-read` no se llama (respondería 403) y se pinta `#id`. Un
   desplegable nunca lee como vacía una referencia que no sabe nombrar, porque la mandaría a vaciar.

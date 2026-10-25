@@ -189,15 +189,15 @@ function conflictMessage(error) {
             return 'La persona ya tiene esa cualificación (renovarla es cambiar su caducidad), o el tipo está retirado.' + detail(error)
         case 'VDO-409':
             return 'El vehículo ya tiene un documento de ese tipo: renovarlo es cambiar su caducidad.' + detail(error)
-        // mto-resources: las reglas del organigrama (de 2 a 6 linemen, el nivel del padre, la categoria
-        // del jefe, una persona en otro equipo) y las de la flota (donde puede estar un vehiculo segun su
-        // movilidad, el remolque, un vehiculo retirado). El detalle dice cual.
         // mto-resources: dos ausencias de la misma persona no se solapan, y una reparación solo admite lo que
         // su estado deja. Recargar no lo arregla.
         case 'ABS-001':
             return 'La persona ya está ausente en esas fechas: cambia esa ausencia en vez de añadir otra.' + detail(error)
         case 'REP-001':
             return 'La reparación no admite ese cambio en su estado.' + detail(error)
+        // mto-resources: las reglas del organigrama (de 2 a 6 linemen, el nivel del padre, la categoria
+        // del jefe, una persona en otro equipo) y las de la flota (donde puede estar un vehiculo segun su
+        // movilidad, el remolque, un vehiculo retirado). El detalle dice cual.
         case 'UNI-001':
             return 'El organigrama no admite ese cambio.' + detail(error)
         case 'VEH-001':

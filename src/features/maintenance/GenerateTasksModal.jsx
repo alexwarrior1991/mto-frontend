@@ -10,11 +10,12 @@ import DataTable from '../../ui/DataTable.jsx'
 import {notifyApiError} from '../../ui/errors/notifyError.js'
 import {formatQuantity} from '../../ui/format.js'
 import {notifySuccess, notifyWarning} from '../../ui/notifySuccess.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {optionalKp} from './maintenanceForms.js'
 import {countText, GENERATION_STILL_RUNNING, kp, kpRange} from './maintenanceTexts.js'
-import {AssetPicker, AssetsMultiPicker, ReferenceSelect, TaskTypesSelect} from './MaintenancePickers.jsx'
+import {AssetPicker, AssetsMultiPicker, TaskTypesSelect} from './MaintenancePickers.jsx'
 import {useFollowGeneration, useGenerateTasks, usePreviewGeneration, useTaskTypes} from './useMaintenance.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 
 const ASSET_TYPES = [
     {value: 'PROFILE', label: 'Perfiles'},
