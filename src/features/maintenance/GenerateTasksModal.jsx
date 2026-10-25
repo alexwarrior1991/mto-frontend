@@ -10,11 +10,12 @@ import DataTable from '../../ui/DataTable.jsx'
 import {notifyApiError} from '../../ui/errors/notifyError.js'
 import {formatQuantity} from '../../ui/format.js'
 import {notifySuccess, notifyWarning} from '../../ui/notifySuccess.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {optionalKp} from './maintenanceForms.js'
 import {countText, GENERATION_STILL_RUNNING, kp, kpRange} from './maintenanceTexts.js'
-import {AssetPicker, AssetsMultiPicker, ReferenceSelect, TaskTypesSelect} from './MaintenancePickers.jsx'
+import {AssetPicker, AssetsMultiPicker, TaskTypesSelect} from './MaintenancePickers.jsx'
 import {useFollowGeneration, useGenerateTasks, usePreviewGeneration, useTaskTypes} from './useMaintenance.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 
 const ASSET_TYPES = [
     {value: 'PROFILE', label: 'Perfiles'},
@@ -40,7 +41,8 @@ const ASSET_TYPES = [
  * el servicio no termina en su espera contesta con la operación, y el diálogo la sigue cada 2 s mientras
  * esté abierto y la pestaña se vea: al terminar bien dice lo mismo que la llamada síncrona y relee las
  * tareas; si falla, dice su error con el diálogo abierto. Cerrarlo deja de seguirla, avisando de que
- * continúa en el servicio. La previsualización sigue siendo síncrona.
+ * continúa en el servicio. Mientras se espera la respuesta de generar o previsualizar no se cierra, para
+ * que su aviso no se pierda. La previsualización sigue siendo síncrona.
  */
 export default function GenerateTasksModal({order, onClose}) {
     const types = useTaskTypes()
@@ -109,11 +111,19 @@ export default function GenerateTasksModal({order, onClose}) {
         })
     }
     const busy = generating.isPending || previewing.isPending
+    // Mientras se espera la respuesta, el diálogo no se cierra (ni la X ni Escape): cerrado, su
+    // respuesta no llegaría a nadie, ni el aviso de lo creado ni el de que sigue en el servicio.
+    const closeUnlessBusy = () => {
+        if (!busy) {
+            close()
+        }
+    }
     // Sin EP solo cabe el tramo de la orden y viaja la petición de siempre, que no lleva tipos por fila.
     const ownTypes = packageId !== null
 
     return (
-        <Modal opened onClose={close} closeOnClickOutside={false} size="xl" title={`Generar tareas de ${order.code}`}>
+        <Modal opened onClose={closeUnlessBusy} closeOnClickOutside={false} closeOnEscape={!busy}
+               closeButtonProps={{disabled: busy, 'aria-label': 'Cerrar'}} size="xl" title={`Generar tareas de ${order.code}`}>
             <Stack>
                 <Text size="sm">{introText(order, onSection, packageId)}</Text>
                 {rows.map((row, index) => (

@@ -11,11 +11,11 @@ import {formatDate, formatDateTime} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import DefectEditorModal from './DefectEditorModal.jsx'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
 import {defectPath} from './maintenanceRoutes.js'
 import {countText, kpRange} from './maintenanceTexts.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {MAINTENANCE_PAGE_SIZE, useDefectList} from './useMaintenance.js'
 
 /**

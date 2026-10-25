@@ -721,6 +721,8 @@ describe('los catálogos', () => {
         await user.click(screen.getByRole('button', {name: 'Equipo de RG-01'}))
         const other = await screen.findByRole('dialog', {name: 'Equipo que exige RG-01'})
         expect(within(other).getByRole('checkbox', {name: 'Puesta a tierra'})).toBeChecked()
+        // Lo que esta aplicación no conoce no tiene casilla, pero se dice, como en el backoffice.
+        expect(within(other).getByText('Exige también, y se conserva: CRANE_LICENCE')).toBeInTheDocument()
         await user.click(within(other).getByRole('checkbox', {name: 'Puesta a tierra'}))
         await user.click(within(other).getByRole('button', {name: 'Guardar'}))
         await waitFor(() => expect(patches.at(-1).body).toEqual({requiredEquipment: ['CRANE_LICENCE'], version: 5}))
@@ -1070,6 +1072,58 @@ describe('las órdenes', () => {
             await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}/tasks`).length).toBeGreaterThan(taskReads))
             await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS * 2))
             expect(asked).toHaveLength(2)
+        })
+
+        it('si la primera pregunta por la operación falla, se sigue preguntando cada 2 s hasta su resultado', async () => {
+            vi.useFakeTimers({shouldAdvanceTime: true})
+            let asks = 0
+            serveGeneration(() => ({id: OPERATION, status: 'SUCCEEDED', resultStatus: 200, result: {createdTasks: 3, skippedProfiles: 0,
+                totalTasks: 3, estimatedMinutes: 60, estimatedShifts: 1}}))
+            server.use(http.get(`${BASE}/operations/:id`, () => {
+                asks += 1
+                return asks === 1
+                    ? HttpResponse.json({status: 503, error: 'SERVICE_UNAVAILABLE', message: 'down'}, {status: 503})
+                    : HttpResponse.json({id: OPERATION, status: 'SUCCEEDED', resultStatus: 200, result: {createdTasks: 3,
+                        skippedProfiles: 0, totalTasks: 3, estimatedMinutes: 60, estimatedShifts: 1}})
+            }))
+            const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), {tasks: {[ORDER1]: []}})
+
+            await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+            const dialog = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+            await user.click(within(dialog).getByRole('button', {name: 'Generar'}))
+            await waitFor(() => expect(asks).toBe(1))
+            // Sin respuesta, la operación no está terminada: el diálogo la sigue esperando.
+            expect(within(dialog).getByRole('status')).toHaveTextContent('(en cola)')
+
+            await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS))
+            expect(await screen.findByText('Tareas nuevas: 3; ya en la orden: 0. Total: 3, unos 60 min en 1 turno.')).toBeInTheDocument()
+            expect(asks).toBe(2)
+            await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Generar tareas de MO-000001'})).not.toBeInTheDocument())
+        })
+
+        it('mientras se espera la respuesta de generar, el diálogo no se cierra: ni la X ni Escape', async () => {
+            let answer
+            const answered = new Promise((resolve) => {
+                answer = resolve
+            })
+            server.use(http.post(`${BASE}/orders/${ORDER1}/tasks/generate`, async () => {
+                await answered
+                return HttpResponse.json({createdTasks: 2, skippedProfiles: 0, totalTasks: 2, estimatedMinutes: 30, estimatedShifts: 1})
+            }))
+            const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), {tasks: {[ORDER1]: []}})
+
+            await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+            const dialog = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+            await user.click(within(dialog).getByRole('button', {name: 'Generar'}))
+            const closeButton = within(dialog).getAllByRole('button', {name: 'Cerrar'})[0]
+            await waitFor(() => expect(closeButton).toBeDisabled())
+            expect(within(dialog).getByRole('button', {name: 'Volver'})).toBeDisabled()
+            await user.keyboard('{Escape}')
+            expect(screen.getByRole('dialog', {name: 'Generar tareas de MO-000001'})).toBeInTheDocument()
+
+            answer()
+            expect(await screen.findByText('Tareas nuevas: 2; ya en la orden: 0. Total: 2, unos 30 min en 1 turno.')).toBeInTheDocument()
+            await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Generar tareas de MO-000001'})).not.toBeInTheDocument())
         })
 
         it('una que falla dice su error con el diálogo abierto, y cerrar uno que la sigue avisa de que continúa en el servicio', async () => {

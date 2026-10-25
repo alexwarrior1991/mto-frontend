@@ -30,7 +30,10 @@ const COLUMNS = Object.freeze([
  */
 export default function PositionDiscrepanciesPage({title}) {
     const report = usePositionDiscrepancies()
-    const data = report.data
+    // Si la última vez falló, el informe anterior ya no vale: se dice el fallo en su sitio, como el
+    // backoffice, que vacía el informe antes de volver a pedirlo.
+    const failed = report.isError
+    const data = failed ? null : report.data
 
     return (
         <Stack>
@@ -42,13 +45,13 @@ export default function PositionDiscrepanciesPage({title}) {
                     </Button>
                 )}
             </Group>
-            {report.isError && !report.isFetching && (
+            {failed && !report.isFetching && (
                 <Stack align="flex-start" gap="xs">
                     <Text role="alert">No se ha podido calcular el informe: {errorMessage(report.error)}</Text>
                     <Button leftSection={<IconRefresh size={16}/>} onClick={() => void report.refetch()}>Reintentar</Button>
                 </Stack>
             )}
-            {report.isPending && <Center py="xl"><Loader aria-label="Calculando el informe"/></Center>}
+            {(report.isPending || (failed && report.isFetching)) && <Center py="xl"><Loader aria-label="Calculando el informe"/></Center>}
             {data && (
                 <>
                     <Text size="sm" c="dimmed" aria-label="Resumen del informe">

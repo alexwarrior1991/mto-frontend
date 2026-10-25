@@ -7,6 +7,7 @@
  * - Fecha (un LocalDate del servicio): DD/MM/YYYY, sin pasar por ninguna zona.
  * - Porcentaje: el servicio manda una fraccion (0.4500) y aqui solo se multiplica por cien.
  * - Un booleano en una columna: «Sí» o «No».
+ * - Un id que no se sabe nombrar: #12, o el principio de un UUID (shortId).
  */
 
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -83,4 +84,13 @@ function toDate(value) {
 
 function pad(value) {
     return String(value).padStart(2, '0')
+}
+
+/** El id que no se sabe nombrar: #12, o los ocho primeros caracteres de un UUID. */
+export function shortId(id) {
+    if (id === null || id === undefined || id === '') {
+        return ''
+    }
+    const text = String(id)
+    return /^[0-9a-f]{8}-/i.test(text) ? `#${text.slice(0, 8)}` : `#${text}`
 }

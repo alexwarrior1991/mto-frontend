@@ -1348,7 +1348,9 @@ describe('los vehículos', () => {
         expect(await within(where).findByText('DR-02 está: En vía · VIA 1 (EP 4) · kp 10.5')).toBeInTheDocument()
         await waitFor(() => expect(textsOf(dataRows('Ubicaciones de PL-01')[0]).slice(1, 5)).toEqual(['Aparcado · APT-RSH · VIA 1 (EP 4) · kp 12.3', '',
             'Turno', 'service-account-mto-maintenance-svc']))
-        expect(within(rowOf('Ubicaciones de PL-01', 'Turno')).getByRole('button', {name: 'Ver el turno'})).toBeInTheDocument()
+        // El botón de la fila lleva el nombre de su fila: la ubicación de ese momento.
+        expect(within(rowOf('Ubicaciones de PL-01', 'Turno')).getByRole('button',
+            {name: `Ver el turno de la ubicación del ${formatDateTime('2026-10-16T03:40:00Z')}`})).toBeInTheDocument()
 
         const historyRequests = () => requests.filter((url) => url.pathname === `${BASE}/vehicles/${VEHICLE1}/locations`)
         expect(historyRequests()[0].search).toBe('?page=0&size=20')
@@ -1372,6 +1374,35 @@ describe('los vehículos', () => {
         renderRoute(`/recursos/flota/${missing}`, {session: loginAs('recursos.lector')})
         expect(await screen.findByText(`No existe el vehículo ${missing}`)).toBeInTheDocument()
         expect(await screen.findByRole('table', {name: 'Vehículos'})).toBeInTheDocument()
+    })
+
+    it('lo que el tipo elegido esconde ni se comprueba ni viaja, y una movilidad desconocida empieza en «Desconocida»', async () => {
+        const unknownModel = {...RAIL_MODEL, mobility: 'HOVERCRAFT'}
+        serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null), vehicle(VEHICLE2, 'HV-01', unknownModel, null)],
+            sites: [siding()]})
+        const writes = recordWrites('post', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json(location('IN_WORKSHOP'), {status: 201}))
+        let view = renderRoute(`/recursos/flota/${VEHICLE1}`, {session: loginAs('recursos.gestor')})
+        expect(await screen.findByRole('heading', {name: 'DR-01 · Vehículo DR-01'})).toBeInTheDocument()
+
+        await view.user.click(screen.getByRole('button', {name: 'Registrar ubicación'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Registrar dónde está DR-01 · Vehículo DR-01'})
+        await choose(view.user, dialog, 'Dónde está', 'En vía')
+        await typeInto(view.user, dialog, 'KP', 'diez')
+        // En taller no hay vía ni KP: el KP mal escrito que se queda detrás no impide registrar.
+        await choose(view.user, dialog, 'Dónde está', 'En taller')
+        await view.user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([{kind: 'IN_WORKSHOP'}])
+        view.unmount()
+
+        view = renderRoute(`/recursos/flota/${VEHICLE2}`, {session: loginAs('recursos.gestor')})
+        expect(await screen.findByRole('heading', {name: 'HV-01 · Vehículo HV-01'})).toBeInTheDocument()
+        await view.user.click(screen.getByRole('button', {name: 'Registrar ubicación'}))
+        dialog = await screen.findByRole('dialog', {name: 'Registrar dónde está HV-01 · Vehículo HV-01'})
+        expect(within(dialog).getByRole('combobox', {name: 'Dónde está'})).toHaveValue('Desconocida')
+        await view.user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.at(-1).body).toEqual({kind: 'UNKNOWN'})
     })
 
     it('registrar dónde está ofrece lo que admite su movilidad, comprueba lo evidente y deja el diálogo abierto con un VEH-001', async () => {
@@ -1457,14 +1488,21 @@ describe('los vehículos', () => {
         await typeInto(user, dialog, 'KP', '5')
         const before = pointRequests().length
         await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
-        expect(await screen.findByText('Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'))
-            .toBeInTheDocument()
+        const unknown = 'Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'
+        await waitFor(() => expect(screen.getAllByText(unknown).length).toBeGreaterThan(0))
         expect(screen.getByRole('dialog', {name: 'Registrar dónde está UN-01 · Vehículo UN-01'})).toBeInTheDocument()
         await waitFor(() => expect(pointRequests().length).toBeGreaterThan(before))
+        // Como en el backoffice: el punto se vacía, para no volver a mandarlo, y su campo dice por qué.
+        const point = within(dialog).getByRole('combobox', {name: 'Punto de acceso'})
+        expect(point).toHaveValue('')
+        expect(point).toHaveAccessibleDescription(expect.stringContaining(unknown))
 
         await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-        expect(writes.map((write) => write.body)).toEqual([1, 2].map(() => ({kind: 'ON_TRACK', trackId: 20, kp: 5, accessPointId: 90})))
+        expect(writes.map((write) => write.body)).toEqual([
+            {kind: 'ON_TRACK', trackId: 20, kp: 5, accessPointId: 90},
+            {kind: 'ON_TRACK', trackId: 20, kp: 5},
+        ])
     })
 
     it('retirar pide confirmación y el vehículo por defecto de un equipo lo dice el servicio; reactivar es un PATCH', async () => {
@@ -2175,6 +2213,28 @@ describe('puestos y perfiles', () => {
 
         await user.click(screen.getByRole('button', {name: 'Actualizar'}))
         await waitFor(() => expect(reads).toHaveLength(3))
+    })
+
+    it('si al actualizar falla, el informe anterior deja de verse y se dice el fallo con «Reintentar»', async () => {
+        const reads = []
+        server.use(http.get(`${BASE}/reports/position-discrepancies`, ({request}) => {
+            reads.push(new URL(request.url))
+            return reads.length === 2
+                ? resourcesError(503, 'KCK-503', 'Keycloak cannot be read now')
+                : HttpResponse.json(REPORT)
+        }))
+        const {user} = renderRoute('/recursos/discrepancias', {session: loginAs('recursos.lector')})
+        expect(await screen.findByRole('heading', {name: 'Con otro perfil'})).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        expect(await screen.findByRole('alert')).toHaveTextContent('No se ha podido calcular el informe')
+        expect(screen.queryByRole('heading', {name: 'Con otro perfil'})).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Resumen del informe')).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Reintentar'}))
+        expect(await screen.findByRole('heading', {name: 'Con otro perfil'})).toBeInTheDocument()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(reads).toHaveLength(3)
     })
 
     it('sin resources-read no se abre ni se pide', async () => {

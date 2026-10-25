@@ -14,6 +14,8 @@ import {useSaveTaskTypeEquipment} from './useMaintenance.js'
  */
 export default function TaskEquipmentModal({type, onClose}) {
     const [chosen, setChosen] = useState((type.requiredEquipment ?? []).filter((equipment) => TASK_EQUIPMENT.isKnown(equipment)))
+    // Lo que esta aplicación no conoce no tiene casilla, pero se dice: se conserva al guardar.
+    const unknown = (type.requiredEquipment ?? []).filter((equipment) => !TASK_EQUIPMENT.isKnown(equipment))
     const saving = useSaveTaskTypeEquipment()
 
     const save = () => {
@@ -41,6 +43,7 @@ export default function TaskEquipmentModal({type, onClose}) {
                         {TASK_EQUIPMENT.selectable().map((option) => <Checkbox key={option.value} value={option.value} label={option.label}/>)}
                     </Stack>
                 </Checkbox.Group>
+                {unknown.length > 0 && <Text size="sm" c="dimmed">{`Exige también, y se conserva: ${unknown.join(', ')}`}</Text>}
                 <Group justify="flex-end">
                     <Button variant="default" onClick={onClose}>Cancelar</Button>
                     <Button loading={saving.isPending} onClick={save}>Guardar</Button>

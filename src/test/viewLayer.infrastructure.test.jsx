@@ -4,7 +4,8 @@ import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {
-    armDirection, insulatorX, MARGIN, normalizeSchematic, STEP, width, xOf,
+    armDirection, DISCONNECTOR_STEP, DISCONNECTOR_Y, disconnectorY, insulatorX, MARGIN, normalizeSchematic, schematicSummary, STEP,
+    width, xOf,
 } from '../features/infrastructure/schematicLayout.js'
 import {renderRoute} from './render.jsx'
 import {server} from './server.js'
@@ -378,6 +379,13 @@ describe('los perfiles', () => {
                 id: 21, cantileverType: {id: 4, code: 'CT1'}, cwHeight: 5.3, stagger: 200, profileId: 7, versionNumber: 3,
                 steadyArm: {id: 31, length: 1200, steadyArmType: {id: 6, code: 'SA1'}, cantileverId: 21, versionNumber: 1},
             }],
+            // Un poste con dos seccionadores: la lista, en el orden del servicio, y el primero en disconnector.
+            disconnectors: [
+                {id: 5, name: 'SEC-1', onLoad: true, stationId: 12, profileId: 7, versionNumber: 6,
+                    disconnectorFunction: {id: 9, code: 'Disc'}},
+                {id: 6, name: 'SEC-2', onLoad: false, stationId: 12, profileId: 7, versionNumber: 2,
+                    disconnectorFunction: {id: 10, code: 'FEED'}},
+            ],
             disconnector: {id: 5, name: 'SEC-1', onLoad: true, stationId: 12, profileId: 7, versionNumber: 6,
                 disconnectorFunction: {id: 9, code: 'Disc'}},
         }
@@ -463,6 +471,7 @@ describe('los perfiles', () => {
         await waitFor(() => expect(updates).toHaveLength(1))
         expect(updates[0].cantilevers).toBeNull()
         expect(updates[0].disconnector).toEqual(profileWithOneCantilever().disconnector)
+        expect(updates[0].disconnectors).toEqual(profileWithOneCantilever().disconnectors)
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
         await user.click(screen.getByRole('button', {name: 'Modificar P-007 (kp 12.345)'}))
@@ -498,16 +507,16 @@ describe('los perfiles', () => {
         ])
     })
 
-    it('vaciar un catálogo opcional viaja como {}; el seccionador se enseña y vuelve como se leyó', async () => {
+    it('vaciar un catálogo opcional viaja como {}; los seccionadores se enseñan y vuelven como se leyeron', async () => {
         serveGateway({profiles: [profileWithOneCantilever()]})
         const updates = recordWrites('put', `${BASE}/profiles/7`, (body) => HttpResponse.json(body))
         const {user} = await open('/infraestructura/perfiles', sessionWith(WRITER), 'Perfiles', 1)
 
         await user.click(screen.getByRole('button', {name: 'Modificar P-007 (kp 12.345)'}))
         const dialog = await screen.findByRole('dialog', {name: 'Modificar perfil'})
-        const disconnector = within(dialog).getByRole('textbox', {name: 'Seccionador'})
-        expect(disconnector).toHaveValue('SEC-1 (Disc)')
-        expect(disconnector).toHaveAttribute('readonly')
+        const disconnectors = within(dialog).getByRole('textbox', {name: 'Seccionadores'})
+        expect(disconnectors).toHaveValue('SEC-1 (Disc), SEC-2 (FEED)')
+        expect(disconnectors).toHaveAttribute('readonly')
         expect(within(dialog).getByRole('textbox', {name: 'Orden en la vía'})).toHaveValue('4')
         // Deseleccionar la opción elegida es como se vacía un desplegable.
         await choose(user, dialog, 'Tipo de poste', 'PT1 · Poste tipo 1')
@@ -519,7 +528,25 @@ describe('los perfiles', () => {
         expect(updates[0].profileStatus).toEqual(profileWithOneCantilever().profileStatus)
         expect(updates[0].sectionings).toEqual(profileWithOneCantilever().sectionings)
         expect(updates[0].disconnector).toEqual(profileWithOneCantilever().disconnector)
+        expect(updates[0].disconnectors).toEqual(profileWithOneCantilever().disconnectors)
         expect(updates[0]).toMatchObject({orderInTrack: 4, span: 47.97, railPoleDistance: -4960, versionNumber: 2})
+    })
+
+    it('de un servicio anterior, sin la lista, el seccionador del perfil se lee como uno; sin ninguno, «Ninguno»', async () => {
+        const {disconnectors: _ignored, ...older} = profileWithOneCantilever()
+        const empty = {...profileWithOneCantilever(), id: 8, profileId: 'P-008', kp: '13.000', disconnectors: [], disconnector: null}
+        serveGateway({profiles: [older, empty]})
+        const {user} = await open('/infraestructura/perfiles', sessionWith(WRITER), 'Perfiles', 2)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar P-007 (kp 12.345)'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Modificar perfil'})
+        expect(within(dialog).getByRole('textbox', {name: 'Seccionadores'})).toHaveValue('SEC-1 (Disc)')
+        await user.click(within(dialog).getByRole('button', {name: 'Cancelar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Modificar P-008 (kp 13.000)'}))
+        dialog = await screen.findByRole('dialog', {name: 'Modificar perfil'})
+        expect(within(dialog).getByRole('textbox', {name: 'Seccionadores'})).toHaveValue('Ninguno')
     })
 })
 
@@ -942,7 +969,14 @@ describe('el esquema de una vía', () => {
                 },
                 {
                     id: 2, code: 'P-002', kp: '20.000', orderInTrack: 2, railPoleDistance: '2500', sectionings: [], cantilevers: [],
-                    // Cuelga de un poste de VIA 1 y une otras dos: un haz de vías.
+                    // Dos en el mismo poste. El primero cuelga de un poste de VIA 1 y une otras dos: un haz de vías.
+                    disconnectors: [
+                        {
+                            id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA', track: 'VIA 3',
+                            connectedTrack: 'VIA 2',
+                        },
+                        {id: 41, name: 'SEC-41', onLoad: false, function: 'Disc', station: 'ATOCHA'},
+                    ],
                     disconnector: {
                         id: 40, name: 'SEC-40', onLoad: true, function: 'FEED', station: 'ATOCHA', track: 'VIA 3',
                         connectedTrack: 'VIA 2',
@@ -973,7 +1007,7 @@ describe('el esquema de una vía', () => {
         await user.click(screen.getByRole('button', {name: 'Esquema VIA 1'}))
         const dialog = await screen.findByRole('dialog', {name: 'Esquema · VIA 1 (EP4)'})
         expect(calls.count).toBe(1)
-        expect(dialog).toHaveTextContent('2 perfiles · 1 ménsula · 1 seccionador · 1 aislador · Estaciones: ATOCHA, CHAMARTIN')
+        expect(dialog).toHaveTextContent('2 perfiles · 1 ménsula · 2 seccionadores · 1 aislador · Estaciones: ATOCHA, CHAMARTIN')
         const drawing = within(dialog).getByRole('img', {name: 'Esquema de la vía VIA 1'})
         expect([...drawing.querySelectorAll('[data-kind="pole"]')].map((pole) => pole.dataset.id)).toEqual(['1', '2'])
         for (const text of ['P-001', 'KP 10.000', 'HEB · OK', 'PT1', 'S1', 'P-002', 'KP 20.000', 'SEC-40', 'ATOCHA · maniobra VIA 3', 'AIS-50',
@@ -982,8 +1016,17 @@ describe('el esquema de una vía', () => {
         }
         expect(drawing.querySelector('[data-kind="arm"] title')).toHaveTextContent(
             'Ménsula PT1 · descentramiento -200 · altura hilo 5.300 · altura catenaria 1.400 · brazo SA1 1200 mm')
-        expect(drawing.querySelector('[data-kind="disconnector"] title')).toHaveTextContent(
-            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA · maniobra la vía VIA 3 · en paralelo con VIA 2')
+        // Los dos del poste, cada uno con su detalle, uno encima de otro y en el orden del servicio.
+        const marks = [...drawing.querySelectorAll('[data-kind="pole"][data-id="2"] [data-kind="disconnector"]')]
+        expect(marks.map((mark) => mark.dataset.id)).toEqual(['40', '41'])
+        expect(marks.map((mark) => mark.querySelector('title').textContent)).toEqual([
+            'Seccionador SEC-40 · en carga · función FEED · estación ATOCHA · maniobra la vía VIA 3 · en paralelo con VIA 2',
+            'Seccionador SEC-41 · sin carga · función Disc · estación ATOCHA',
+        ])
+        expect(within(drawing).getByText('SEC-41')).toBeInTheDocument()
+        expect(within(drawing).getByText('ATOCHA')).toBeInTheDocument()
+        const heights = marks.map((mark) => Number(mark.querySelector('text').getAttribute('y')))
+        expect(heights[0] - heights[1]).toBe(DISCONNECTOR_STEP)
         expect(within(dialog).getByText(/Un poste por perfil/)).toBeInTheDocument()
 
         // La X de la ventana también se llama «Cerrar»; el del pie es el segundo.
@@ -995,6 +1038,7 @@ describe('el esquema de una vía', () => {
         serveGateway()
         serveSchematic(3, () => HttpResponse.json({
             trackId: 3, trackName: 'VIA "1" & <b>', enabled: true, stations: [],
+            // Como lo manda un servicio anterior, solo con disconnector: se dibuja igual.
             profiles: [{id: 9, code: '<script>P</script>', kp: '1.000', sectionings: ['<b>'], cantilevers: [],
                 disconnector: {id: 1, name: '"SEC" & co', track: '<i>'}}],
             sectionInsulators: [],
@@ -1051,6 +1095,15 @@ describe('el esquema de una vía', () => {
         expect(insulatorX(profiles, 'diez')).toBeCloseTo(xOf(1) + STEP / 2)
         expect(armDirection(profiles[0])).toBe(-1)
         expect(armDirection(profiles[1])).toBe(1)
+
+        // Los seccionadores de un poste, uno encima de otro; sin la lista, el de un servicio anterior.
+        expect(disconnectorY(0)).toBe(DISCONNECTOR_Y)
+        expect(disconnectorY(1)).toBe(DISCONNECTOR_Y - DISCONNECTOR_STEP)
+        expect(profiles[0].disconnectors).toEqual([])
+        expect(profiles[1].disconnectors.map((disconnector) => disconnector.id)).toEqual([40, 41])
+        const older = normalizeSchematic({profiles: [{id: 1, disconnector: {id: 7}}, {id: 2, disconnector: null}], sectionInsulators: []})
+        expect(older.profiles.map((profile) => profile.disconnectors.map((disconnector) => disconnector.id))).toEqual([[7], []])
+        expect(schematicSummary(older)).toBe('2 perfiles · 0 ménsulas · 1 seccionador · 0 aisladores · sin estaciones')
 
         // Dos tramos con la kilometración reiniciada: el aislador cae en el primer tramo que lo contiene.
         const restart = {id: 3, code: 'P-003', kp: '5.000', sectionings: [], cantilevers: []}

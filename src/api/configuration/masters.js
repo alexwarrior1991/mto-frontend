@@ -133,6 +133,19 @@ export function masterBody(resource, read, changes, children = {}) {
     return body
 }
 
+/**
+ * Los seccionadores que cuelgan de un perfil, o de un poste del esquema de una vía: un poste admite
+ * varios, en el orden del servicio (por nombre). Un servicio anterior solo manda `disconnector`, que
+ * se lee como una lista de uno. Los dos son de solo salida: el servicio los ignora al escribir, y
+ * masterBody los devuelve como se leyeron.
+ */
+export function disconnectorsOf(profile) {
+    if (Array.isArray(profile?.disconnectors)) {
+        return profile.disconnectors
+    }
+    return profile?.disconnector ? [profile.disconnector] : []
+}
+
 /** Una entrada de catálogo como referencia dentro de un maestro: el servicio la resuelve por código. */
 export function lovRef(entry) {
     if (!entry) {

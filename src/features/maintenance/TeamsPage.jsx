@@ -8,10 +8,10 @@ import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import DataTable from '../../ui/DataTable.jsx'
 import RowActionButton from '../../ui/RowActionButton.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {unitPath, vehiclePath} from '../resources/resourcesRoutes.js'
 import {countText} from './maintenanceTexts.js'
 import TeamEditorModal from './TeamEditorModal.jsx'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {useTeams} from './useMaintenance.js'
 
 /**

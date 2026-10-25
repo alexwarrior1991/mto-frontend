@@ -13,11 +13,11 @@ import {formatDate} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {orderPath} from './maintenanceRoutes.js'
 import {countText, kpRange, progress} from './maintenanceTexts.js'
 import OrderEditorModal from './OrderEditorModal.jsx'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {MAINTENANCE_PAGE_SIZE, useOrderList, useTeams} from './useMaintenance.js'
 
 const SEARCH_DELAY_MS = 300

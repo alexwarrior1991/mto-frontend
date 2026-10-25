@@ -235,8 +235,14 @@ export function parkingSitePatch(original, values, {readsConfiguration = true} =
  * Los puntos de acceso a la vía que conoce mto-resources (la copia que guarda de los eventos de
  * mto-configuration): lo que ofrece «Registrar dónde está» entre los de la vía elegida. Una lista entera,
  * sin paginar; lo ausente no filtra. Cada uno trae id, name, trackId, executionPackageId, stationId, kp,
- * kind, side, roadRailAccess, maxAxleLoadT, maxGrossWeightT, latitude, longitude y enabled.
+ * kind, side, roadRailAccess, maxAxleLoadT, maxGrossWeightT, latitude, longitude y enabled. Si el
+ * servicio la mandara un día como página ({content, page}), se lee su contenido, como en el backoffice
+ * (AccessPointListDto).
  */
-export function listTrackAccessPoints({trackId = null, executionPackageId = null, enabled = null} = {}, {signal} = {}) {
-    return apiFetch(resourcesPath('track-access-points'), {query: {trackId, executionPackageId, enabled}, signal})
+export async function listTrackAccessPoints({trackId = null, executionPackageId = null, enabled = null} = {}, {signal} = {}) {
+    const body = await apiFetch(resourcesPath('track-access-points'), {query: {trackId, executionPackageId, enabled}, signal})
+    if (Array.isArray(body)) {
+        return body
+    }
+    return Array.isArray(body?.content) ? body.content : []
 }

@@ -17,11 +17,11 @@ import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import AssetEditorModal from './AssetEditorModal.jsx'
 import AssetOrdersModal from './AssetOrdersModal.jsx'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
 import {assetState, countText, describeAsset, kpRange} from './maintenanceTexts.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {MAINTENANCE_PAGE_SIZE, useAssetAction, useAssetList} from './useMaintenance.js'
 
 const SEARCH_DELAY_MS = 300

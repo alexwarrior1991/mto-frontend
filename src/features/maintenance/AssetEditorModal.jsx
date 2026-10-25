@@ -4,9 +4,9 @@ import {assetPatch, isSynchronizedAsset, trackSectionRequest} from '../../api/ma
 import {ASSET_TYPE, TRACK_KIND} from '../../api/maintenance/enums.js'
 import {assetLabel} from '../../api/maintenance/values.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
 import {kpAfter, kpValue, optionalPositiveInteger, required, requiredText, toText} from './maintenanceForms.js'
 import {saveErrors} from './maintenanceErrors.js'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
 import {useSaveAsset} from './useMaintenance.js'
 
 const CODE_LENGTH = 64

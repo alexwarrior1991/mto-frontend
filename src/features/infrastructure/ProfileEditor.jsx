@@ -1,7 +1,7 @@
 import {MultiSelect, Select, SimpleGrid, TextInput} from '@mantine/core'
 import {useForm} from '@mantine/form'
 import {useState} from 'react'
-import {masterBody} from '../../api/configuration/masters.js'
+import {disconnectorsOf, masterBody} from '../../api/configuration/masters.js'
 import {formatQuantity} from '../../ui/format.js'
 import CantileverModal from './CantileverModal.jsx'
 import ChildrenTable from './ChildrenTable.jsx'
@@ -61,9 +61,10 @@ const CATALOGUES = Object.freeze([
  * - Una referencia opcional que se vacía viaja como {}: para el servicio null es «no la toques».
  * - Las ménsulas siguen la regla de las colecciones de hijos: sin tocar van a null y se quedan como
  *   están; tocadas, va la lista entera.
- * - El seccionador que cuelga del perfil se enseña pero no se cambia aquí, y viaja como se leyó. El
- *   vínculo es del seccionador: desde el perfil, null no lo desvincula y otro se copiaría encima del
- *   actual (README_API.md §4).
+ * - Los seccionadores que cuelgan del perfil (un poste admite varios, V29 de mto-configuration) se
+ *   enseñan pero no se cambian aquí, y viajan como se leyeron (disconnectors y, de un servicio
+ *   anterior, disconnector): el servicio los ignora al escribir un perfil. El vínculo es de cada
+ *   seccionador y se cambia en su editor (README_API.md §4).
  * - El orden en la vía lo fija la importación del maestro y vuelve como se leyó.
  */
 export default function ProfileEditor({row, references, onClose}) {
@@ -135,8 +136,8 @@ export default function ProfileEditor({row, references, onClose}) {
                     <TextInput key={measure.field} label={measure.label} {...form.getInputProps(measure.field)}/>
                 ))}
             </SimpleGrid>
-            <TextInput label="Seccionador" readOnly value={disconnectorText(row?.disconnector)}
-                       description="El que cuelga de este perfil. Se vincula desde Seccionadores, en el editor del seccionador."/>
+            <TextInput label="Seccionadores" readOnly value={disconnectorsText(disconnectorsOf(row))}
+                       description="Los que cuelgan de este perfil, que pueden ser varios. Cada uno se vincula desde Seccionadores, en su editor."/>
             <ChildrenTable title="Ménsulas" items={cantilevers.items} max={MAX_CANTILEVERS} emptyText="Sin ménsulas."
                            onChange={(items) => setCantilevers({items, touched: true})}
                            itemLabel={(child, index) => cantileverLabel(child, index)}
@@ -171,11 +172,14 @@ function armOf(child) {
     return `${codeOf(arm.steadyArmType)}${length}`.trim()
 }
 
-function disconnectorText(disconnector) {
-    if (!disconnector) {
+/** «SEC-1 (Disc), SEC-2 (FEED)», en el orden del servicio; «Ninguno» sin ninguno. */
+function disconnectorsText(disconnectors) {
+    if (disconnectors.length === 0) {
         return 'Ninguno'
     }
-    const name = disconnector.name ?? `#${disconnector.id}`
-    const functionCode = codeOf(disconnector.disconnectorFunction)
-    return functionCode ? `${name} (${functionCode})` : name
+    return disconnectors.map((disconnector) => {
+        const name = disconnector.name ?? `#${disconnector.id}`
+        const functionCode = codeOf(disconnector.disconnectorFunction)
+        return functionCode ? `${name} (${functionCode})` : name
+    }).join(', ')
 }

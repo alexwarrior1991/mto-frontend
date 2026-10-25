@@ -45,6 +45,7 @@ import {
     listBusinessEntities,
     lovRef,
     MASTER_CHILDREN,
+    disconnectorsOf,
     masterBody,
     masterFilter,
     trackSchematic,
@@ -1355,6 +1356,7 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         const schematics = record('get', '/api/configuration/tracks/3/schematic', () => HttpResponse.json({
             trackId: 3, trackName: 'VIA 1', enabled: true, executionPackageName: 'EP4', stations: ['ATOCHA'],
             profiles: [{id: 7, code: 'P-007', kp: '12.345', cantilevers: [{id: 21, type: 'PT1', cwHeight: '5.300'}],
+                disconnectors: [{id: 40, name: 'SEC-40', track: 'VIA 3'}, {id: 41, name: 'SEC-41'}],
                 disconnector: {id: 40, name: 'SEC-40', track: 'VIA 3'}}],
             sectionInsulators: [],
         }))
@@ -1375,10 +1377,20 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(deletes[0].body).toBe('')
         expect(schematics).toHaveLength(1)
         expect(schematic.profiles[0].cantilevers[0].cwHeight).toBe('5.300')
-        expect(schematic.profiles[0].disconnector.name).toBe('SEC-40')
-        expect(schematic.profiles[0].disconnector.track).toBe('VIA 3')
+        expect(disconnectorsOf(schematic.profiles[0]).map((disconnector) => disconnector.name)).toEqual(['SEC-40', 'SEC-41'])
+        expect(schematic.profiles[0].disconnectors[0].track).toBe('VIA 3')
         expect(entities[0].identificationNumber).toBe('A12345678')
         expect(companies[0].headers.get('authorization')).toBe('Bearer token-1')
+    })
+
+    it('los seccionadores de un perfil: la lista del servicio, o el de un servicio anterior como una lista de uno', () => {
+        const two = [{id: 5, name: 'SEC-1'}, {id: 6, name: 'SEC-2'}]
+        expect(disconnectorsOf({disconnectors: two, disconnector: two[0]})).toBe(two)
+        expect(disconnectorsOf({disconnectors: [], disconnector: null})).toEqual([])
+        expect(disconnectorsOf({disconnector: {id: 5}})).toEqual([{id: 5}])
+        expect(disconnectorsOf({disconnectors: null, disconnector: {id: 5}})).toEqual([{id: 5}])
+        expect(disconnectorsOf({disconnector: null})).toEqual([])
+        expect(disconnectorsOf(null)).toEqual([])
     })
 
     it('una modificacion es la fila leida entera: lo desconocido y la version vuelven, y los hijos sin tocar van a null', () => {
@@ -1386,12 +1398,15 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
             versionNumber: 7, createUser: 'importador', fieldOfTomorrow: {deep: [1, 2]}}
         const profile = {id: 7, profileId: 'P-007', kp: '12.345', trackId: 3, versionNumber: 2, orderInTrack: 4,
             cantilevers: [{id: 21, cwHeight: 5.3, steadyArm: {id: 31, length: 1200}}],
+            disconnectors: [{id: 5, name: 'SEC-1', versionNumber: 6}, {id: 6, name: 'SEC-2', versionNumber: 1}],
             disconnector: {id: 5, name: 'SEC-1', versionNumber: 6}}
 
         expect(masterBody('tracks', track, {name: 'VIA PRINCIPAL'})).toEqual({...track, name: 'VIA PRINCIPAL', profiles: null})
         const untouched = masterBody('profiles', profile, {kp: '12.500'})
         expect(untouched).toEqual({...profile, kp: '12.500', cantilevers: null})
+        // Los seccionadores no son hijos del perfil: el servicio los ignora al escribir y vuelven como se leyeron.
         expect(untouched.disconnector).toEqual({id: 5, name: 'SEC-1', versionNumber: 6})
+        expect(untouched.disconnectors).toEqual(profile.disconnectors)
         const edited = [...profile.cantilevers, {cwHeight: 6}]
         expect(masterBody('profiles', profile, {}, {cantilevers: edited}).cantilevers).toEqual(edited)
         expect(masterBody('stations', {}, {name: 'NUEVA'})).toEqual({name: 'NUEVA', tracks: null, disconnectors: null,
@@ -3200,6 +3215,10 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
 
         await expect(listTrackAccessPoints({trackId: 12, enabled: true})).resolves.toEqual([point])
         await expect(listTrackAccessPoints({executionPackageId: 4})).resolves.toEqual([point])
+        // Como página también se lee, por su contenido, como en el backoffice.
+        server.use(http.get(`${BASE}/track-access-points`, () => HttpResponse.json({content: [point],
+            page: {number: 0, size: 20, totalElements: 1, totalPages: 1}})))
+        await expect(listTrackAccessPoints({trackId: 12})).resolves.toEqual([point])
         await recordLocation('v-1', locationRequest({kind: 'ON_TRACK', trackId: '12', kp: '110176', accessPointId: '77', accessPoint: ' km 110 '},
             'ROAD_RAIL'))
 

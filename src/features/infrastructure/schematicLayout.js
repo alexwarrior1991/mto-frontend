@@ -1,3 +1,5 @@
+import {disconnectorsOf} from '../../api/configuration/masters.js'
+
 /**
  * Las cuentas del esquema de una vía (el port de SchematicDrawing del backoffice, sin el SVG en
  * texto): dónde va cada poste, hacia qué lado salen las ménsulas, dónde cae cada aislador y qué dice
@@ -20,10 +22,13 @@ export const POLE_TOP = 100
 export const HEIGHT = 350
 export const MIN_WIDTH = 480
 export const ARM_LENGTH = 38
+/** La altura del primer seccionador de un poste; los demás del mismo poste van encima, uno por paso. */
+export const DISCONNECTOR_Y = LINE_Y - 60
+export const DISCONNECTOR_STEP = 32
 
 export const LEGEND = 'Un poste por perfil, a distancia uniforme y en el orden físico de la vía, con el código encima '
-    + 'y el KP debajo; los brazos azules son las ménsulas (con su tipo), el rombo un seccionador y la marca roja '
-    + 'sobre la vía un aislador de sección. El detalle de cada elemento sale al pasar por encima.'
+    + 'y el KP debajo; los brazos azules son las ménsulas (con su tipo), el rombo un seccionador (los de un mismo '
+    + 'poste, uno encima de otro) y la marca roja sobre la vía un aislador de sección. El detalle de cada elemento sale al pasar por encima.'
 
 const NUMBER = /^-?\d+(\.\d+)?$/
 
@@ -36,7 +41,7 @@ export function normalizeSchematic(schematic) {
             ...profile,
             sectionings: profile.sectionings ?? [],
             cantilevers: profile.cantilevers ?? [],
-            disconnector: profile.disconnector ?? null,
+            disconnectors: disconnectorsOf(profile),
         })),
         sectionInsulators: (schematic?.sectionInsulators ?? []).map((mark) => ({...mark, switches: mark.switches ?? []})),
     }
@@ -95,11 +100,14 @@ export function schematicTitle(schematic) {
     return `Esquema · ${name}${schematic.executionPackageName ? ` (${schematic.executionPackageName})` : ''}`
 }
 
-/** Los recuentos y las estaciones: «2 perfiles · 1 ménsula · 1 seccionador · 1 aislador · Estaciones: …». */
+/**
+ * Los recuentos y las estaciones: «2 perfiles · 1 ménsula · 1 seccionador · 1 aislador · Estaciones: …».
+ * Se cuentan los seccionadores, no los postes que llevan alguno: un poste puede llevar varios.
+ */
 export function schematicSummary(schematic) {
     const profiles = schematic.profiles
     const cantilevers = profiles.reduce((total, profile) => total + profile.cantilevers.length, 0)
-    const disconnectors = profiles.filter((profile) => profile.disconnector).length
+    const disconnectors = profiles.reduce((total, profile) => total + profile.disconnectors.length, 0)
     const stations = schematic.stations.length === 0 ? 'sin estaciones' : `Estaciones: ${schematic.stations.join(', ')}`
     return [
         count(profiles.length, 'perfil', 'perfiles'),
@@ -149,6 +157,11 @@ export function disconnectorTitle(disconnector) {
     addIf(parts, 'maniobra la vía ', disconnector.track)
     addIf(parts, 'en paralelo con ', disconnector.connectedTrack)
     return parts.join(' · ')
+}
+
+/** La altura del seccionador que ocupa esa posición en su poste: el primero abajo, los demás encima. */
+export function disconnectorY(index) {
+    return DISCONNECTOR_Y - index * DISCONNECTOR_STEP
 }
 
 /** Lo que va bajo el nombre del seccionador: su estación y la vía que maniobra si no es la del poste. */

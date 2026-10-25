@@ -357,7 +357,8 @@ export function useFollowGeneration(orderId, operationId, onFinished) {
         queryKey: maintenanceKey('operation', operationId),
         queryFn: ({signal}) => getOperation(operationId, {signal}),
         enabled: operationId !== null,
-        refetchInterval: (query) => (isFinishedOperation(query.state.data) ? false : FOLLOW_INTERVAL_MS),
+        // Sin respuesta todavía (la primera pregunta falló) no está terminada: se sigue preguntando.
+        refetchInterval: (query) => (query.state.data && isFinishedOperation(query.state.data) ? false : FOLLOW_INTERVAL_MS),
         refetchIntervalInBackground: false,
         staleTime: 0,
         meta: {notifyError: false},

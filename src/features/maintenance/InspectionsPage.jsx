@@ -12,11 +12,11 @@ import {formatDate} from '../../ui/format.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import {DATE_FORMAT, parseTypedDate} from '../../ui/typedDates.js'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
+import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import InspectionEditorModal from './InspectionEditorModal.jsx'
-import {ReferenceSelect} from './MaintenancePickers.jsx'
 import {inspectionPath} from './maintenanceRoutes.js'
 import {countText, kp} from './maintenanceTexts.js'
-import {useConfigurationNames} from './useMaintenanceNames.js'
 import {MAINTENANCE_PAGE_SIZE, useInspectionList} from './useMaintenance.js'
 
 const SEARCH_DELAY_MS = 300

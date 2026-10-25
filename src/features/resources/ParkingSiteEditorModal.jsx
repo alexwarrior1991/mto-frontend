@@ -5,7 +5,7 @@ import {newParkingSiteRequest, parkingSitePatch} from '../../api/resources/fleet
 import {unitLabel} from '../../api/resources/values.js'
 import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
-import {ReferenceSelect} from '../maintenance/MaintenancePickers.jsx'
+import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
 import {join} from './resourcesTexts.js'
 import {maxLength, optionalCoordinate, optionalFleetKp, PARKING_SITE_LENGTHS, requiredText} from './resourcesForms.js'
 import {useSaveParkingSite} from './useResources.js'
