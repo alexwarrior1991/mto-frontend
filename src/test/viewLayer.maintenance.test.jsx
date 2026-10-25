@@ -721,6 +721,8 @@ describe('los catálogos', () => {
         await user.click(screen.getByRole('button', {name: 'Equipo de RG-01'}))
         const other = await screen.findByRole('dialog', {name: 'Equipo que exige RG-01'})
         expect(within(other).getByRole('checkbox', {name: 'Puesta a tierra'})).toBeChecked()
+        // Lo que esta aplicación no conoce no tiene casilla, pero se dice, como en el backoffice.
+        expect(within(other).getByText('Exige también, y se conserva: CRANE_LICENCE')).toBeInTheDocument()
         await user.click(within(other).getByRole('checkbox', {name: 'Puesta a tierra'}))
         await user.click(within(other).getByRole('button', {name: 'Guardar'}))
         await waitFor(() => expect(patches.at(-1).body).toEqual({requiredEquipment: ['CRANE_LICENCE'], version: 5}))

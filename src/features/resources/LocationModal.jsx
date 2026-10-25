@@ -4,6 +4,7 @@ import {useForm} from '@mantine/form'
 import {LOCATION_KIND, recordableKinds, VEHICLE_ATTACHMENT} from '../../api/resources/enums.js'
 import {locationFields, locationRequest, searchVehicles} from '../../api/resources/vehicles.js'
 import {unitLabel} from '../../api/resources/values.js'
+import {errorMessage} from '../../ui/errors/messages.js'
 import {saveErrors} from '../../ui/errors/saveErrors.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import ServerSearchSelect from '../../ui/ServerSearchSelect.jsx'
@@ -13,6 +14,9 @@ import {optionalCoordinate, optionalFleetKp} from './resourcesForms.js'
 import {accessPointLabel} from './resourcesTexts.js'
 import {resourcesKey, useReachableSites, useRecordLocation, useTrackAccessPoints} from './useResources.js'
 
+/** El 404 de mto-resources de un punto de acceso que no conoce. */
+const UNKNOWN_ACCESS_POINT = 'TAP-404'
+
 /**
  * Registrar dónde está un vehículo, a mano (el port de VehicleLocationDialog, resources-location-write).
  * Solo se ofrecen los tipos que admite su movilidad y los campos de cada tipo; en uno de solo vía, los
@@ -21,7 +25,8 @@ import {resourcesKey, useReachableSites, useRecordLocation, useTrackAccessPoints
  * conoce mto-resources (el maestro de mto-configuration); cambiar de vía lo vacía. Lo evidente se
  * comprueba antes de llamar; lo demás lo dice el servicio con el diálogo abierto: 409 VEH-001 (también
  * un acceso que no admite biviales, que no es de esa vía, que no es preparado para un modelo que lo
- * exige o que no aguanta su peso) y 404 TAP-404 (el punto ya no está o aún no ha llegado a Recursos).
+ * exige o que no aguanta su peso) y 404 TAP-404 (el punto ya no está o aún no ha llegado a Recursos), que
+ * vacía el punto, lo dice en su campo y relee los de la vía, como el backoffice.
  *
  * @param {object} names los nombres de mto-configuration, con las vías
  */
@@ -30,10 +35,13 @@ export default function LocationModal({vehicle, names, onClose}) {
     const reads = names.readsConfiguration
     const sites = useReachableSites(mobility)
     const recording = useRecordLocation(vehicle.id)
+    // Lo que se ve con el tipo elegido: lo que no se ve ni se comprueba ni viaja (locationRequest).
+    const shownFor = (values) => locationFields(values.kind, mobility, {readsConfiguration: reads})
     const form = useForm({
         mode: 'controlled',
         initialValues: {
-            kind: 'PARKED', parkingSiteId: null, executionPackageId: null, trackId: null, kp: '', accessPointId: null, accessPoint: '', latitude: '',
+            // El primero que admite su movilidad: aparcado, o «Desconocido» con una movilidad que no se conoce.
+            kind: recordableKinds(mobility)[0], parkingSiteId: null, executionPackageId: null, trackId: null, kp: '', accessPointId: null, accessPoint: '', latitude: '',
             longitude: '', description: '', carrierVehicleId: null, attachment: null, observedAt: null,
         },
         validate: {
@@ -41,7 +49,7 @@ export default function LocationModal({vehicle, names, onClose}) {
                 if (values.kind !== 'PARKED') {
                     return null
                 }
-                const shown = locationFields('PARKED', mobility, {readsConfiguration: reads})
+                const shown = shownFor(values)
                 const track = shown.trackId && values.trackId
                 if (!value && !track && !values.description.trim() && !(shown.coordinates && values.latitude.trim())) {
                     return 'Aparcado dice dónde: un sitio, una vía y un kp, una descripción o unas coordenadas'
@@ -50,17 +58,19 @@ export default function LocationModal({vehicle, names, onClose}) {
                     ? 'Uno de solo vía se aparca sobre una vía: un sitio con acceso por vía, o una vía y un kp' : null
             },
             trackId: (value, values) => (values.kind === 'ON_TRACK' && !value ? 'En vía dice su vía' : null),
-            kp: optionalFleetKp,
-            latitude: (value, values) => optionalCoordinate(90)(value)
-                ?? ((String(value ?? '').trim() === '') !== (String(values.longitude ?? '').trim() === '')
-                    ? 'Las coordenadas van juntas: latitud y longitud' : null),
-            longitude: optionalCoordinate(180),
+            kp: (value, values) => (shownFor(values).kp ? optionalFleetKp(value) : null),
+            latitude: (value, values) => (shownFor(values).coordinates
+                ? optionalCoordinate(90)(value)
+                    ?? ((String(value ?? '').trim() === '') !== (String(values.longitude ?? '').trim() === '')
+                        ? 'Las coordenadas van juntas: latitud y longitud' : null)
+                : null),
+            longitude: (value, values) => (shownFor(values).coordinates ? optionalCoordinate(180)(value) : null),
             carrierVehicleId: (value, values) => (values.kind === 'ATTACHED' && !value ? 'Dice con qué vehículo va' : null),
             attachment: (value, values) => (values.kind === 'ATTACHED' && !value ? 'Dice cómo: remolcado o transportado' : null),
             observedAt: (value) => (value && new Date(value.replace(' ', 'T')) > new Date() ? 'Una ubicación se registra cuando ya ha pasado' : null),
         },
     })
-    const shown = locationFields(form.values.kind, mobility, {readsConfiguration: reads})
+    const shown = shownFor(form.values)
     const packageId = form.values.executionPackageId === null ? null : Number(form.values.executionPackageId)
     const trackId = shown.trackId && form.values.trackId !== null ? Number(form.values.trackId) : null
     const accessPoints = useTrackAccessPoints(trackId)
@@ -79,12 +89,21 @@ export default function LocationModal({vehicle, names, onClose}) {
         return page.content.filter((other) => other.id !== vehicle.id).map((other) => ({value: other.id, label: unitLabel(other)}))
     }
 
+    const otherwise = saveErrors(form)
     const save = form.onSubmit((values) => recording.mutate(locationRequest(values, mobility, {readsConfiguration: reads}), {
         onSuccess: () => {
             notifySuccess(`Registrado dónde está ${vehicle.code}`)
             onClose()
         },
-        onError: saveErrors(form),
+        onError: (error) => {
+            // El punto de acceso ya no está o aún no ha llegado a Recursos: se vacía, para no volver a
+            // mandarlo, se dice en su campo (la lista de la vía se relee, useRecordLocation) y se elige otro.
+            if (error?.code === UNKNOWN_ACCESS_POINT) {
+                form.setFieldValue('accessPointId', null)
+                form.setFieldError('accessPointId', errorMessage(error))
+            }
+            otherwise(error)
+        },
     }))
 
     return (

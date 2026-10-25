@@ -37,9 +37,12 @@ export default function VehicleLocationsPanel({vehicle, names, readsMaintenance}
     ]
     const actions = (location) => {
         const shift = shiftIdOf(location)
-        return shift && readsMaintenance
-            ? <RowActionButton label="Ver el turno" tooltip="Ver el turno" icon={IconCalendarTime} onClick={() => navigate(shiftPath(shift))}/>
-            : null
+        if (!shift || !readsMaintenance) {
+            return null
+        }
+        // Con el nombre de su fila, como toda acción de fila: la ubicación es la de ese momento.
+        const label = location.observedAt ? `Ver el turno de la ubicación del ${formatDateTime(location.observedAt)}` : 'Ver el turno de la ubicación'
+        return <RowActionButton label={label} tooltip={label} icon={IconCalendarTime} onClick={() => navigate(shiftPath(shift))}/>
     }
 
     return (

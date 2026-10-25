@@ -3215,6 +3215,10 @@ describe('resources/*.js: el personal, el organigrama y la flota de mto-resource
 
         await expect(listTrackAccessPoints({trackId: 12, enabled: true})).resolves.toEqual([point])
         await expect(listTrackAccessPoints({executionPackageId: 4})).resolves.toEqual([point])
+        // Como página también se lee, por su contenido, como en el backoffice.
+        server.use(http.get(`${BASE}/track-access-points`, () => HttpResponse.json({content: [point],
+            page: {number: 0, size: 20, totalElements: 1, totalPages: 1}})))
+        await expect(listTrackAccessPoints({trackId: 12})).resolves.toEqual([point])
         await recordLocation('v-1', locationRequest({kind: 'ON_TRACK', trackId: '12', kp: '110176', accessPointId: '77', accessPoint: ' km 110 '},
             'ROAD_RAIL'))
 
