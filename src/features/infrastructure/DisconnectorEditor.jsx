@@ -12,8 +12,8 @@ import {disconnectorProfileLabel, withCurrent} from './references.js'
 import {useCatalogues} from './useCatalogues.js'
 
 const NAME_MAX_LENGTH = 200
-// El KP propio es texto, como el del perfil: 9 enteros, el punto y 3 decimales.
-const KP_MAX_LENGTH = 13
+// El KP propio es texto, como el del perfil: el signo, 9 enteros, el punto y 3 decimales.
+const KP_MAX_LENGTH = 14
 const FUNCTIONS = 'disconnector-functions'
 
 /**

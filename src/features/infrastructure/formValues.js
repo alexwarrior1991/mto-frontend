@@ -7,7 +7,9 @@ import {describeEntry, parentOptions} from '../catalogues/catalogueRows.js'
  * miles), igual que el KP del backoffice. El servicio comprueba lo demás.
  */
 
-export const KP_PATTERN = /^\d+(\.\d+)?$/
+// El KP del perfil y el propio de un seccionador sin poste, con signo como en mto-configuration
+// (KpText): un poste de antes del origen de la kilometración va en negativo, -77.960.
+export const KP_PATTERN = /^-?\d+(\.\d+)?$/
 // Además de 47.970, lo que también admite el campo numérico del backoffice, que es el mismo número:
 // +47.970, 47. y .970.
 const DECIMAL = /^\+?(\d+\.?\d*|\.\d+)$/

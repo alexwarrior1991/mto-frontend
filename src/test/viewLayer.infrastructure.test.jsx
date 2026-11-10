@@ -435,7 +435,7 @@ describe('los perfiles', () => {
         expect(creates).toHaveLength(0)
     })
 
-    it('un KP de más de 13 caracteres no llega al servicio, y +5300 o .5 son números, como en el backoffice', async () => {
+    it('un KP de más de 14 caracteres no llega al servicio, y +5300 o .5 son números, como en el backoffice', async () => {
         serveGateway()
         const creates = recordWrites('post', `${BASE}/profiles`, (body) => HttpResponse.json({...body, id: 99}, {status: 201}))
         const {user} = renderRoute('/infraestructura/perfiles', {session: sessionWith(WRITER)})
@@ -444,13 +444,13 @@ describe('los perfiles', () => {
         await user.click(screen.getByRole('button', {name: 'Nuevo'}))
         const dialog = await screen.findByRole('dialog', {name: 'Alta de perfil'})
         await typeInto(user, dialog, 'Identificador', 'P-9')
-        await typeInto(user, dialog, 'KP', '12345678901.50')
+        await typeInto(user, dialog, 'KP', '-12345678901.50')
         await choose(user, dialog, 'Vía', 'VIA 1 (EP4)')
         await choose(user, dialog, 'Estado', 'OK · Correcto')
         await typeInto(user, dialog, 'Vano hasta el siguiente (m)', '.5')
         await typeInto(user, dialog, 'Altura del soporte de ménsula (mm)', '+5300')
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
-        expect(await within(dialog).findByText('Como mucho 13 caracteres')).toBeInTheDocument()
+        expect(await within(dialog).findByText('Como mucho 14 caracteres')).toBeInTheDocument()
         expect(creates).toHaveLength(0)
 
         await typeInto(user, dialog, 'KP', '10.500')
@@ -612,6 +612,30 @@ describe('los seccionadores', () => {
         ...known, name: 'HSA-FP1.1', profileId: null, profileCode: null, profileKp: null, kp: '98375.5', trackId: 3,
     }
 
+    it('un poste de antes del origen de la kilometración lleva su KP con signo, como en el backoffice', async () => {
+        serveGateway()
+        const creates = recordWrites('post', `${BASE}/profiles`, (body) => HttpResponse.json({...body, id: 99}, {status: 201}))
+        const {user} = renderRoute('/infraestructura/perfiles', {session: sessionWith(WRITER)})
+        await screen.findByText('No hay perfiles.')
+
+        await user.click(screen.getByRole('button', {name: 'Nuevo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Alta de perfil'})
+        await typeInto(user, dialog, 'Identificador', '0-1.01')
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP4)')
+        await choose(user, dialog, 'Estado', 'OK · Correcto')
+        for (const typed of ['+5', '--5', '- 5', '-5,5']) {
+            await typeInto(user, dialog, 'KP', typed)
+            await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+            expect(await within(dialog).findByText('Número con punto decimal, como 10.500')).toBeInTheDocument()
+        }
+        expect(creates).toHaveLength(0)
+
+        await typeInto(user, dialog, 'KP', ' -77.960 ')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(creates).toHaveLength(1))
+        expect(creates[0]).toMatchObject({profileId: '0-1.01', kp: '-77.960'})
+    })
+
     it('sin poste, el seccionador lleva su KP y su vía, y el KP se comprueba antes de llamar', async () => {
         serveGateway({disconnectors: [poleLess]})
         const updates = recordWrites('put', `${BASE}/disconnectors/5`, (body) => HttpResponse.json(body))
@@ -630,12 +654,13 @@ describe('los seccionadores', () => {
         expect(await within(dialog).findByText('Número con punto decimal, como 10.500')).toBeInTheDocument()
         expect(updates).toEqual([])
 
+        // Con signo, como el del perfil: antes del origen de la kilometración.
         await user.clear(kp)
-        await user.type(kp, ' 98400 ')
+        await user.type(kp, ' -12.5 ')
         await choose(user, dialog, 'Vía propia', 'VIA 2 (EP4)')
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
 
-        await waitFor(() => expect(updates).toEqual([{...poleLess, kp: '98400', trackId: 4}]))
+        await waitFor(() => expect(updates).toEqual([{...poleLess, kp: '-12.5', trackId: 4}]))
     })
 
     it('elegir un poste vacía el KP propio, que ya no se ofrece, pero la vía se queda', async () => {
