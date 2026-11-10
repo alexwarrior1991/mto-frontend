@@ -396,9 +396,11 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **Los números se comprueban como en el backoffice, con la columna del servicio**: las cantidades de
   almacén y de mantenimiento, 13 enteros y 6 decimales; un kp de mantenimiento y una medida de
   checklist, con signo, 9 enteros y 3 decimales; las medidas de infraestructura, enteras o no negativas
-  según su columna, y el KP de un perfil, 13 caracteres como mucho. Valen también `+5`, `5.` y `.5`,
-  que el campo numérico del backoffice admite y son el mismo número. Lo que no es un número no viaja:
-  `Number('5,4')` es `NaN`, que JSON convierte en `null`, y borraría la medida guardada. Un
+  según su columna, y el KP de un perfil (y el propio de un seccionador sin poste), con signo y 14
+  caracteres como mucho: un poste de antes del origen de la kilometración va en negativo. Valen
+  también `+5`, `5.` y `.5`, que el campo numérico del backoffice admite y son el mismo número. Lo
+  que no es un número no viaja: `Number('5,4')` es `NaN`, que JSON convierte en `null`, y borraría la
+  medida guardada. Un
   `NumberInput` con mínimo no lo impone al salir del campo (`clampBehavior="none"`): un 0 en el
   intervalo del preventivo es un error, no un 1.
 - **Los enumerados que se leen de un servicio toleran lo desconocido** (`defineEnum`): `UNKNOWN`

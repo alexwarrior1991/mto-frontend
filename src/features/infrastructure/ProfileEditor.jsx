@@ -15,8 +15,8 @@ import {withCurrent} from './references.js'
 import {useCatalogues} from './useCatalogues.js'
 
 const PROFILE_ID_MAX_LENGTH = 50
-/** El tope del campo en el backoffice. */
-const PROFILE_KP_MAX_LENGTH = 13
+/** El tope del campo en el backoffice: el signo, 9 enteros, el punto y 3 decimales. */
+const PROFILE_KP_MAX_LENGTH = 14
 /** El tope del servicio (PROFILE_MAX_CANTILEVERS): «Añadir» se apaga al llegar. */
 const MAX_CANTILEVERS = 3
 
