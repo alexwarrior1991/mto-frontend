@@ -437,6 +437,9 @@ import {
     getUser,
     isAttributeFilter,
     isPasswordCredential,
+    isReservedUsername,
+    isSelf,
+    isServiceAccount,
     listCredentials,
     listOfflineSessions,
     listSessions,
@@ -451,19 +454,23 @@ import {
     sameAttributes,
     searchUsers,
     sendActionsEmail,
+    SERVICE_ACCOUNT_PREFIX,
     setUserEnabled,
     TAKE_OUT_STEPS,
     takeOut,
+    targetLimits,
     touchesCredentials,
     toUser,
     updateUser,
 } from '../api/users/users.js'
 import {createQueryClient} from '../app/queryClient.js'
+import {buildSession} from '../auth/session.js'
 import {errorMessage} from '../ui/errors/messages.js'
 import {applyServerErrors, childErrorText, toFormPath} from '../ui/errors/serverValidation.js'
 import {formatDate, formatDateTime, formatDayTime, formatPercent, formatQuantity} from '../ui/format.js'
 import {parseTypedDate, parseTypedDateTime} from '../ui/typedDates.js'
 import {server} from './server.js'
+import {fakeAccessToken} from './session.js'
 
 /**
  * La capa de cliente (src/api y lo que traduce sus errores) contra un gateway simulado: lo que hacia
@@ -898,6 +905,21 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Keycloak ha rechazado la petición. invalidPasswordMinLengthMessage')
         expect(errorMessage(new ValidationError(400, {problem: problem({code: 'KC-400', errors: [{field: 'email', code: null, message: 'no vale'}]})})))
             .toBe('Datos no válidos: email no vale')
+    })
+
+    it('mto-users: una cuenta de servicio y uno mismo no son «no tienes permiso», y llevan el detalle del servicio', () => {
+        const serviceAccount = new ForbiddenError(403, {problem: problem({
+            code: 'USR-SVC-403', detail: 'User service-account-mto-stock-svc is the service account of a client: it is read-only through this API',
+        })})
+        expect(errorMessage(serviceAccount)).toBe('Una cuenta de servicio no se modifica desde aquí. '
+            + 'User service-account-mto-stock-svc is the service account of a client: it is read-only through this API')
+        expect(errorMessage(new ForbiddenError(403, {problem: problem({code: 'USR-SVC-403'})})))
+            .toBe('Una cuenta de servicio no se modifica desde aquí.')
+        const self = new ForbiddenError(403, {problem: problem({
+            code: 'USR-SELF-403', detail: 'You cannot change your own roles: it has to be done by another administrator',
+        })})
+        expect(errorMessage(self)).toBe('Nadie cambia sus propios permisos ni se saca a sí mismo: tiene que hacerlo otra persona. '
+            + 'You cannot change your own roles: it has to be done by another administrator')
     })
 
     it('mto-stock: un código repetido de un catálogo no pide recargar, y la falta de stock lleva su detalle', () => {
@@ -1987,6 +2009,101 @@ describe('users/*.js: usuarios, roles y perfiles de mto-users', () => {
         expect(halfway.error.code).toBe('KC-503')
         expect(halfway.error.retryAfterSeconds).toBe(10)
         expect(errorMessage(halfway.error)).toBe('El servicio no está disponible ahora mismo. Inténtalo en 10 s.')
+    })
+
+    it('una cuenta de servicio la dice el servicio; sin la clave (un servicio anterior) no lo es, aunque se llame como una', async () => {
+        useToken()
+        const SVC = {id: 'u-svc', username: 'service-account-mto-stock-svc', enabled: true, serviceAccount: true}
+        server.use(
+            http.get('/api/users/u-svc', () => HttpResponse.json(SVC)),
+            http.get('/api/users/u-old', () => HttpResponse.json({id: 'u-old', username: 'service-account-mto-stock-svc', enabled: true})),
+        )
+
+        const account = await getUser('u-svc')
+        const fromOlderService = await getUser('u-old')
+
+        expect(account.serviceAccount).toBe(true)
+        expect(isServiceAccount(account)).toBe(true)
+        expect(isServiceAccount(fromOlderService)).toBe(false)
+        expect([{...ANA, serviceAccount: false}, {...ANA, serviceAccount: 'true'}, ANA, null, undefined].map(isServiceAccount))
+            .toEqual([false, false, false, false, false])
+    })
+
+    it('uno mismo es el usuario cuyo id es el sub del token; sin sub, nadie', () => {
+        const session = buildSession(fakeAccessToken({username: 'ana.nueva'}))
+
+        expect(session.userId).toBe('sub-ana.nueva')
+        expect(isSelf({id: 'sub-ana.nueva', username: 'otro.nombre'}, session)).toBe(true)
+        // Lo que decide es el id, no el nombre de usuario.
+        expect(isSelf({id: 'u-1', username: 'ana.nueva'}, session)).toBe(false)
+        expect(isSelf({id: undefined}, {userId: undefined})).toBe(false)
+        expect(isSelf({id: ''}, {userId: ''})).toBe(false)
+        expect(isSelf(null, session)).toBe(false)
+        expect(isSelf(ANA, null)).toBe(false)
+        expect(buildSession('esto.no-es.un-jwt').userId).toBeNull()
+    })
+
+    it('el prefijo de las cuentas de servicio está reservado en un alta, sin distinguir mayúsculas', () => {
+        expect(SERVICE_ACCOUNT_PREFIX).toBe('service-account-')
+        expect(['service-account-x', 'Service-Account-x', ' SERVICE-ACCOUNT-', 'service-account-'].map(isReservedUsername))
+            .toEqual([true, true, true, true])
+        expect(['service-account', 'ana', 'mi-service-account-x', '', null, undefined].map(isReservedUsername))
+            .toEqual([false, false, false, false, false, false])
+    })
+
+    it('lo que no se ofrece sobre un usuario: nada de escritura en una cuenta de servicio; en uno mismo, ni desactivar, ni borrar, ni sacar, ni permisos', () => {
+        const session = buildSession(fakeAccessToken({username: 'ana.nueva'}))
+        const flags = (limits) => ({
+            readOnly: limits.readOnly, self: limits.self, canModify: limits.canModify, canDisable: limits.canSetEnabled(false),
+            canEnable: limits.canSetEnabled(true), canDelete: limits.canDelete, canTakeOut: limits.canTakeOut,
+            canChangePermissions: limits.canChangePermissions,
+        })
+
+        expect(flags(targetLimits(ANA, session))).toEqual({
+            readOnly: false, self: false, canModify: true, canDisable: true, canEnable: true, canDelete: true, canTakeOut: true,
+            canChangePermissions: true,
+        })
+        expect(flags(targetLimits({...ANA, serviceAccount: true}, session))).toEqual({
+            readOnly: true, self: false, canModify: false, canDisable: false, canEnable: false, canDelete: false, canTakeOut: false,
+            canChangePermissions: false,
+        })
+        expect(flags(targetLimits({...ANA, id: 'sub-ana.nueva'}, session))).toEqual({
+            readOnly: false, self: true, canModify: true, canDisable: false, canEnable: true, canDelete: false, canTakeOut: false,
+            canChangePermissions: false,
+        })
+    })
+
+    it('los dos 403 de «sobre quién no se actúa» llegan tipados con su código, por el alias errorCode', async () => {
+        useToken()
+        const forbidden = (errorCode, detail) => () => HttpResponse.json(
+            {status: 403, title: 'Forbidden', detail, errorCode, correlationId: 'corr-403'},
+            {status: 403, headers: {'Content-Type': 'application/problem+json'}},
+        )
+        server.use(
+            http.patch('/api/users/u-svc/enabled', forbidden('USR-SVC-403',
+                'User service-account-mto-stock-svc is the service account of a client: it is read-only through this API')),
+            http.post('/api/users', forbidden('USR-SVC-403',
+                "Usernames starting with service-account- are reserved for the service accounts of the realm's clients")),
+            http.delete('/api/users/u-me', forbidden('USR-SELF-403', 'You cannot delete your own account: it has to be done by another administrator')),
+            http.put('/api/users/u-me/profiles/mto-users-admin', forbidden('USR-SELF-403',
+                'You cannot change your own profiles: it has to be done by another administrator')),
+        )
+
+        const onServiceAccount = await setUserEnabled('u-svc', false).catch((error) => error)
+        const reserved = await createUser({username: 'service-account-nuevo'}).catch((error) => error)
+        const deletingMyself = await deleteUser('u-me').catch((error) => error)
+        const ownProfile = await assignProfile('u-me', 'mto-users-admin').catch((error) => error)
+
+        for (const error of [onServiceAccount, reserved, deletingMyself, ownProfile]) {
+            expect(error).toBeInstanceOf(ForbiddenError)
+            expect(error.reference).toBe('corr-403')
+        }
+        expect([onServiceAccount.code, reserved.code, deletingMyself.code, ownProfile.code])
+            .toEqual(['USR-SVC-403', 'USR-SVC-403', 'USR-SELF-403', 'USR-SELF-403'])
+        expect(errorMessage(reserved)).toBe('Una cuenta de servicio no se modifica desde aquí. '
+            + "Usernames starting with service-account- are reserved for the service accounts of the realm's clients")
+        expect(errorMessage(deletingMyself)).toBe('Nadie cambia sus propios permisos ni se saca a sí mismo: tiene que hacerlo otra persona. '
+            + 'You cannot delete your own account: it has to be done by another administrator')
     })
 
     it('una acción requerida se nombra si se conoce; una que el servicio estrene se enseña tal cual y no se ofrece', () => {

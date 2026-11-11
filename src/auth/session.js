@@ -11,6 +11,9 @@ export function buildSession(accessToken) {
     const byClient = permissionsByClient(claims)
     const permissions = new Set(byClient.flatMap((client) => client.roles))
     return Object.freeze({
+        // El sub del token: el id de la persona en Keycloak, que es el de su ficha en mto-users. Con el
+        // se sabe si un usuario es quien ha entrado (isSelf).
+        userId: stringOrNull(claims.sub),
         username: stringOrNull(claims.preferred_username) ?? stringOrNull(claims.sub),
         name: stringOrNull(claims.name),
         permissions,

@@ -429,7 +429,12 @@ describe('los activos', () => {
         await typeInto(user, document.body, 'Nombre', '12-2')
         await user.type(screen.getByRole('textbox', {name: 'Preventivo vence hasta'}), '31/10/2026')
         await user.tab()
-        await waitFor(() => expect(param(lists().at(-1), 'preventiveDueBefore')).toBe(endOfDayInstant('2026-10-31')))
+        // El nombre viaja con retardo: la fecha puede llegar antes que él, así que se espera a la
+        // petición que ya lleva los dos.
+        await waitFor(() => {
+            expect(param(lists().at(-1), 'preventiveDueBefore')).toBe(endOfDayInstant('2026-10-31'))
+            expect(param(lists().at(-1), 'name')).toBe('12-2')
+        })
         const last = lists().at(-1)
         expect([param(last, 'type'), param(last, 'trackId'), param(last, 'enabled'), param(last, 'name'), param(last, 'page')])
             .toEqual(['PROFILE', '12', 'true', '12-2', '0'])

@@ -4,7 +4,7 @@ import {useState} from 'react'
 import DataTable from '../../ui/DataTable.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
-import {profileOptionLabel} from './userTexts.js'
+import {OWN_PERMISSIONS_HINT, profileOptionLabel} from './userTexts.js'
 import {useAssignedProfiles, useProfileAssignment, useProfileCatalogue} from './useUsers.js'
 
 const COLUMNS = [
@@ -16,8 +16,11 @@ const COLUMNS = [
  * La pestaña «Perfiles» de la ficha (el port de UserProfilesPanel): los perfiles asignados a la
  * persona y, con users-profiles-write, asignar y quitar. Lo que se pinta después es la lista que
  * devuelve el servicio, sin volver a pedirla. Quitar no pide confirmación: se vuelve a asignar igual.
+ *
+ * canWrite llega ya en falso para una cuenta de servicio y para la ficha de uno mismo (own), que
+ * además lo dice: el servicio rechazaría el cambio con 403 USR-SVC-403 o USR-SELF-403.
  */
-export default function UserProfilesPanel({userId, canWrite}) {
+export default function UserProfilesPanel({userId, canWrite, own = false}) {
     const assigned = useAssignedProfiles(userId)
     const catalogue = useProfileCatalogue({enabled: canWrite})
     const changing = useProfileAssignment(userId)
@@ -45,6 +48,7 @@ export default function UserProfilesPanel({userId, canWrite}) {
                 Un perfil es un rol compuesto de realm (mto-…) que concede roles de cliente. Aquí se ven las asignaciones directas:
                 quien tiene un rol por un perfil aparece en el perfil, no en el rol.
             </Text>
+            {own && <Text size="sm" c="dimmed">{OWN_PERMISSIONS_HINT}</Text>}
             <DataTable ariaLabel="Perfiles asignados" columns={COLUMNS} rows={assigned.data ?? []} loading={assigned.isPending}
                        emptyText={assigned.isError ? 'No se han podido leer los perfiles.' : 'Sin perfiles.'} rowKey={(profile) => profile.name}
                        rowActions={canWrite

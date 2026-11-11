@@ -89,7 +89,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   el alta, la modificación, `setUserEnabled`, el borrado, la contraseña, el correo de acciones, las
   sesiones normales y offline y las credenciales; cómo viaja uno, `newUserRequest` y
   `changedUserRequest`, que devuelve `null` si no cambió nada; `REQUIRED_ACTION` y las etiquetas que
-  dejan tal cual lo desconocido; y `takeOut`, los tres pasos en su orden), `users/roles.js` (los
+  dejan tal cual lo desconocido; `takeOut`, los tres pasos en su orden; y sobre quién no se actúa:
+  `isServiceAccount`, `isSelf`, `isReservedUsername` y `targetLimits`, lo que no se ofrece sobre un
+  usuario), `users/roles.js` (los
   clientes, sus roles y sus miembros, los roles de una persona, añadir con `PUT {roles}` y quitar con
   un `DELETE` con el mismo cuerpo) y `users/profiles.js` (el catálogo, lo que concede un perfil, sus
   miembros, los de una persona, asignar con un `PUT` sin cuerpo y quitar).
@@ -164,7 +166,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   PKCE, sin renovación automática), `tokenSource.js` (el token para `http.js` y su renovación con el
   refresh token, de un solo vuelo), `returnTo.js` (las rutas `/auth/callback` y `/auth/logged-out`,
   y la URL de vuelta saneada), `claims.js`, `permissions.js` (`ROLE_CATALOG`, `P`,
-  `permissionsFrom`), `session.js` (`buildSession` desde el access token), `sessionContext.js`
+  `permissionsFrom`), `session.js` (`buildSession` desde el access token, con `userId`, su `sub`), `sessionContext.js`
   (`useSession`, `useAuthActions`), `SessionProvider.jsx`, `AuthGate.jsx` (nada se pinta sin persona
   dentro), `RequirePermission.jsx`, `sessionExpired.js` y `SessionExpiredModal.jsx`.
 - `app/` — la composición: `AppProviders.jsx` (Mantine → configuración → OIDC → `AuthGate` → React
@@ -377,7 +379,9 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   esa línea ya no existen, y `TAP-404`, que ese punto de acceso ya no está o aún no ha llegado a
   Recursos; `ABS-001` y `REP-001` tampoco piden recargar; el 403 `SCP-403` de mantenimiento no es «sin
   permiso»: es «fuera de tu ámbito», con el detalle del servicio, que dice el EP; y el 503 `KCK-503`,
-  Keycloak que Recursos no puede leer ahora). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
+  Keycloak que Recursos no puede leer ahora; y los 403 `USR-SVC-403` y `USR-SELF-403` de `mto-users`
+  tampoco son «sin permiso»: una cuenta de servicio no se modifica desde aquí, y nadie cambia sus
+  propios permisos ni se saca a sí mismo). Un cuerpo HTML nunca se enseña. Un fallo se avisa en un solo sitio, el
   `onError` de `queryClient.js`; quien lo trata él mismo lo dice con `meta: {notifyError: false}`
   (los formularios, que llevan los errores a sus campos con `applyServerErrors` y dejan el diálogo
   abierto; la campana, cuyo fallo no avisa).
@@ -752,6 +756,27 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `PATCH /enabled {false}`, `DELETE /sessions` y `DELETE /offline-sessions`, para en el primer fallo y
   devuelve lo hecho y el paso que falló, que el aviso dice con su «Referencia». El botón pide
   `users-write` **y** `users-sessions-write`.
+- **Sobre una cuenta de servicio y sobre uno mismo no se ofrece lo que `mto-users` rechaza**
+  (`TargetUserPolicy` allí; `targetLimits` aquí, que se aplica **además** del permiso de la sesión).
+  - Una cuenta de servicio es la que el servicio dice con `serviceAccount: true` (`isServiceAccount`);
+    una respuesta sin la clave, de un servicio anterior, no lo es: aquí no se adivina por el nombre. Solo
+    se lee: su fila lleva la insignia «Cuenta de servicio» junto al usuario y solo ofrece abrir la ficha
+    (el botón y el doble clic); su ficha lo dice («Cuenta de servicio: solo lectura…») y no ofrece
+    modificar, activar ni desactivar, contraseña, correo de acciones, «sacar a la persona» ni borrar, y
+    sus cuatro pestañas se leen sin asignar ni quitar perfiles o roles, sin cerrar sesiones y sin quitar
+    credenciales. Todo sería un 403 `USR-SVC-403`.
+  - Uno mismo es el usuario cuyo `id` es el `sub` del access token (`isSelf`, con `session.userId`),
+    nunca el nombre de usuario. Ni su fila ni su ficha ofrecen desactivar ni borrar, la ficha tampoco
+    «sacar a la persona» (su primer paso es desactivar), y sus pestañas de perfiles y de roles se leen,
+    con una línea que lo dice («Nadie cambia sus propios permisos…»): sería un 403 `USR-SELF-403`.
+    Modificar sus datos, volver a activarse, la contraseña, el correo de acciones, cerrar sus sesiones
+    y quitar una credencial siguen como siempre.
+  - En el alta, un nombre que empiece por `service-account-` (sin distinguir mayúsculas,
+    `isReservedUsername`) se rechaza en su campo antes de llamar.
+  - Los dos códigos no son «no tienes permiso» y recargar no los arregla: `USR-SVC-403` es «Una cuenta
+    de servicio no se modifica desde aquí.» y `USR-SELF-403`, «Nadie cambia sus propios permisos ni se
+    saca a sí mismo: tiene que hacerlo otra persona.», los dos con el detalle del servicio y con el
+    diálogo o la pantalla como estaban.
 - **El correo de acciones ofrece lo que el servicio va a aceptar.** `mto-users` pide `users-write`
   para mandarlo y, si lleva una acción que pone una credencial (`UPDATE_PASSWORD` o `CONFIGURE_TOTP`,
   `touchesCredentials`), además `users-password-reset` (403 `AUTH-403`): un enlace así es restablecer la
