@@ -22,6 +22,8 @@ const CONNECTION = 'TRACK_CONNECTION'
  */
 export default function SectionInsulatorEditor({row, references, onClose}) {
     const [switches, setSwitches] = useState({items: row?.switches ?? [], touched: false})
+    // Lo que el servicio rechaza de una aguja (switches[0].kp): bajo su tabla.
+    const [switchErrors, setSwitchErrors] = useState([])
     const form = useForm({
         mode: 'controlled',
         initialValues: {
@@ -67,7 +69,7 @@ export default function SectionInsulatorEditor({row, references, onClose}) {
 
     return (
         <MasterEditorModal master={MASTERS.sectionInsulators} creating={row === null} form={form} buildBody={buildBody}
-                           onClose={onClose}>
+                           childErrors={{switches: setSwitchErrors}} onClose={onClose}>
             <TextInput label="Nombre" withAsterisk maxLength={NAME_MAX_LENGTH} data-autofocus {...form.getInputProps('name')}/>
             <SimpleGrid cols={{base: 1, sm: 2}}>
                 <Select label="Estación" withAsterisk searchable nothingFoundMessage="No hay ninguna"
@@ -83,7 +85,11 @@ export default function SectionInsulatorEditor({row, references, onClose}) {
             </SimpleGrid>
             <Checkbox label="Activo" {...form.getInputProps('enabled', {type: 'checkbox'})}/>
             <ChildrenTable title="Agujas" items={switches.items} emptyText="Sin agujas."
-                           onChange={(items) => setSwitches({items, touched: true})}
+                           errors={switchErrors}
+                           onChange={(items) => {
+                               setSwitches({items, touched: true})
+                               setSwitchErrors([])
+                           }}
                            itemLabel={(child, index) => `aguja ${child.code || index + 1}`}
                            columns={[
                                {key: 'code', label: 'Código', render: (child) => child.code},

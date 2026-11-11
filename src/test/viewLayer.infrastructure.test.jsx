@@ -507,6 +507,49 @@ describe('los perfiles', () => {
         ])
     })
 
+    it('un 400 con la ruta del campo: el del perfil en su desplegable, el de una lista en su campo, el de una ménsula bajo su tabla y el resto en un aviso', async () => {
+        serveGateway({profiles: [profileWithOneCantilever()]})
+        const updates = recordWrites('put', `${BASE}/profiles/7`, () => problem(400, {
+            title: 'Error de validación', status: 400, code: 'VAL-000', traceId: 't-9',
+            errors: [
+                {field: 'poleType', code: 'BUS-001', message: 'El tipo de poste no existe'},
+                {field: 'sectionings[0]', code: 'BUS-001', message: 'El seccionamiento no existe'},
+                {field: 'cantilevers[0].steadyArm.steadyArmType', code: 'BUS-001', message: 'El tipo de brazo no existe'},
+                {field: 'cantilevers[1].cantileverType', code: 'BUS-001', message: 'El tipo de ménsula no existe'},
+                {field: 'disconnectors[0].connectedTrackId', code: 'BUS-001', message: 'Es la vía de su poste'},
+            ],
+        }))
+        const {user} = await open('/infraestructura/perfiles', sessionWith(WRITER), 'Perfiles', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar P-007 (kp 12.345)'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar perfil'})
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir'}))
+        const cantilever = await screen.findByRole('dialog', {name: 'Nueva ménsula'})
+        await choose(user, cantilever, 'Tipo de ménsula', 'CT2 · Ménsula tipo 2')
+        await user.click(within(cantilever).getByRole('button', {name: 'Aceptar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Nueva ménsula'})).not.toBeInTheDocument())
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(updates).toHaveLength(1))
+
+        // (a) El campo directo del maestro, en su desplegable.
+        expect(await within(dialog).findByText('El tipo de poste no existe')).toBeInTheDocument()
+        expect(within(dialog).getByRole('combobox', {name: 'Tipo de poste'})).toHaveAttribute('aria-invalid', 'true')
+        // (c) El elemento de una lista, en el campo de la lista.
+        expect(within(dialog).getByText('El seccionamiento no existe')).toBeInTheDocument()
+        expect(within(dialog).getByRole('combobox', {name: 'Seccionamientos'})).toHaveAccessibleDescription('El seccionamiento no existe')
+        // (b) El campo de un hijo, bajo su tabla, con su fila y el campo como lo nombra el servicio.
+        const childErrors = within(dialog).getByRole('alert', {name: 'Errores en Ménsulas'})
+        expect(within(childErrors).getByText('Fila 1 · steadyArm.steadyArmType: El tipo de brazo no existe')).toBeInTheDocument()
+        expect(within(childErrors).getByText('Fila 2 · cantileverType: El tipo de ménsula no existe')).toBeInTheDocument()
+        // Lo que no tiene sitio en el editor no se pierde: un aviso con su ruta delante.
+        expect(await screen.findByText('disconnectors[0].connectedTrackId: Es la vía de su poste')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar perfil'})).toBeInTheDocument()
+
+        // Tocar la lista borra lo que se dijo de ella.
+        await user.click(within(dialog).getByRole('button', {name: 'Quitar ménsula 2 (CT2)'}))
+        expect(within(dialog).queryByRole('alert', {name: 'Errores en Ménsulas'})).not.toBeInTheDocument()
+    })
+
     it('vaciar un catálogo opcional viaja como {}; los seccionadores se enseñan y vuelven como se leyeron', async () => {
         serveGateway({profiles: [profileWithOneCantilever()]})
         const updates = recordWrites('put', `${BASE}/profiles/7`, (body) => HttpResponse.json(body))
@@ -838,6 +881,32 @@ describe('los aisladores de sección', () => {
             insulatorWithOneSwitch().switches[0],
             {code: 'W41', kp: 110249, turnoutDenominator: 12, trackId: 4, enabled: true},
         ])
+    })
+
+    it('el 400 de una aguja con su ruta se dice bajo la tabla de agujas, con su fila y su campo', async () => {
+        serveGateway({insulators: [insulatorWithOneSwitch()]})
+        let rejected = true
+        const updates = recordWrites('put', `${BASE}/section-insulators/9`, (body) => (rejected
+            ? problem(400, {
+                title: 'Error de validación', status: 400, code: 'VAL-000', traceId: 't-10',
+                errors: [{field: 'switches[0].trackId', code: 'BUS-001', message: 'La vía no existe'}],
+            })
+            : HttpResponse.json(body)))
+        const {user} = await open('/infraestructura/aisladores', sessionWith(WRITER), 'Aisladores de sección', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Modificar B7'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar aislador de sección'})
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        const childErrors = await within(dialog).findByRole('alert', {name: 'Errores en Agujas'})
+        expect(within(childErrors).getByText('Fila 1 · trackId: La vía no existe')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Modificar aislador de sección'})).toBeInTheDocument()
+
+        // Volver a guardar borra lo del intento anterior.
+        rejected = false
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(updates).toHaveLength(2))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     })
 
     it('la vía conectada solo cuenta en una conexión de vías: pasar a «En una vía» la vacía', async () => {

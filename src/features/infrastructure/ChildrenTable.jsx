@@ -1,6 +1,7 @@
 import {Button, Group, Stack, Table, Text, VisuallyHidden} from '@mantine/core'
 import {IconPencil, IconPlus, IconTrash} from '@tabler/icons-react'
 import {useState} from 'react'
+import {childErrorText} from '../../ui/errors/serverValidation.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 
 /**
@@ -11,13 +12,19 @@ import RowActionButton from '../../ui/RowActionButton.jsx'
  * El editor guarda si la lista se tocó: para el servicio la colección que llega es el estado final y el
  * hijo que falta se borra, así que una lista que nadie tocó viaja a null y una tocada va entera.
  *
+ * Lo que el servicio rechaza de un hijo al guardar el padre (cantilevers[1].cantileverType) se dice
+ * debajo de la tabla, con su fila y el campo tal como lo nombra el servicio: «Fila 2 · cantileverType:
+ * …». La lista viaja en el orden de la tabla, así que la posición del servicio es la fila. El editor
+ * lo borra cuando la lista cambia o se vuelve a guardar.
+ *
  * @param {Array} items la lista de trabajo
+ * @param {Array} [errors] los errores del servicio sobre los hijos: [{index, field, message}]
  * @param {Function} onChange lista → nada; el editor la marca como tocada
  * @param {Function} itemLabel (hijo, índice) → cómo se nombra en los botones («Modificar ménsula 1 · PT1»)
  * @param {Function} renderDialog ({child, onAccept, onClose}) → el diálogo de un hijo; child es null
  *        en un alta
  */
-export default function ChildrenTable({title, items, onChange, max = Infinity, columns, itemLabel, emptyText, renderDialog}) {
+export default function ChildrenTable({title, items, onChange, max = Infinity, columns, itemLabel, emptyText, renderDialog, errors = []}) {
     // null: cerrado; {index: -1}: alta; {index: n}: modificación del hijo n.
     const [editing, setEditing] = useState(null)
 
@@ -73,6 +80,11 @@ export default function ChildrenTable({title, items, onChange, max = Infinity, c
                     </Table.Tbody>
                 </Table>
             </Table.ScrollContainer>
+            {errors.length > 0 && (
+                <Stack gap={2} role="alert" aria-label={`Errores en ${title}`}>
+                    {errors.map((error, index) => <Text key={index} size="sm" c="red">{childErrorText(error)}</Text>)}
+                </Stack>
+            )}
             {editing && renderDialog({
                 child: editing.index < 0 ? null : items[editing.index],
                 onAccept: accept,

@@ -427,6 +427,7 @@ import {
     toUserRoles,
 } from '../api/users/roles.js'
 import {
+    actionsEmailOptions,
     changedUserRequest,
     createUser,
     credentialTypeLabel,
@@ -453,12 +454,13 @@ import {
     setUserEnabled,
     TAKE_OUT_STEPS,
     takeOut,
+    touchesCredentials,
     toUser,
     updateUser,
 } from '../api/users/users.js'
 import {createQueryClient} from '../app/queryClient.js'
 import {errorMessage} from '../ui/errors/messages.js'
-import {applyServerErrors, toFormPath} from '../ui/errors/serverValidation.js'
+import {applyServerErrors, childErrorText, toFormPath} from '../ui/errors/serverValidation.js'
 import {formatDate, formatDateTime, formatDayTime, formatPercent, formatQuantity} from '../ui/format.js'
 import {parseTypedDate, parseTypedDateTime} from '../ui/typedDates.js'
 import {server} from './server.js'
@@ -950,6 +952,61 @@ describe('ui/errors/serverValidation.js: los errores del servicio campo a campo'
         expect(applyServerErrors(form, error)).toEqual(['versionNumber: no coincide'])
         expect(form.errors).toEqual({code: 'es obligatorio', 'lines.0.quantity': 'Positive'})
         expect(toFormPath('a[2].b[10]')).toBe('a.2.b.10')
+    })
+
+    it('la ruta de mto-configuration: el campo directo, el elemento de una lista en su lista, el hijo a su tabla y el resto con su ruta', () => {
+        const form = fakeForm({poleType: '5', sectionings: ['1', '2'], anchorages: [], parkings: [{kp: '1'}]})
+        const cantilevers = []
+        const switches = [{index: 0, field: 'kp', message: 'de un intento anterior'}]
+        const error = new ValidationError(400, {
+            problem: {
+                ...emptyProblem(),
+                code: 'VAL-000',
+                errors: [
+                    {field: 'poleType', code: 'BUS-001', message: 'no existe'},
+                    {field: 'sectionings[1]', code: 'BUS-001', message: 'el segundo no existe'},
+                    {field: 'sectionings[0]', code: 'BUS-001', message: 'el primero tampoco'},
+                    {field: 'anchorages[3]', code: 'BUS-001', message: 'ni ese anclaje'},
+                    {field: 'parkings[0]', code: 'X', message: 'la fila entera'},
+                    {field: 'cantilevers[1].cantileverType', code: 'BUS-001', message: 'tipo desconocido'},
+                    {field: 'cantilevers[0].steadyArm.steadyArmType', code: 'BUS-001', message: 'brazo desconocido'},
+                    {field: 'cantilevers', code: 'VAL-005', message: 'como mucho tres'},
+                    {field: 'disconnectors[0].connectedTrackId', code: 'BUS-001', message: 'es la de su poste'},
+                    {field: '[1].poleType', code: 'BUS-001', message: 'no existe en el lote'},
+                ],
+            },
+        })
+
+        const unattributed = applyServerErrors(form, error, {
+            children: {
+                cantilevers: (errors) => cantilevers.push(...errors),
+                switches: (errors) => switches.splice(0, switches.length, ...errors),
+            },
+        })
+
+        expect(form.errors).toEqual({
+            poleType: 'no existe',
+            sectionings: 'el segundo no existe. el primero tampoco',
+            anchorages: 'ni ese anclaje',
+            // La fila de una lista de objetos sigue siendo una ruta del formulario, como antes.
+            'parkings.0': 'la fila entera',
+        })
+        expect(cantilevers).toEqual([
+            {index: 1, field: 'cantileverType', message: 'tipo desconocido'},
+            {index: 0, field: 'steadyArm.steadyArmType', message: 'brazo desconocido'},
+            {index: null, field: '', message: 'como mucho tres'},
+        ])
+        expect(cantilevers.map(childErrorText)).toEqual([
+            'Fila 2 · cantileverType: tipo desconocido', 'Fila 1 · steadyArm.steadyArmType: brazo desconocido', 'como mucho tres'])
+        // Una colección sin errores recibe la lista vacía: lo de un intento anterior no se queda pintado.
+        expect(switches).toEqual([])
+        expect(unattributed).toEqual(['disconnectors[0].connectedTrackId: es la de su poste', '[1].poleType: no existe en el lote'])
+        // Sin tabla de hijos que lo reciba (cualquier otro formulario), el error de un hijo se devuelve con su ruta.
+        expect(applyServerErrors(fakeForm({poleType: '5'}), error)).toContain('cantilevers[1].cantileverType: tipo desconocido')
+        // Y fuera de un formulario (el alta múltiple de un catálogo), el aviso dice cada error con su ruta.
+        expect(errorMessage(new ValidationError(400, {
+            problem: {...emptyProblem(), code: 'VAL-000', errors: [{field: '[1].code', code: 'VAL-001', message: 'El campo es obligatorio'}]},
+        }))).toBe('Datos no válidos: [1].code El campo es obligatorio')
     })
 
     it('un error sin campos se dice entero y no toca el formulario', () => {
@@ -1765,6 +1822,21 @@ describe('users/*.js: usuarios, roles y perfiles de mto-users', () => {
 
         expect(resets.map(json)).toEqual([{password: ' Secreta.123', temporary: true}, {password: 'Secreta.123', temporary: false}])
         expect(emails.map(json)).toEqual([{actions: ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], lifespanSeconds: 3600}, {actions: ['VERIFY_EMAIL']}])
+    })
+
+    it('el correo de acciones con una credencial pide dos permisos: qué se ofrece a quién, y el 403 AUTH-403 tipado', async () => {
+        useToken()
+        expect(['UPDATE_PASSWORD', 'VERIFY_EMAIL', 'UPDATE_PROFILE', 'CONFIGURE_TOTP', 'TERMS_AND_CONDITIONS', 'WEBAUTHN_REGISTER']
+            .filter(touchesCredentials)).toEqual(['UPDATE_PASSWORD', 'CONFIGURE_TOTP'])
+        expect(actionsEmailOptions(false).map((option) => option.value)).toEqual(['VERIFY_EMAIL', 'UPDATE_PROFILE', 'TERMS_AND_CONDITIONS'])
+        expect(actionsEmailOptions(true)).toEqual(REQUIRED_ACTION.selectable())
+
+        server.use(http.post('/api/users/u-1/execute-actions-email', () => HttpResponse.json(
+            {status: 403, title: 'Forbidden', detail: 'Access denied', errorCode: 'AUTH-403', correlationId: 'corr-403'},
+            {status: 403, headers: {'Content-Type': 'application/problem+json'}})))
+        const refused = await sendActionsEmail('u-1', {actions: ['UPDATE_PASSWORD']}).catch((error) => error)
+        expect(refused).toBeInstanceOf(ForbiddenError)
+        expect(refused.code).toBe('AUTH-403')
     })
 
     it('sesiones normales y offline, y credenciales: listarlas, cerrar una o todas y quitar una, cada cosa en su ruta', async () => {
