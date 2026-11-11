@@ -14,6 +14,15 @@ export function userDetailPath(userId) {
 /** Lo que pasa de verdad al borrar a alguien, en la lista y en su ficha. */
 export const DELETE_USER_WARNING = 'Se borra en Keycloak con sus roles, perfiles, sesiones y credenciales. No se puede deshacer.'
 
+/** Cómo se dice una cuenta de servicio, en su fila y en su ficha. */
+export const SERVICE_ACCOUNT_LABEL = 'Cuenta de servicio'
+
+/** El aviso de la ficha de una cuenta de servicio: mto-users rechaza toda escritura sobre ella. */
+export const SERVICE_ACCOUNT_NOTICE = 'Cuenta de servicio: solo lectura. Sus roles se administran con el realm, no desde aquí.'
+
+/** En las pestañas de perfiles y de roles de la ficha de uno mismo. */
+export const OWN_PERMISSIONS_HINT = 'Nadie cambia sus propios permisos: tus perfiles y tus roles los cambia otra persona.'
+
 export function usersCountText(total) {
     return total === 1 ? '1 usuario' : `${total} usuarios`
 }

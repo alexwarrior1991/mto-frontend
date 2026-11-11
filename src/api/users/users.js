@@ -23,7 +23,56 @@ import {prefixOf} from '../services.js'
  * - search y attribute no viajan juntos: el servicio los rechaza con 400 SEARCH-400.
  * - Una modificación es un PUT parcial: null no toca, '' vacía, y attributes sustituye el mapa
  *   entero. El nombre de usuario no cambia nunca, y enabled tiene su PATCH.
+ *
+ * Sobre quién no se actúa (TargetUserPolicy de mto-users), aunque se tenga el permiso:
+ * - Una cuenta de servicio (serviceAccount: true) solo se lee: toda escritura sobre ella es un 403
+ *   USR-SVC-403, y también un alta cuyo nombre empiece por service-account-.
+ * - Sobre uno mismo (el id es el sub del token) no se desactiva, no se borra y no se cambian roles ni
+ *   perfiles: 403 USR-SELF-403. Lo demás sí.
+ * Los predicados de abajo (isServiceAccount, isSelf, isReservedUsername) son para no ofrecerlo.
  */
+
+/** El prefijo con el que Keycloak nombra la cuenta de servicio de un cliente; reservado en el alta. */
+export const SERVICE_ACCOUNT_PREFIX = 'service-account-'
+
+/**
+ * Si el usuario es la cuenta de servicio de un cliente: lo dice el servicio con serviceAccount. Una
+ * respuesta de un servicio anterior, sin la clave, no lo es: aquí no se adivina por el nombre.
+ */
+export function isServiceAccount(user) {
+    return user?.serviceAccount === true
+}
+
+/** Si el usuario es quien ha entrado: su id es el sub del token (session.userId). */
+export function isSelf(user, session) {
+    const subject = session?.userId
+    return typeof subject === 'string' && subject !== '' && user?.id === subject
+}
+
+/** Un nombre de usuario que el servicio no admite en un alta: el prefijo de las cuentas de servicio, sin distinguir mayúsculas. */
+export function isReservedUsername(username) {
+    return typeof username === 'string' && username.trim().toLowerCase().startsWith(SERVICE_ACCOUNT_PREFIX)
+}
+
+/**
+ * Lo que no se ofrece sobre un usuario, sea cual sea el permiso de la sesión:
+ * - readOnly: una cuenta de servicio, sobre la que no se ofrece ninguna escritura;
+ * - self: uno mismo, que no se desactiva, no se borra, no se saca y no cambia sus roles ni perfiles.
+ */
+export function targetLimits(user, session) {
+    const readOnly = isServiceAccount(user)
+    const self = isSelf(user, session)
+    return Object.freeze({
+        readOnly,
+        self,
+        canModify: !readOnly,
+        // Activarse a uno mismo sí se puede; desactivarse, no.
+        canSetEnabled: (enabled) => !readOnly && !(self && enabled === false),
+        canDelete: !readOnly && !self,
+        canTakeOut: !readOnly && !self,
+        canChangePermissions: !readOnly && !self,
+    })
+}
 
 /** Lo que se le puede pedir a una persona al entrar o por correo (el enumerado RequiredAction). */
 export const REQUIRED_ACTION = defineEnum({

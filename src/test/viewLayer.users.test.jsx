@@ -19,7 +19,10 @@ import {loginAs, sessionWith} from './session.js'
  * - la ficha: la cabecera, las pestañas que piden sus datos al abrirse, el usuario que no existe, cada
  *   botón tras su permiso, perfiles y roles pintando la respuesta, la contraseña temporal, el correo de
  *   acciones, las sesiones, las credenciales y «sacar a la persona»;
- * - los catálogos de perfiles y de roles, con sus miembros paseados sin total.
+ * - los catálogos de perfiles y de roles, con sus miembros paseados sin total;
+ * - sobre quién no se actúa: una cuenta de servicio (su fila y su ficha se leen y no ofrecen nada), uno
+ *   mismo (ni desactivar, ni borrar, ni sacar, ni cambiar sus permisos), el prefijo reservado en el alta
+ *   y los 403 USR-SVC-403 y USR-SELF-403 que aun así lleguen.
  *
  * Y lo que el backoffice no hacía: el KC-400 de verdad (sin errores por campo) en el campo de la
  * contraseña, una modificación sin cambios que no llama, pintar la respuesta en vez de releer la
@@ -1133,5 +1136,203 @@ describe('los catálogos de perfiles y de roles de cliente', () => {
 
         expect(await screen.findByRole('heading', {name: 'ana', level: 2})).toBeInTheDocument()
         expect(router.state.location.pathname).toBe(ANA_PATH)
+    })
+})
+
+describe('sobre quién no se actúa: las cuentas de servicio y uno mismo', () => {
+    const SVC_ID = '0d5f1d1a-1111-4e43-9a5b-0000000000a1'
+    const SVC_NAME = 'service-account-mto-stock-svc'
+    // El sub de los tokens de prueba es sub-<usuario>: esta es la ficha de quien ha entrado.
+    const MY_ID = 'sub-usuarios.responsable'
+
+    function serviceAccount(extra = {}) {
+        return user(SVC_ID, SVC_NAME, null, null, null, true, {}, {serviceAccount: true, ...extra})
+    }
+
+    function myself(extra = {}) {
+        return user(MY_ID, 'usuarios.responsable', 'Rita', 'Responsable', 'rita@mto.local', true, {}, {serviceAccount: false, ...extra})
+    }
+
+    /** La fila de un usuario por su enlace: la celda de una cuenta de servicio lleva además su insignia. */
+    function rowOfUser(username) {
+        return screen.getByRole('link', {name: username}).closest('tr')
+    }
+
+    it('la fila de una cuenta de servicio lleva su insignia y solo abre su ficha, también para quien puede todo', async () => {
+        serveDetail(serviceAccount())
+        const {user: person, router} = await openList(loginAs('usuarios.responsable'), [serviceAccount(), ...threeUsers()])
+
+        const row = rowOfUser(SVC_NAME)
+        expect(within(row).getByText('Cuenta de servicio')).toBeInTheDocument()
+        expect(within(row).getAllByRole('button').map((button) => button.getAttribute('aria-label')))
+            .toEqual([`Abrir la ficha de ${SVC_NAME}`])
+        // Las demás filas siguen como siempre, y sin insignia.
+        expect(within(rowOfUser('ana')).queryByText('Cuenta de servicio')).not.toBeInTheDocument()
+        for (const name of ['Modificar ana', 'Desactivar ana', 'Borrar ana', 'Activar carla']) {
+            expect(screen.getByRole('button', {name})).toBeInTheDocument()
+        }
+
+        await person.dblClick(row)
+        expect(await screen.findByRole('heading', {name: SVC_NAME, level: 2})).toBeInTheDocument()
+        expect(router.state.location.pathname).toBe(`/usuarios/${SVC_ID}`)
+    })
+
+    it('una fila sin serviceAccount (un servicio anterior) no es una cuenta de servicio, aunque se llame como una', async () => {
+        const legacy = user(SVC_ID, SVC_NAME, null, null, null, true)
+        await openList(loginAs('usuarios.responsable'), [legacy])
+
+        expect(screen.queryByText('Cuenta de servicio')).not.toBeInTheDocument()
+        expect(screen.getByRole('button', {name: `Modificar ${SVC_NAME}`})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: `Desactivar ${SVC_NAME}`})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: `Borrar ${SVC_NAME}`})).toBeInTheDocument()
+    })
+
+    it('la fila de uno mismo se modifica, pero ni se desactiva ni se borra; desactivado, sí se activa', async () => {
+        const first = await openList(loginAs('usuarios.responsable'), [myself(), ...threeUsers()])
+
+        expect(within(rowOfUser('usuarios.responsable')).getAllByRole('button').map((button) => button.getAttribute('aria-label')))
+            .toEqual(['Abrir la ficha de usuarios.responsable', 'Modificar usuarios.responsable'])
+        expect(screen.getByRole('button', {name: 'Desactivar ana'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Borrar ana'})).toBeInTheDocument()
+        first.unmount()
+
+        await openList(loginAs('usuarios.responsable'), [myself({enabled: false})])
+        expect(within(rowOfUser('usuarios.responsable')).getAllByRole('button').map((button) => button.getAttribute('aria-label')))
+            .toEqual(['Abrir la ficha de usuarios.responsable', 'Modificar usuarios.responsable', 'Activar usuarios.responsable'])
+    })
+
+    it('la ficha de una cuenta de servicio se lee entera y no ofrece nada, ni en la cabecera ni en sus pestañas', async () => {
+        const {user: person, counts} = await openDetail(loginAs('usuarios.responsable'), serviceAccount())
+
+        expect(screen.getByText('Cuenta de servicio')).toBeInTheDocument()
+        expect(screen.getByText('Cuenta de servicio: solo lectura. Sus roles se administran con el realm, no desde aquí.')).toBeInTheDocument()
+        for (const name of ['Modificar', 'Desactivar', 'Activar', 'Contraseña temporal', 'Acciones por correo', 'Sacar a la persona', 'Borrar']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+        expect(screen.getByRole('button', {name: 'Volver a la lista'})).toBeInTheDocument()
+
+        await waitFor(() => expect(firstColumn('Perfiles asignados')).toEqual(['mto-users-viewer']))
+        expect(screen.queryByRole('combobox', {name: 'Perfil'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Quitar el perfil mto-users-viewer'})).not.toBeInTheDocument()
+        expect(screen.queryByText(/Nadie cambia sus propios permisos/)).not.toBeInTheDocument()
+
+        await openTab(person, 'Roles de cliente')
+        await waitFor(() => expect(rows('Roles de cliente asignados')).toHaveLength(1))
+        expect(screen.queryByRole('combobox', {name: 'Cliente'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Quitar el rol users-read de mto-users-api'})).not.toBeInTheDocument()
+
+        await openTab(person, 'Sesiones')
+        await waitFor(() => expect(rows('Sesiones')).toHaveLength(2))
+        expect(rows('Sesiones offline')).toHaveLength(1)
+        expect(screen.queryByRole('button', {name: /^Cerrar la sesión/})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: /^Revocar la sesión offline/})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Cerrar todas las sesiones'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Revocar todas las sesiones offline'})).not.toBeInTheDocument()
+
+        await openTab(person, 'Credenciales')
+        await waitFor(() => expect(rows('Credenciales')).toHaveLength(2))
+        expect(screen.queryByRole('button', {name: /^Quitar /})).not.toBeInTheDocument()
+        // Ni siquiera se piden los catálogos de lo que no se va a ofrecer.
+        expect(counts).toMatchObject({catalogue: 0, clients: 0})
+    })
+
+    it('la ficha de uno mismo no ofrece desactivar, sacar ni borrar, y sus perfiles y sus roles se leen con su aviso; lo demás sigue', async () => {
+        const {user: person, counts} = await openDetail(loginAs('usuarios.responsable'), myself())
+
+        for (const name of ['Modificar', 'Contraseña temporal', 'Acciones por correo']) {
+            expect(screen.getByRole('button', {name})).toBeInTheDocument()
+        }
+        for (const name of ['Desactivar', 'Sacar a la persona', 'Borrar']) {
+            expect(screen.queryByRole('button', {name})).not.toBeInTheDocument()
+        }
+        expect(screen.queryByText('Cuenta de servicio')).not.toBeInTheDocument()
+
+        await waitFor(() => expect(firstColumn('Perfiles asignados')).toEqual(['mto-users-viewer']))
+        expect(screen.getByText('Nadie cambia sus propios permisos: tus perfiles y tus roles los cambia otra persona.')).toBeInTheDocument()
+        expect(screen.queryByRole('combobox', {name: 'Perfil'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Quitar el perfil mto-users-viewer'})).not.toBeInTheDocument()
+
+        await openTab(person, 'Roles de cliente')
+        await waitFor(() => expect(rows('Roles de cliente asignados')).toHaveLength(1))
+        expect(screen.getAllByText('Nadie cambia sus propios permisos: tus perfiles y tus roles los cambia otra persona.').length).toBeGreaterThan(0)
+        expect(screen.queryByRole('combobox', {name: 'Cliente'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Quitar el rol users-read de mto-users-api'})).not.toBeInTheDocument()
+        expect(counts).toMatchObject({catalogue: 0, clients: 0})
+
+        // Cerrar las propias sesiones y quitar una credencial propia sí se puede.
+        await openTab(person, 'Sesiones')
+        await waitFor(() => expect(rows('Sesiones')).toHaveLength(2))
+        expect(screen.getByRole('button', {name: 'Cerrar todas las sesiones'})).toBeInTheDocument()
+        expect(screen.getByRole('button', {name: 'Revocar todas las sesiones offline'})).toBeInTheDocument()
+        expect(screen.getAllByRole('button', {name: /^Cerrar la sesión de/})).toHaveLength(2)
+        await openTab(person, 'Credenciales')
+        await waitFor(() => expect(rows('Credenciales')).toHaveLength(2))
+        expect(screen.getAllByRole('button', {name: /^Quitar /})).toHaveLength(2)
+    })
+
+    it('uno mismo desactivado se puede volver a activar desde su ficha', async () => {
+        const writes = recordWrites('patch', `${BASE}/${encodeURIComponent(MY_ID)}/enabled`, () => HttpResponse.json(myself()))
+        const {user: person} = await openDetail(loginAs('usuarios.responsable'), myself({enabled: false}))
+
+        await person.click(screen.getByRole('button', {name: 'Activar'}))
+
+        await waitFor(() => expect(writes.map((write) => write.body)).toEqual([{enabled: true}]))
+        // Ya activo, lo que no se ofrece es desactivarse.
+        await waitFor(() => expect(screen.queryByRole('button', {name: 'Activar'})).not.toBeInTheDocument())
+        expect(screen.queryByRole('button', {name: 'Desactivar'})).not.toBeInTheDocument()
+    })
+
+    it('el alta rechaza el prefijo de las cuentas de servicio en su campo, sin llamar', async () => {
+        const posts = recordWrites('post', BASE, () => HttpResponse.json(ana(), {status: 201}))
+        const {user: person} = await openList(loginAs('usuarios.gestor'))
+
+        await person.click(screen.getByRole('button', {name: 'Nuevo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Alta de usuario'})
+        await typeInto(person, dialog, 'Usuario', 'Service-Account-nuevo')
+        await person.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        expect(await within(dialog).findByText('El prefijo service-account- está reservado a las cuentas de servicio')).toBeInTheDocument()
+        expect(within(dialog).getByRole('textbox', {name: 'Usuario'})).toHaveAttribute('aria-invalid', 'true')
+        expect(posts).toHaveLength(0)
+        expect(screen.getByRole('dialog', {name: 'Alta de usuario'})).toBeInTheDocument()
+    })
+
+    it('un 403 USR-SVC-403 que aun así llega se dice con su texto y su referencia, con el diálogo abierto', async () => {
+        // La fila se leyó de un servicio anterior, sin serviceAccount: se ofrece modificar y manda el servicio.
+        const legacy = user(SVC_ID, SVC_NAME, null, null, null, true)
+        const puts = recordWrites('put', `${BASE}/${SVC_ID}`, () => problem(403, {
+            status: 403, title: 'Forbidden', errorCode: 'USR-SVC-403', correlationId: 'corr-svc',
+            detail: `User ${SVC_NAME} is the service account of a client: it is read-only through this API`,
+        }))
+        const {user: person} = await openList(loginAs('usuarios.responsable'), [legacy])
+
+        await person.click(screen.getByRole('button', {name: `Modificar ${SVC_NAME}`}))
+        const dialog = await screen.findByRole('dialog')
+        await typeInto(person, dialog, 'Nombre', 'Stock')
+        await person.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        expect(await screen.findByText('Una cuenta de servicio no se modifica desde aquí. '
+            + `User ${SVC_NAME} is the service account of a client: it is read-only through this API`)).toBeInTheDocument()
+        expect(screen.getByText('Referencia: corr-svc')).toBeInTheDocument()
+        expect(screen.queryByText('No tienes permiso para esta operación.')).not.toBeInTheDocument()
+        expect(puts).toHaveLength(1)
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('un 403 USR-SELF-403 que aun así llega no es «no tienes permiso», y la lista se queda como estaba', async () => {
+        // La pantalla no ha reconocido la ficha como la de quien ha entrado (su id no es el sub de este token): manda el servicio.
+        const session = sessionWith([P.USERS_READ, P.USERS_PROFILES_WRITE])
+        recordWrites('delete', `${BASE}/${ANA_ID}/profiles/mto-users-viewer`, () => problem(403, {
+            status: 403, title: 'Forbidden', errorCode: 'USR-SELF-403', correlationId: 'corr-self',
+            detail: 'You cannot change your own profiles: it has to be done by another administrator',
+        }))
+        const {user: person} = await openDetail(session)
+
+        await person.click(await screen.findByRole('button', {name: 'Quitar el perfil mto-users-viewer'}))
+
+        expect(await screen.findByText('Nadie cambia sus propios permisos ni se saca a sí mismo: tiene que hacerlo otra persona. '
+            + 'You cannot change your own profiles: it has to be done by another administrator')).toBeInTheDocument()
+        expect(screen.getByText('Referencia: corr-self')).toBeInTheDocument()
+        expect(firstColumn('Perfiles asignados')).toEqual(['mto-users-viewer'])
     })
 })

@@ -38,6 +38,15 @@ export function errorMessage(error) {
         if (error.code === 'SCP-403') {
             return 'Queda fuera de tu ámbito.' + detail(error)
         }
+        // mto-users: el permiso está; lo que no vale es sobre quién se actúa. Recargar no lo arregla.
+        // Una cuenta de servicio solo se lee, y su prefijo no se usa en un alta (el detalle dice cuál).
+        if (error.code === 'USR-SVC-403') {
+            return 'Una cuenta de servicio no se modifica desde aquí.' + detail(error)
+        }
+        // Roles, perfiles, desactivar y borrar sobre uno mismo: lo hace otra persona.
+        if (error.code === 'USR-SELF-403') {
+            return 'Nadie cambia sus propios permisos ni se saca a sí mismo: tiene que hacerlo otra persona.' + detail(error)
+        }
         return 'No tienes permiso para esta operación.'
     }
     if (error instanceof NotFoundError) {

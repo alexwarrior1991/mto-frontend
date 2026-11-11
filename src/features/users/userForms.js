@@ -1,4 +1,4 @@
-import {REQUIRED_ACTION} from '../../api/users/users.js'
+import {isReservedUsername, REQUIRED_ACTION, SERVICE_ACCOUNT_PREFIX} from '../../api/users/users.js'
 import {formatAttributes, readAttributes} from './userAttributes.js'
 
 /**
@@ -19,6 +19,9 @@ export const MIN_PASSWORD_LENGTH = 8
 /** La validez mínima del enlace del correo de acciones. */
 export const MIN_LIFESPAN_SECONDS = 60
 
+/** Un alta con el prefijo de las cuentas de servicio: el servicio respondería 403 USR-SVC-403. */
+export const RESERVED_USERNAME_ERROR = `El prefijo ${SERVICE_ACCOUNT_PREFIX} está reservado a las cuentas de servicio`
+
 const USERNAME = /^[a-zA-Z0-9._@-]+$/
 
 // La forma de un email del EmailValidator de Vaadin, el que usaba el backoffice.
@@ -29,7 +32,10 @@ export function usernameError(value) {
     if (!text) {
         return 'El usuario es obligatorio'
     }
-    return USERNAME.test(text) ? null : USERNAME_HINT
+    if (!USERNAME.test(text)) {
+        return USERNAME_HINT
+    }
+    return isReservedUsername(text) ? RESERVED_USERNAME_ERROR : null
 }
 
 /** El email es opcional; si se escribe, con forma de email. */

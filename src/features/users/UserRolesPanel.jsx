@@ -5,7 +5,7 @@ import {clientLabel} from '../../api/users/roles.js'
 import DataTable from '../../ui/DataTable.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
 import RowActionButton from '../../ui/RowActionButton.jsx'
-import {assignedRolesText, realmRolesText, roleRows} from './userTexts.js'
+import {assignedRolesText, OWN_PERMISSIONS_HINT, realmRolesText, roleRows} from './userTexts.js'
 import {useAssignedRoles, useClientRoles, useClients, useRoleAssignment} from './useUsers.js'
 
 const COLUMNS = [
@@ -18,8 +18,11 @@ const COLUMNS = [
  * con users-roles-write, añadir roles de un cliente y quitarlos. Añadir es un PUT con {roles}; quitar,
  * un DELETE con el mismo cuerpo; los dos devuelven los roles de la persona como quedan, y es eso lo que
  * se pinta. Los clientes protegidos del realm ni se listan ni se asignan: el servicio no los ofrece.
+ *
+ * canWrite llega ya en falso para una cuenta de servicio y para la ficha de uno mismo (own), que
+ * además lo dice: el servicio rechazaría el cambio con 403 USR-SVC-403 o USR-SELF-403.
  */
-export default function UserRolesPanel({userId, canWrite}) {
+export default function UserRolesPanel({userId, canWrite, own = false}) {
     const assigned = useAssignedRoles(userId)
     const clients = useClients({enabled: canWrite})
     const [clientId, setClientId] = useState(null)
@@ -52,6 +55,7 @@ export default function UserRolesPanel({userId, canWrite}) {
     return (
         <Stack>
             <Text size="sm">Asignaciones directas de roles de cliente. Los clientes protegidos del realm no se listan ni se asignan.</Text>
+            {own && <Text size="sm" c="dimmed">{OWN_PERMISSIONS_HINT}</Text>}
             <DataTable ariaLabel="Roles de cliente asignados" columns={COLUMNS} rows={rows} loading={assigned.isPending}
                        emptyText={assigned.isError ? 'No se han podido leer los roles.' : 'Sin roles de cliente.'}
                        rowKey={(row) => `${row.clientId}/${row.role}`}

@@ -1,9 +1,9 @@
-import {Anchor, Button, CloseButton, Group, Stack, Text, TextInput, Title, Tooltip} from '@mantine/core'
+import {Anchor, Badge, Button, CloseButton, Group, Stack, Text, TextInput, Title, Tooltip} from '@mantine/core'
 import {useDebouncedValue} from '@mantine/hooks'
 import {IconBan, IconCheck, IconId, IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash} from '@tabler/icons-react'
 import {useState} from 'react'
 import {Link, useNavigate} from 'react-router'
-import {fullNameOf} from '../../api/users/users.js'
+import {fullNameOf, targetLimits} from '../../api/users/users.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import ConfirmModal from '../../ui/ConfirmModal.jsx'
@@ -13,7 +13,7 @@ import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
 import TriStateFilter from '../../ui/TriStateFilter.jsx'
 import UserEditorModal from './UserEditorModal.jsx'
-import {DELETE_USER_WARNING, enabledText, userDetailPath, usersCountText} from './userTexts.js'
+import {DELETE_USER_WARNING, enabledText, SERVICE_ACCOUNT_LABEL, userDetailPath, usersCountText} from './userTexts.js'
 import {listFilter, USERS_PAGE_SIZE, useDeleteUser, useSetEnabled, useUserList} from './useUsers.js'
 
 const TYPING_DELAY_MS = 400
@@ -28,6 +28,9 @@ const TYPING_DELAY_MS = 400
  *   formado se marca y no pide nada.
  * - Los botones siguen los permisos del servicio: nuevo, modificar y activar o desactivar piden
  *   users-write; borrar, users-delete; abrir la ficha, solo leer.
+ * - Sobre quién no se actúa (targetLimits), aunque se tenga el permiso: una cuenta de servicio lleva su
+ *   insignia y solo ofrece abrir su ficha (lo demás sería un 403 USR-SVC-403), y la fila de uno mismo no
+ *   ofrece desactivar ni borrar (403 USR-SELF-403).
  */
 export default function UsersPage() {
     const session = useSession()
@@ -78,7 +81,12 @@ export default function UsersPage() {
         {
             key: 'username',
             label: 'Usuario',
-            render: (user) => <Anchor component={Link} to={userDetailPath(user.id)} size="sm">{user.username}</Anchor>,
+            render: (user) => (
+                <Group gap="xs" wrap="nowrap">
+                    <Anchor component={Link} to={userDetailPath(user.id)} size="sm">{user.username}</Anchor>
+                    {targetLimits(user, session).readOnly && <Badge size="xs" color="gray" variant="light">{SERVICE_ACCOUNT_LABEL}</Badge>}
+                </Group>
+            ),
         },
         {key: 'name', label: 'Nombre', render: fullNameOf},
         {key: 'email', label: 'Email', render: (user) => user.email ?? ''},
@@ -87,26 +95,29 @@ export default function UsersPage() {
         {key: 'createdAt', label: 'Creado', render: (user) => formatDateTime(user.createdAt)},
     ]
 
-    const actions = (user) => (
-        <>
-            <RowActionButton label={`Abrir la ficha de ${user.username}`} tooltip="Abrir la ficha" icon={IconId} onClick={() => open(user)}/>
-            {canWrite && (
-                <>
+    const actions = (user) => {
+        const limits = targetLimits(user, session)
+        const active = user.enabled === true
+        return (
+            <>
+                <RowActionButton label={`Abrir la ficha de ${user.username}`} tooltip="Abrir la ficha" icon={IconId}
+                                 onClick={() => open(user)}/>
+                {canWrite && limits.canModify && (
                     <RowActionButton label={`Modificar ${user.username}`} tooltip="Modificar" icon={IconPencil}
                                      onClick={() => setEditing({user})}/>
-                    {user.enabled === true
-                        ? <RowActionButton label={`Desactivar ${user.username}`} tooltip="Desactivar" icon={IconBan}
-                                           onClick={() => toggle(user)}/>
-                        : <RowActionButton label={`Activar ${user.username}`} tooltip="Activar" icon={IconCheck}
-                                           onClick={() => toggle(user)}/>}
-                </>
-            )}
-            {canDelete && (
-                <RowActionButton label={`Borrar ${user.username}`} tooltip="Borrar" icon={IconTrash} color="red"
-                                 onClick={() => setDeleting(user)}/>
-            )}
-        </>
-    )
+                )}
+                {canWrite && limits.canSetEnabled(!active) && (active
+                    ? <RowActionButton label={`Desactivar ${user.username}`} tooltip="Desactivar" icon={IconBan}
+                                       onClick={() => toggle(user)}/>
+                    : <RowActionButton label={`Activar ${user.username}`} tooltip="Activar" icon={IconCheck}
+                                       onClick={() => toggle(user)}/>)}
+                {canDelete && limits.canDelete && (
+                    <RowActionButton label={`Borrar ${user.username}`} tooltip="Borrar" icon={IconTrash} color="red"
+                                     onClick={() => setDeleting(user)}/>
+                )}
+            </>
+        )
+    }
 
     const filtering = Boolean(filter?.search || filter?.attributes.length || enabled !== null)
 

@@ -4,6 +4,7 @@ import {useQueryClient} from '@tanstack/react-query'
 import {useState} from 'react'
 import {Navigate, useNavigate, useParams} from 'react-router'
 import {NotFoundError} from '../../api/errors.js'
+import {targetLimits} from '../../api/users/users.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import ConfirmModal from '../../ui/ConfirmModal.jsx'
@@ -23,6 +24,8 @@ import {
     DELETE_USER_WARNING,
     enabledText,
     pendingActionsText,
+    SERVICE_ACCOUNT_LABEL,
+    SERVICE_ACCOUNT_NOTICE,
     takeOutDoneText,
     takeOutFailedText,
     userSummary,
@@ -47,6 +50,10 @@ export default function UserDetailPage() {
  * - Un usuario que no existe se dice «No existe el usuario …» y la ficha vuelve a la lista.
  * - Activar, desactivar y modificar pintan lo que devuelve el servicio.
  * - «Sacar a la persona» son tres llamadas en su orden y pide users-write y users-sessions-write a la vez.
+ * - Sobre quién no se actúa (targetLimits), aunque se tenga el permiso: la ficha de una cuenta de
+ *   servicio se lee entera y no ofrece ninguna escritura, ni en la cabecera ni en sus pestañas (403
+ *   USR-SVC-403); la de uno mismo no ofrece desactivar, sacar ni borrar, y sus perfiles y sus roles se
+ *   leen (403 USR-SELF-403). Lo demás sobre uno mismo sigue igual.
  */
 function UserDetail({userId}) {
     const session = useSession()
@@ -86,6 +93,8 @@ function UserDetail({userId}) {
     }
 
     const current = user.data
+    const limits = targetLimits(current, session)
+    const active = current.enabled === true
     const toggle = () => toggling.mutate({user: current, enabled: current.enabled !== true}, {
         onSuccess: (updated) => notifySuccess(enabledText(updated)),
     })
@@ -122,7 +131,9 @@ function UserDetail({userId}) {
                 <Badge color={current.emailVerified === true ? 'teal' : 'gray'} variant="light">
                     {current.emailVerified === true ? 'Email verificado' : 'Email sin verificar'}
                 </Badge>
+                {limits.readOnly && <Badge color="gray" variant="light">{SERVICE_ACCOUNT_LABEL}</Badge>}
             </Group>
+            {limits.readOnly && <Text size="sm" fw={500}>{SERVICE_ACCOUNT_NOTICE}</Text>}
             <Text size="sm">{userSummary(current)}</Text>
             {pending && <Text size="sm" c="red">{pending}</Text>}
             {attributes && <Text size="sm" c="dimmed">{attributes}</Text>}
@@ -130,31 +141,31 @@ function UserDetail({userId}) {
                 <Button variant="default" leftSection={<IconArrowLeft size={16}/>} onClick={() => navigate(LIST_PATH)}>
                     Volver a la lista
                 </Button>
-                {canWrite && (
-                    <>
-                        <Button leftSection={<IconPencil size={16}/>} onClick={() => setDialog('edit')}>Modificar</Button>
-                        <Button variant="default" loading={toggling.isPending} onClick={toggle}
-                                leftSection={current.enabled === true ? <IconBan size={16}/> : <IconCheck size={16}/>}>
-                            {current.enabled === true ? 'Desactivar' : 'Activar'}
-                        </Button>
-                    </>
+                {canWrite && limits.canModify && (
+                    <Button leftSection={<IconPencil size={16}/>} onClick={() => setDialog('edit')}>Modificar</Button>
                 )}
-                {session.has(P.USERS_PASSWORD_RESET) && (
+                {canWrite && limits.canSetEnabled(!active) && (
+                    <Button variant="default" loading={toggling.isPending} onClick={toggle}
+                            leftSection={active ? <IconBan size={16}/> : <IconCheck size={16}/>}>
+                        {active ? 'Desactivar' : 'Activar'}
+                    </Button>
+                )}
+                {session.has(P.USERS_PASSWORD_RESET) && limits.canModify && (
                     <Button variant="default" leftSection={<IconKey size={16}/>} onClick={() => setDialog('password')}>
                         Contraseña temporal
                     </Button>
                 )}
-                {canWrite && (
+                {canWrite && limits.canModify && (
                     <Button variant="default" leftSection={<IconMail size={16}/>} onClick={() => setDialog('email')}>
                         Acciones por correo
                     </Button>
                 )}
-                {session.hasAll(P.USERS_WRITE, P.USERS_SESSIONS_WRITE) && (
+                {session.hasAll(P.USERS_WRITE, P.USERS_SESSIONS_WRITE) && limits.canTakeOut && (
                     <Button color="red" variant="light" leftSection={<IconDoorExit size={16}/>} onClick={() => setDialog('takeOut')}>
                         Sacar a la persona
                     </Button>
                 )}
-                {session.has(P.USERS_DELETE) && (
+                {session.has(P.USERS_DELETE) && limits.canDelete && (
                     <Button color="red" variant="light" leftSection={<IconTrash size={16}/>} onClick={() => setDialog('delete')}>
                         Borrar
                     </Button>
@@ -164,22 +175,28 @@ function UserDetail({userId}) {
                 {
                     value: 'profiles',
                     label: 'Perfiles',
-                    render: () => <UserProfilesPanel userId={userId} canWrite={session.has(P.USERS_PROFILES_WRITE)}/>,
+                    render: () => (
+                        <UserProfilesPanel userId={userId} own={limits.self && !limits.readOnly}
+                                           canWrite={session.has(P.USERS_PROFILES_WRITE) && limits.canChangePermissions}/>
+                    ),
                 },
                 {
                     value: 'roles',
                     label: 'Roles de cliente',
-                    render: () => <UserRolesPanel userId={userId} canWrite={session.has(P.USERS_ROLES_WRITE)}/>,
+                    render: () => (
+                        <UserRolesPanel userId={userId} own={limits.self && !limits.readOnly}
+                                        canWrite={session.has(P.USERS_ROLES_WRITE) && limits.canChangePermissions}/>
+                    ),
                 },
                 {
                     value: 'sessions',
                     label: 'Sesiones',
-                    render: () => <UserSessionsPanel userId={userId} canRevoke={session.has(P.USERS_SESSIONS_WRITE)}/>,
+                    render: () => <UserSessionsPanel userId={userId} canRevoke={session.has(P.USERS_SESSIONS_WRITE) && limits.canModify}/>,
                 },
                 {
                     value: 'credentials',
                     label: 'Credenciales',
-                    render: () => <UserCredentialsPanel userId={userId} canRemove={session.has(P.USERS_CREDENTIALS_WRITE)}/>,
+                    render: () => <UserCredentialsPanel userId={userId} canRemove={session.has(P.USERS_CREDENTIALS_WRITE) && limits.canModify}/>,
                 },
             ]}/>
             {dialog === 'edit' && <UserEditorModal user={current} onClose={close}/>}
