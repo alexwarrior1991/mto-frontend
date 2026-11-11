@@ -463,6 +463,19 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.
+- **El error de un maestro llega con la ruta de su campo, y ninguno se pierde.** `mto-configuration`
+  dice el `field` de cada error de un 400 `VAL-000` como ruta desde la raíz del cuerpo (también el
+  `BUS-001` de una referencia a catálogo informada que no existe), y `applyServerErrors` lo lleva al
+  primer sitio que case, igual que `ServerValidation.applyWithPaths` del backoffice:
+  - el campo del formulario (`poleType` marca su desplegable; `parkings[0].kp` de un turno, su fila);
+  - el campo de la lista, si es un elemento de una lista de valores (`sectionings[1]`);
+  - la tabla de hijos del editor (`childErrors` de `MasterEditorModal`: las ménsulas de un perfil, las
+    agujas de un aislador), debajo de ella, con su fila y el campo **tal como lo nombra el servicio**,
+    sin traducir la ruta: «Fila 2 · cantileverType: …», «Fila 1 · steadyArm.steadyArmType: …». Se
+    borra al tocar la lista o al volver a guardar;
+  - lo demás, un aviso con su ruta delante (`disconnectors[0].connectedTrackId: …`), con el diálogo
+    abierto. Un lote rechazado (`[1].code` en el alta múltiple de un catálogo) se avisa igual:
+    «Datos no válidos: [1].code …».
 - **Las listas de `mto-stock` llevan siempre su orden, y el id para desempatar** (`sortWithTieBreak`):
   el servicio no tiene orden por defecto y un `sort` desconocido es un 500. Viaja el de la columna
   elegida o el de la pantalla (`code,asc` en catálogos, bajo mínimo y desplegables; `occurredAt,desc`

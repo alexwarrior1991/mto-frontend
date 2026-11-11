@@ -70,6 +70,8 @@ const CATALOGUES = Object.freeze([
 export default function ProfileEditor({row, references, onClose}) {
     const catalogues = useCatalogues(CATALOGUES)
     const [cantilevers, setCantilevers] = useState({items: row?.cantilevers ?? [], touched: false})
+    // Lo que el servicio rechaza de una ménsula o de su brazo (cantilevers[1].cantileverType): bajo su tabla.
+    const [cantileverErrors, setCantileverErrors] = useState([])
 
     const form = useForm({
         mode: 'controlled',
@@ -112,7 +114,8 @@ export default function ProfileEditor({row, references, onClose}) {
     }
 
     return (
-        <MasterEditorModal master={MASTERS.profiles} creating={row === null} form={form} buildBody={buildBody} onClose={onClose}>
+        <MasterEditorModal master={MASTERS.profiles} creating={row === null} form={form} buildBody={buildBody}
+                           childErrors={{cantilevers: setCantileverErrors}} onClose={onClose}>
             <SimpleGrid cols={{base: 1, sm: 2}}>
                 <TextInput label="Identificador" withAsterisk maxLength={PROFILE_ID_MAX_LENGTH} data-autofocus
                            {...form.getInputProps('profileId')}/>
@@ -139,7 +142,11 @@ export default function ProfileEditor({row, references, onClose}) {
             <TextInput label="Seccionadores" readOnly value={disconnectorsText(disconnectorsOf(row))}
                        description="Los que cuelgan de este perfil, que pueden ser varios. Cada uno se vincula desde Seccionadores, en su editor."/>
             <ChildrenTable title="Ménsulas" items={cantilevers.items} max={MAX_CANTILEVERS} emptyText="Sin ménsulas."
-                           onChange={(items) => setCantilevers({items, touched: true})}
+                           errors={cantileverErrors}
+                           onChange={(items) => {
+                               setCantilevers({items, touched: true})
+                               setCantileverErrors([])
+                           }}
                            itemLabel={(child, index) => cantileverLabel(child, index)}
                            columns={CANTILEVER_COLUMNS}
                            renderDialog={({child, onAccept, onClose: close}) => (
