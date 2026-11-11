@@ -181,7 +181,8 @@ function OrderDetail({orderId}) {
             {dialog === 'cancel' && (
                 <ReasonModal title={`Cancelar ${current.code}`} confirmLabel="Cancelar la orden" loading={cancelling.isPending} onConfirm={cancel}
                              onClose={close}>
-                    La orden queda cancelada con su motivo y se liberan en el almacén las reservas de sus materiales. No se puede deshacer.
+                    La orden queda cancelada con su motivo. De cada material, lo ya consumido sale del almacén y se libera el resto de lo
+                    reservado. No se puede deshacer.
                 </ReasonModal>
             )}
             {dialog === 'history' && (

@@ -8,7 +8,7 @@ import {maintenancePath} from './values.js'
  * Las líneas de material de una orden: el port de la parte de materiales de OrderClient y de
  * MaterialUsageDto del backoffice. El material y el almacén son ids de mto-stock, con el código y la
  * descripción copiados al registrarla. Una línea se reserva al planificar la orden, se consume al
- * completarla y se libera al cancelarla.
+ * completarla, y al cancelarla lo ya consumido sale del almacén y se libera el resto de lo reservado.
  */
 
 function materialPath(orderId, ...segments) {
