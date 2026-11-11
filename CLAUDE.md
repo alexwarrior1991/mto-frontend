@@ -739,6 +739,13 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `PATCH /enabled {false}`, `DELETE /sessions` y `DELETE /offline-sessions`, para en el primer fallo y
   devuelve lo hecho y el paso que falló, que el aviso dice con su «Referencia». El botón pide
   `users-write` **y** `users-sessions-write`.
+- **El correo de acciones ofrece lo que el servicio va a aceptar.** `mto-users` pide `users-write`
+  para mandarlo y, si lleva una acción que pone una credencial (`UPDATE_PASSWORD` o `CONFIGURE_TOTP`,
+  `touchesCredentials`), además `users-password-reset` (403 `AUTH-403`): un enlace así es restablecer la
+  credencial por correo. El botón sigue pidiendo `users-write`; el diálogo ofrece esas dos solo con los
+  dos permisos (`actionsEmailOptions`, `session.hasAll`), lo dice en la ayuda del campo a quien no los
+  tiene, y no marca nada de partida. Si aun así llega el 403, se avisa como cualquier otro, con el
+  diálogo abierto. El alta de un usuario no cambia: sus acciones al entrar no mandan correo.
 - **Una ficha que no existe se dice una vez y vuelve a su lista.** La consulta lleva
   `meta.notFoundMessage` («No existe el usuario …»), que `queryClient.js` usa con un 404 en vez del
   aviso genérico. Un id con «:» (los federados) va codificado en la ruta y en la llamada.

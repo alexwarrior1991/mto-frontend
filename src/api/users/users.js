@@ -34,6 +34,26 @@ export const REQUIRED_ACTION = defineEnum({
     TERMS_AND_CONDITIONS: 'Aceptar los términos y condiciones',
 })
 
+/**
+ * Las acciones que ponen o cambian una credencial (RequiredAction.touchesCredentials de mto-users): la
+ * contraseña y el segundo factor. Un enlace por correo con una de ellas es restablecer esa credencial
+ * por otro camino, así que el correo de acciones pide entonces users-password-reset además de
+ * users-write (403 AUTH-403 sin él). Al dar de alta no cambia nada: ahí no se manda ningún correo.
+ */
+const CREDENTIAL_ACTIONS = Object.freeze(['UPDATE_PASSWORD', 'CONFIGURE_TOTP'])
+
+export function touchesCredentials(action) {
+    return CREDENTIAL_ACTIONS.includes(action)
+}
+
+/**
+ * Lo que ofrece el correo de acciones: todo a quien puede además restablecer contraseñas, y a quien
+ * no, solo lo que no toca una credencial, que es lo que el servicio le aceptaría.
+ */
+export function actionsEmailOptions(canSetCredentials) {
+    return REQUIRED_ACTION.selectable().filter((option) => canSetCredentials || !touchesCredentials(option.value))
+}
+
 /** Los tipos de credencial de Keycloak que se saben nombrar. */
 export const CREDENTIAL_TYPE = defineEnum({
     password: 'Contraseña',
@@ -160,7 +180,8 @@ export function resetPassword(userId, {password, temporary}) {
 
 /**
  * Keycloak manda a la persona un enlace con las acciones elegidas. Sin SMTP en el realm, el servicio
- * responde 502. Una validez vacía no viaja: vale la del realm.
+ * responde 502. Una validez vacía no viaja: vale la del realm. Con una acción que toca una credencial
+ * (touchesCredentials) el servicio pide además users-password-reset, o responde 403.
  */
 export function sendActionsEmail(userId, {actions, lifespanSeconds = null}) {
     const json = {actions: [...actions]}

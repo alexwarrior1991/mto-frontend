@@ -184,7 +184,10 @@ function UserDetail({userId}) {
             ]}/>
             {dialog === 'edit' && <UserEditorModal user={current} onClose={close}/>}
             {dialog === 'password' && <ResetPasswordModal user={current} onClose={close}/>}
-            {dialog === 'email' && <ActionsEmailModal user={current} onClose={close}/>}
+            {dialog === 'email' && (
+                <ActionsEmailModal user={current} canSetCredentials={session.hasAll(P.USERS_WRITE, P.USERS_PASSWORD_RESET)}
+                                   onClose={close}/>
+            )}
             {dialog === 'takeOut' && (
                 <ConfirmModal title={`Sacar a ${current.username}`} confirmLabel="Sacar" loading={takingOut.isPending}
                               onConfirm={takeOut} onClose={close}>

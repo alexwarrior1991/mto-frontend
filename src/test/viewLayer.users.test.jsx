@@ -737,6 +737,64 @@ describe('la ficha de un usuario', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     })
 
+    it('el correo de acciones ofrece cambiar la contraseña y el segundo factor solo con users-write y users-password-reset', async () => {
+        const emails = recordWrites('post', `${BASE}/${ANA_ID}/execute-actions-email`, () => new HttpResponse(null, {status: 202}))
+        const {user: person} = await openDetail(sessionWith([P.USERS_READ, P.USERS_WRITE]))
+
+        // El botón sigue pidiendo solo users-write; lo que cambia es lo que ofrece el diálogo.
+        await person.click(screen.getByRole('button', {name: 'Acciones por correo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Correo de acciones para ana'})
+        expect(dialog).toHaveTextContent('Cambiar la contraseña y configurar el segundo factor piden además el permiso de restablecer contraseñas')
+        await person.click(within(dialog).getByRole('combobox', {name: 'Acciones'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['Verificar el email', 'Completar el perfil', 'Aceptar los términos y condiciones'])
+        await person.click(screen.getByRole('option', {name: 'Verificar el email'}))
+        await person.click(screen.getByRole('option', {name: 'Completar el perfil'}))
+        await person.keyboard('{Escape}')
+        await person.click(within(dialog).getByRole('button', {name: 'Enviar'}))
+
+        expect(await screen.findByText('Correo enviado a ana@mto.local')).toBeInTheDocument()
+        expect(emails.map((request) => request.body)).toEqual([{actions: ['VERIFY_EMAIL', 'UPDATE_PROFILE']}])
+    })
+
+    it('con los dos permisos el correo de acciones ofrece las cinco, y las de credencial viajan', async () => {
+        const emails = recordWrites('post', `${BASE}/${ANA_ID}/execute-actions-email`, () => new HttpResponse(null, {status: 202}))
+        const {user: person} = await openDetail(sessionWith([P.USERS_READ, P.USERS_WRITE, P.USERS_PASSWORD_RESET]))
+
+        await person.click(screen.getByRole('button', {name: 'Acciones por correo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Correo de acciones para ana'})
+        expect(dialog).not.toHaveTextContent('piden además el permiso')
+        await person.click(within(dialog).getByRole('combobox', {name: 'Acciones'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+            'Cambiar la contraseña', 'Verificar el email', 'Completar el perfil', 'Configurar el segundo factor (OTP)',
+            'Aceptar los términos y condiciones'])
+        await person.click(screen.getByRole('option', {name: 'Cambiar la contraseña'}))
+        await person.click(screen.getByRole('option', {name: 'Configurar el segundo factor (OTP)'}))
+        await person.keyboard('{Escape}')
+        await person.click(within(dialog).getByRole('button', {name: 'Enviar'}))
+
+        expect(await screen.findByText('Correo enviado a ana@mto.local')).toBeInTheDocument()
+        expect(emails.map((request) => request.body)).toEqual([{actions: ['UPDATE_PASSWORD', 'CONFIGURE_TOTP']}])
+    })
+
+    it('el 403 del correo de acciones se dice como cualquier otro, con el diálogo abierto', async () => {
+        // El permiso se pudo quitar con la pantalla abierta: manda el servicio.
+        recordWrites('post', `${BASE}/${ANA_ID}/execute-actions-email`, () => problem(403, {
+            status: 403, title: 'Forbidden', detail: 'Access denied', errorCode: 'AUTH-403', correlationId: 'corr-u7',
+        }))
+        const {user: person} = await openDetail(loginAs('usuarios.gestor'))
+
+        await person.click(screen.getByRole('button', {name: 'Acciones por correo'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Correo de acciones para ana'})
+        await choose(person, dialog, 'Acciones', 'Cambiar la contraseña')
+        await person.keyboard('{Escape}')
+        await person.click(within(dialog).getByRole('button', {name: 'Enviar'}))
+
+        expect(await screen.findByText('No tienes permiso para esta operación.')).toBeInTheDocument()
+        expect(screen.getByText('Referencia: corr-u7')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Correo de acciones para ana'})).toBeInTheDocument()
+    })
+
     it('sin email no se puede mandar el correo de acciones', async () => {
         const {user: person} = await openDetail(loginAs('usuarios.gestor'), threeUsers()[2])
 

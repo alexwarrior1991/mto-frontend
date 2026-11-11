@@ -427,6 +427,7 @@ import {
     toUserRoles,
 } from '../api/users/roles.js'
 import {
+    actionsEmailOptions,
     changedUserRequest,
     createUser,
     credentialTypeLabel,
@@ -453,6 +454,7 @@ import {
     setUserEnabled,
     TAKE_OUT_STEPS,
     takeOut,
+    touchesCredentials,
     toUser,
     updateUser,
 } from '../api/users/users.js'
@@ -1765,6 +1767,21 @@ describe('users/*.js: usuarios, roles y perfiles de mto-users', () => {
 
         expect(resets.map(json)).toEqual([{password: ' Secreta.123', temporary: true}, {password: 'Secreta.123', temporary: false}])
         expect(emails.map(json)).toEqual([{actions: ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], lifespanSeconds: 3600}, {actions: ['VERIFY_EMAIL']}])
+    })
+
+    it('el correo de acciones con una credencial pide dos permisos: qué se ofrece a quién, y el 403 AUTH-403 tipado', async () => {
+        useToken()
+        expect(['UPDATE_PASSWORD', 'VERIFY_EMAIL', 'UPDATE_PROFILE', 'CONFIGURE_TOTP', 'TERMS_AND_CONDITIONS', 'WEBAUTHN_REGISTER']
+            .filter(touchesCredentials)).toEqual(['UPDATE_PASSWORD', 'CONFIGURE_TOTP'])
+        expect(actionsEmailOptions(false).map((option) => option.value)).toEqual(['VERIFY_EMAIL', 'UPDATE_PROFILE', 'TERMS_AND_CONDITIONS'])
+        expect(actionsEmailOptions(true)).toEqual(REQUIRED_ACTION.selectable())
+
+        server.use(http.post('/api/users/u-1/execute-actions-email', () => HttpResponse.json(
+            {status: 403, title: 'Forbidden', detail: 'Access denied', errorCode: 'AUTH-403', correlationId: 'corr-403'},
+            {status: 403, headers: {'Content-Type': 'application/problem+json'}})))
+        const refused = await sendActionsEmail('u-1', {actions: ['UPDATE_PASSWORD']}).catch((error) => error)
+        expect(refused).toBeInstanceOf(ForbiddenError)
+        expect(refused.code).toBe('AUTH-403')
     })
 
     it('sesiones normales y offline, y credenciales: listarlas, cerrar una o todas y quitar una, cada cosa en su ruta', async () => {

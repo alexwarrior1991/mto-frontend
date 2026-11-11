@@ -370,7 +370,8 @@ como arriba. `apply-partials.sh` de la plataforma se sigue lanzando desde Git Ba
   - La ficha (el nombre de cada fila) tiene sus botones según tus permisos y cuatro pestañas:
     perfiles y roles se asignan y se quitan, y las sesiones y las credenciales se cierran o se quitan.
   - «Acciones por correo» manda el enlace a través de Keycloak: en local el correo llega a Mailpit
-    (http://localhost:8025).
+    (http://localhost:8025). Cambiar la contraseña y configurar el segundo factor solo se ofrecen a quien
+    tiene además `users-password-reset`, porque `mto-users` los rechaza sin él (403).
   - «Sacar a la persona» la desactiva, cierra sus sesiones y revoca las offline. No lo pruebes contigo
     mismo: te sacaría a ti.
   - **Perfiles de usuario** y **Roles de cliente** enseñan lo que concede cada perfil y quién tiene
