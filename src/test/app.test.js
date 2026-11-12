@@ -116,8 +116,9 @@ describe('/api por el mismo origen y sin Origin', () => {
 
         expect(server).toContain('proxy_set_header Origin "";')
         expect(server).toContain('proxy_set_header Cookie "";')
-        expect(server).toContain('client_max_body_size 20m;')
-        // El tope que comprueba la pantalla de trabajos antes de subir un fichero es el mismo.
+        // La petición entera admite 21 MB: el fichero de 20 MB más su envoltorio multipart.
+        expect(server).toContain('client_max_body_size 21m;')
+        // El tope que comprueba la pantalla de trabajos antes de subir un fichero es el del fichero.
         expect(MAX_UPLOAD_BYTES).toBe(20 * 1024 * 1024)
         expect(server).toContain('try_files $uri /index.html;')
         expect(server).toMatch(/location \/assets\/[\s\S]*immutable/)
