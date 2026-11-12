@@ -1194,7 +1194,7 @@ describe('las órdenes', () => {
             const taskReads = readsOf(requests, `${BASE}/orders/${ORDER1}/tasks`).length
 
             await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS))
-            const gone = 'La operación ya no existe en el servicio: comprueba las tareas de la orden.'
+            const gone = 'La operación ya no existe en el servicio; comprueba las tareas de la orden.'
             expect(await screen.findByText(gone)).toBeInTheDocument()
             expect(asks).toBe(2)
             await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}/tasks`).length).toBeGreaterThan(taskReads))
