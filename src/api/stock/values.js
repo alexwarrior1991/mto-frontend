@@ -1,4 +1,4 @@
-import {numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
+import {decimalOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {prefixOf} from '../services.js'
 
 /**
@@ -35,10 +35,10 @@ export function summaryOf(entry) {
 }
 
 /**
- * Una cantidad escrita (texto con punto decimal) como el número que espera el servicio. Los decimales
- * del servicio son seis y las cifras del almacén caben de sobra en un número de JavaScript.
+ * Una cantidad escrita (texto con punto decimal), como viaja. El servicio guarda numeric(19,6), 19
+ * cifras que no caben en un número de JavaScript: no pasa por coma flotante (decimalOrNull).
  */
-export const toQuantity = numberOrNull
+export const toQuantity = decimalOrNull
 
 // Una referencia externa en blanco es un 500 del servicio: textOrNull la deja en null.
 export {textOrNull, withoutNulls}

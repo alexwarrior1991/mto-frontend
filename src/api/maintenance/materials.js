@@ -1,4 +1,4 @@
-import {numberOrNull, withoutNulls} from '../bodies.js'
+import {decimalOrNull, withoutNulls} from '../bodies.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {isOpenOrder, isSyncFailed, ORDER_STATUS} from './enums.js'
@@ -109,7 +109,7 @@ export function materialRequest(values) {
     return withoutNulls({
         materialId: values.materialId?.id ?? null,
         warehouseId: values.warehouseId?.id ?? null,
-        plannedQuantity: numberOrNull(values.plannedQuantity),
+        plannedQuantity: decimalOrNull(values.plannedQuantity),
         unit: values.materialId?.unitOfMeasure ?? null,
         taskId: values.taskId || null,
         allowOverConsumption: values.allowOverConsumption === true ? true : null,
@@ -127,8 +127,8 @@ export function materialPatch(line, values) {
         'allowOverConsumption',
     ]
     return buildMergePatch({...line, allowOverConsumption: line.allowOverConsumption === true}, {
-        plannedQuantity: numberOrNull(values.plannedQuantity),
-        consumedQuantity: numberOrNull(values.consumedQuantity),
+        plannedQuantity: decimalOrNull(values.plannedQuantity),
+        consumedQuantity: decimalOrNull(values.consumedQuantity),
         allowOverConsumption: values.allowOverConsumption === true,
     }, {fields, numberFields: ['plannedQuantity', 'consumedQuantity'], version: line.version})
 }

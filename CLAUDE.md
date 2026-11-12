@@ -68,7 +68,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   en `mto-stock`, `mto-maintenance` y `mto-resources`, la fecha o la secuencia en `mto-notification`), `enums.js`
   (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`, con `setFields` para
   las listas que el servicio guarda como conjunto), `bodies.js` (cómo viaja un cuerpo en cualquier
-  servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `idOrNull`), `dates.js` (también
+  servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `decimalOrNull`, `idOrNull`), `decimals.js` (los
+  decimales cifra a cifra: `parseJsonExact`, con el que `http.js` lee las respuestas, `exactDecimal` y
+  `sameDecimal`), `dates.js` (también
   `localDateTimeToInstant`, una fecha y hora escritas como Instant, y `instantToLocalDateTime`, el
   camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
   `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
@@ -407,6 +409,17 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   medida guardada. Un
   `NumberInput` con mínimo no lo impone al salir del campo (`clampBehavior="none"`): un 0 en el
   intervalo del preventivo es un error, no un 1.
+- **Una cantidad no pasa por coma flotante** (`api/decimals.js`). Es `numeric(19,6)`, 19 cifras, y un
+  número de JavaScript guarda 15: `1234567890123.123456` pasado por `Number` es `1234567890123.1235`.
+  - Al leer, `http.js` usa `parseJsonExact`: un número cuyo literal no cabe exacto llega como su texto,
+    tal como lo escribió el servicio, y los demás como el número de siempre. Lo lee del `context.source`
+    del reviver de `JSON.parse`; un navegador que no lo tiene lee como antes.
+  - Al mandar, las cantidades de almacén y de las líneas y materiales de mantenimiento van con
+    `decimalOrNull` (`toQuantity`): número JSON si cabe exacto y, si no, texto, que Jackson convierte en
+    `BigDecimal` cifra a cifra (y que, en un merge-patch de `mto-maintenance`, es lo único que llega
+    exacto: allí un número pasa por `double`). Lo que no es un decimal es un error, no un `null`.
+  - En un merge-patch los números se comparan cifra a cifra (`sameDecimal`).
+  - Un kp, una medida o unas coordenadas (12 cifras como mucho) caben y siguen con `numberOrNull`.
 - **Los enumerados que se leen de un servicio toleran lo desconocido** (`defineEnum`): `UNKNOWN`
   («Desconocido») no se ofrece en los desplegables y no abre nada. El dato leído no se reescribe:
   un valor que nadie tocó vuelve al servicio tal cual.
