@@ -603,7 +603,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   una elegida, ofrece «Punto de acceso», opcional, entre los activos de esa vía que guarda
   `mto-resources` (`GET /track-access-points?trackId=&enabled=true`, `useTrackAccessPoints`, sin aviso
   si falla: lo dice el desplegable); cambiar de vía lo vacía y sin vía no viaja (`accessPointId` en
-  `locationRequest`). El texto libre de una bivial («Acceso (texto)», `accessPoint`) sigue aparte. Que
+  `locationRequest`). El EP acota las vías que se ofrecen: al cambiarlo, la vía elegida se queda si sigue
+  entre ellas y, si no, se vacía con su punto de acceso; nunca viaja una vía que el desplegable no ofrece. El texto libre de una bivial («Acceso (texto)», `accessPoint`) sigue aparte. Que
   admita biviales, que sea de esa vía, que sea preparado si el modelo lo exige o que aguante su peso es
   el 409 `VEH-001`, y uno que ya no está o aún no ha llegado, el 404 `TAP-404`, que relee la lista; los
   dos con el diálogo abierto. La ubicación (su historial, la posición de un vehículo y el tablero) lo

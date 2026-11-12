@@ -1505,6 +1505,49 @@ describe('los vehículos', () => {
         ])
     })
 
+    it('cambiar el EP conserva la vía si sigue entre las ofrecidas y, si no, la vacía con su punto de acceso: nunca viaja una que no se ofrece', async () => {
+        const accessPoints = [{id: 77, name: 'Acceso km 110+176', kind: 'PREPARED_ACCESS', kp: 110176, trackId: 12, executionPackageId: 4,
+            roadRailAccess: true, maxAxleLoadT: 12.5, maxGrossWeightT: 40, enabled: true}]
+        serveVehicles({vehicles: [vehicle(VEHICLE2, 'UN-01', ROAD_RAIL_MODEL, null)], accessPoints})
+        const writes = recordWrites('post', `${BASE}/vehicles/:id/locations`, () => HttpResponse.json(location('ON_TRACK', {trackId: 20, kp: 5}),
+            {status: 201}))
+        const {user} = renderRoute(`/recursos/flota/${VEHICLE2}`, {session: loginAs('recursos.gestor')})
+        await user.click(await screen.findByRole('button', {name: 'Registrar ubicación'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Registrar dónde está UN-01 · Vehículo UN-01'})
+        await choose(user, dialog, 'Dónde está', 'En vía')
+        await choose(user, dialog, 'Vía', 'VIA 1 (EP 4)')
+        await choose(user, dialog, 'Punto de acceso', 'Acceso km 110+176 · Acceso preparado · kp 110176')
+
+        // El EP de la vía elegida: sigue entre las que se ofrecen, así que se queda, con su punto de acceso.
+        await choose(user, dialog, 'EP', 'EP 4')
+        expect(within(dialog).getByRole('combobox', {name: 'Vía'})).toHaveValue('VIA 1 (EP 4)')
+        expect(within(dialog).getByRole('combobox', {name: 'Punto de acceso'})).toHaveValue('Acceso km 110+176 · Acceso preparado · kp 110176')
+
+        // Otro EP: la vía ya no se ofrece, así que se vacía, y con ella el punto de acceso, que era de esa vía.
+        await choose(user, dialog, 'EP', 'EP 5')
+        expect(within(dialog).getByRole('combobox', {name: 'Vía'})).toHaveValue('')
+        expect(within(dialog).queryByRole('combobox', {name: 'Punto de acceso'})).not.toBeInTheDocument()
+        await user.click(within(dialog).getByRole('combobox', {name: 'Vía'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['VIA 9 (EP 5)'])
+        await user.keyboard('{Escape}')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        expect(await within(dialog).findByText('En vía dice su vía')).toBeInTheDocument()
+        expect(writes).toHaveLength(0)
+
+        // Sin EP se ofrecen todas: la elegida se queda.
+        await choose(user, dialog, 'Vía', 'VIA 9 (EP 5)')
+        await choose(user, dialog, 'EP', 'EP 5')
+        expect(within(dialog).getByRole('combobox', {name: 'EP'})).toHaveValue('')
+        await user.click(within(dialog).getByRole('combobox', {name: 'Vía'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['VIA 1 (EP 4)', 'VIA 9 (EP 5)'])
+        await user.keyboard('{Escape}')
+        expect(within(dialog).getByRole('combobox', {name: 'Vía'})).toHaveValue('VIA 9 (EP 5)')
+        await typeInto(user, dialog, 'KP', '5')
+        await user.click(within(dialog).getByRole('button', {name: 'Registrar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(writes.map((write) => write.body)).toEqual([{kind: 'ON_TRACK', trackId: 20, kp: 5}])
+    })
+
     it('retirar pide confirmación y el vehículo por defecto de un equipo lo dice el servicio; reactivar es un PATCH', async () => {
         serveVehicles({vehicles: [vehicle(VEHICLE1, 'DR-01', RAIL_MODEL, null), vehicle(VEHICLE2, 'DR-02', RAIL_MODEL, null, false)]})
         const deletes = recordWrites('delete', `${BASE}/vehicles/:id`, () => resourcesError(409, 'VEH-001', 'Vehicle DR-01 is the default vehicle of team A'))
@@ -2056,6 +2099,9 @@ describe('el taller de un vehículo', () => {
         await user.click(screen.getByRole('button', {name: 'Nueva reparación'}))
         const dialog = await screen.findByRole('dialog', {name: 'Nueva reparación de DR-01 · Vehículo DR-01'})
         expect(within(dialog).getByRole('checkbox', {name: 'Inmoviliza el vehículo'})).toBeChecked()
+        // El alta abre con «Planificada» elegida; «Abierta ahora» es la otra opción.
+        expect(within(dialog).getByRole('radio', {name: 'Planificada'})).toBeChecked()
+        expect(within(dialog).getByRole('radio', {name: 'Abierta ahora'})).not.toBeChecked()
         await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
         expect(await within(dialog).findByText('La clase es obligatoria')).toBeInTheDocument()
         expect(within(dialog).getByText('La descripción es obligatoria')).toBeInTheDocument()
