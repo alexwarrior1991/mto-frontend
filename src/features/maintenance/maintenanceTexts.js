@@ -104,3 +104,6 @@ function join(...parts) {
 
 /** Lo que se dice al cerrar el diálogo de generar con la generación en marcha: no se pierde, sigue en el servicio. */
 export const GENERATION_STILL_RUNNING = 'La generación sigue en el servicio: sus tareas aparecerán en la orden al terminar.'
+
+/** Lo que se dice cuando el servicio ya no tiene la operación que se seguía (404: la purgó, o no existe). */
+export const GENERATION_OPERATION_GONE = 'La operación ya no existe en el servicio: comprueba las tareas de la orden.'

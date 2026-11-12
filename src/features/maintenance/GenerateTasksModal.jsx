@@ -13,7 +13,7 @@ import {notifySuccess, notifyWarning} from '../../ui/notifySuccess.js'
 import {ReferenceSelect} from '../infrastructure/ReferencePickers.jsx'
 import {useConfigurationNames} from '../infrastructure/useConfigurationNames.js'
 import {optionalKp} from './maintenanceForms.js'
-import {countText, GENERATION_STILL_RUNNING, kp, kpRange} from './maintenanceTexts.js'
+import {countText, GENERATION_OPERATION_GONE, GENERATION_STILL_RUNNING, kp, kpRange} from './maintenanceTexts.js'
 import {AssetPicker, AssetsMultiPicker, TaskTypesSelect} from './MaintenancePickers.jsx'
 import {useFollowGeneration, useGenerateTasks, usePreviewGeneration, useTaskTypes} from './useMaintenance.js'
 
@@ -40,8 +40,10 @@ const ASSET_TYPES = [
  * Generar de verdad puede tardar con un EP grande: va con Prefer: respond-async (startTaskGeneration). Si
  * el servicio no termina en su espera contesta con la operación, y el diálogo la sigue cada 2 s mientras
  * esté abierto y la pestaña se vea: al terminar bien dice lo mismo que la llamada síncrona y relee las
- * tareas; si falla, dice su error con el diálogo abierto. Cerrarlo deja de seguirla, avisando de que
- * continúa en el servicio. Mientras se espera la respuesta de generar o previsualizar no se cierra, para
+ * tareas; si falla, dice su error con el diálogo abierto. Mientras la sigue, «Añadir qué generar»,
+ * «Previsualizar» y «Generar» quedan deshabilitados, como en el backoffice. Si el servicio ya no la tiene
+ * (404), deja de preguntar, lo dice una vez, relee las tareas y sigue abierto. Cerrarlo deja de seguirla,
+ * avisando de que continúa en el servicio. Mientras se espera la respuesta de generar o previsualizar no se cierra, para
  * que su aviso no se pierda. La previsualización sigue siendo síncrona.
  */
 export default function GenerateTasksModal({order, onClose}) {
@@ -72,7 +74,12 @@ export default function GenerateTasksModal({order, onClose}) {
         }
         onClose()
     }, [onClose])
-    const followed = useFollowGeneration(order.id, following?.id ?? null, finished)
+    // El servicio ya no tiene la operación: no hay nada que seguir. Se dice, y el diálogo queda como antes de generar.
+    const missing = useCallback(() => {
+        setFollowing(null)
+        notifyWarning(GENERATION_OPERATION_GONE)
+    }, [])
+    const followed = useFollowGeneration(order.id, following?.id ?? null, finished, missing)
     const progress = following ? followed.data ?? following : null
     const close = () => {
         if (following) {
@@ -154,7 +161,7 @@ export default function GenerateTasksModal({order, onClose}) {
                     </Fieldset>
                 ))}
                 <Group>
-                    <Button variant="light" leftSection={<IconPlus size={16}/>}
+                    <Button variant="light" leftSection={<IconPlus size={16}/>} disabled={progress !== null}
                             onClick={() => touch([...rows, generationRow('SECTION_INSULATOR', rows[rows.length - 1]?.scope ?? scopes[0].value)])}>
                         Añadir qué generar
                     </Button>

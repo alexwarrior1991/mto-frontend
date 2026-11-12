@@ -682,7 +682,10 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `apiFetch({prefer, withStatus})`). Un 200 es lo de siempre; un 202 trae la operación, que el diálogo
   sigue (`useFollowGeneration`) por su id, nunca por su `Location`: al terminar bien dice lo mismo que la
   llamada síncrona y relee las tareas; si falla, su error (`operationError`; `OPS-410` es una abandonada)
-  con el diálogo abierto; cerrarlo deja de seguirla y avisa de que continúa en el servicio. El 429
+  con el diálogo abierto; cerrarlo deja de seguirla y avisa de que continúa en el servicio. Mientras la
+  sigue, «Añadir qué generar», «Previsualizar» y «Generar» quedan deshabilitados, como en el backoffice. Si
+  la operación ya no existe (404: el servicio la purgó), deja de preguntar, lo dice una vez, relee las
+  tareas y el diálogo sigue abierto y utilizable; cualquier otro fallo al preguntar se reintenta. El 429
   `OPS-429` dice cuándo reintentar. La previsualización sigue siendo síncrona.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el
   token.** Aquí no se filtra por nadie ni se cuenta nada.
