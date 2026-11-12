@@ -182,7 +182,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `format.js` (también `shortId`, el `#id` de lo que no se sabe nombrar), `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
   (el aviso verde de tres segundos), `ConfirmModal.jsx` (confirmar lo que no se deshace),
   `ServerDataTable.jsx` (la lista paginada en el servidor: orden de una columna asc → desc → sin
-  orden, `Pagination` y acciones por fila), `DataTable.jsx` (una lista que ya está entera en la
+  orden, `Pagination` y acciones por fila; si la página pedida ya no existe, vuelve a la última que hay), `DataTable.jsx` (una lista que ya está entera en la
   pantalla, sin paginar), `RowActionButton.jsx` (una acción de fila con su nombre completo,
   «Modificar VIA 1»), `TriStateFilter.jsx` (todo, sí o no; «todo» no viaja), `LazyTabs.jsx` (el port
   de `LazyPanel`: pestañas que piden sus datos la primera vez que se abren y no al reelegirlas),
