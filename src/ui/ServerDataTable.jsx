@@ -1,5 +1,6 @@
 import {Group, Loader, Pagination, Table, Text, UnstyledButton, VisuallyHidden} from '@mantine/core'
 import {IconChevronDown, IconChevronUp, IconSelector} from '@tabler/icons-react'
+import {useEffect} from 'react'
 
 const CONTROL_LABELS = Object.freeze({
     first: 'Primera página',
@@ -16,6 +17,10 @@ const CONTROL_LABELS = Object.freeze({
  * El orden es de una sola columna y da la vuelta ascendente → descendente → sin orden. Sin orden, la
  * pantalla no manda sort y ordena el servicio.
  *
+ * Una página que ya no existe (se quitó la última fila de la última, o la lista encogió entre medias)
+ * no se queda vacía: si el servicio dice que hay filas y la página pedida cae después de la última, la
+ * tabla pide la última que existe con onPageChange, y la pantalla la vuelve a pedir.
+ *
  * @param {Array<{key: string, label: string, sortField?: string, render: Function, width?: number}>} columns
  * @param {{field: string, direction: 'asc'|'desc'}|null} sort
  * @param {Function|null} [rowActions] fila → acciones; con ella la columna de acciones existe siempre
@@ -28,6 +33,13 @@ export default function ServerDataTable({
     const totalPages = Math.max(1, Math.ceil((totalElements ?? 0) / pageSize))
     const columnCount = columns.length + (rowActions ? 1 : 0)
     const changeSort = (field) => onSortChange(nextSort(sort, field))
+    // Solo con una respuesta que diga que hay filas: sin datos (cargando, o un fallo) no se sabe cuántas páginas hay.
+    const outOfRange = !loading && rows.length === 0 && (totalElements ?? 0) > 0 && page > totalPages
+    useEffect(() => {
+        if (outOfRange) {
+            onPageChange(totalPages)
+        }
+    }, [outOfRange, totalPages, onPageChange])
 
     return (
         <>

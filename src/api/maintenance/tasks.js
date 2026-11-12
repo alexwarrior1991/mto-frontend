@@ -1,4 +1,4 @@
-import {idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
+import {decimalOrNull, idOrNull, numberOrNull, textOrNull, withoutNulls} from '../bodies.js'
 import {apiFetch} from '../http.js'
 import {buildMergePatch, MERGE_PATCH} from '../mergePatch.js'
 import {CHECK_ITEM_RESULT} from './enums.js'
@@ -264,7 +264,7 @@ export function taskMaterialRequest(line) {
     return withoutNulls({
         materialId: line.material?.id ?? null,
         warehouseId: line.warehouse?.id ?? null,
-        quantity: numberOrNull(line.quantity),
+        quantity: decimalOrNull(line.quantity),
         unit: line.material?.unitOfMeasure ?? null,
     })
 }

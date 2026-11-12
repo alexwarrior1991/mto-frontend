@@ -68,7 +68,9 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   en `mto-stock`, `mto-maintenance` y `mto-resources`, la fecha o la secuencia en `mto-notification`), `enums.js`
   (`defineEnum`: enumerados tolerantes), `mergePatch.js` (`buildMergePatch`, con `setFields` para
   las listas que el servicio guarda como conjunto), `bodies.js` (cómo viaja un cuerpo en cualquier
-  servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `idOrNull`), `dates.js` (también
+  servicio: `textOrNull`, `withoutNulls`, `numberOrNull`, `decimalOrNull`, `idOrNull`), `decimals.js` (los
+  decimales cifra a cifra: `parseJsonExact`, con el que `http.js` lee las respuestas, `exactDecimal` y
+  `sameDecimal`), `dates.js` (también
   `localDateTimeToInstant`, una fecha y hora escritas como Instant, y `instantToLocalDateTime`, el
   camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
   `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
@@ -182,7 +184,7 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `format.js` (también `shortId`, el `#id` de lo que no se sabe nombrar), `usePageTitle.js`, `FullPageMessage.jsx`, `ForbiddenNotice.jsx`, `notifySuccess.js`
   (el aviso verde de tres segundos), `ConfirmModal.jsx` (confirmar lo que no se deshace),
   `ServerDataTable.jsx` (la lista paginada en el servidor: orden de una columna asc → desc → sin
-  orden, `Pagination` y acciones por fila), `DataTable.jsx` (una lista que ya está entera en la
+  orden, `Pagination` y acciones por fila; si la página pedida ya no existe, vuelve a la última que hay), `DataTable.jsx` (una lista que ya está entera en la
   pantalla, sin paginar), `RowActionButton.jsx` (una acción de fila con su nombre completo,
   «Modificar VIA 1»), `TriStateFilter.jsx` (todo, sí o no; «todo» no viaja), `LazyTabs.jsx` (el port
   de `LazyPanel`: pestañas que piden sus datos la primera vez que se abren y no al reelegirlas),
@@ -407,6 +409,17 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   medida guardada. Un
   `NumberInput` con mínimo no lo impone al salir del campo (`clampBehavior="none"`): un 0 en el
   intervalo del preventivo es un error, no un 1.
+- **Una cantidad no pasa por coma flotante** (`api/decimals.js`). Es `numeric(19,6)`, 19 cifras, y un
+  número de JavaScript guarda 15: `1234567890123.123456` pasado por `Number` es `1234567890123.1235`.
+  - Al leer, `http.js` usa `parseJsonExact`: un número cuyo literal no cabe exacto llega como su texto,
+    tal como lo escribió el servicio, y los demás como el número de siempre. Lo lee del `context.source`
+    del reviver de `JSON.parse`; un navegador que no lo tiene lee como antes.
+  - Al mandar, las cantidades de almacén y de las líneas y materiales de mantenimiento van con
+    `decimalOrNull` (`toQuantity`): número JSON si cabe exacto y, si no, texto, que Jackson convierte en
+    `BigDecimal` cifra a cifra (y que, en un merge-patch de `mto-maintenance`, es lo único que llega
+    exacto: allí un número pasa por `double`). Lo que no es un decimal es un error, no un `null`.
+  - En un merge-patch los números se comparan cifra a cifra (`sameDecimal`).
+  - Un kp, una medida o unas coordenadas (12 cifras como mucho) caben y siguen con `numberOrNull`.
 - **Los enumerados que se leen de un servicio toleran lo desconocido** (`defineEnum`): `UNKNOWN`
   («Desconocido») no se ofrece en los desplegables y no abre nada. El dato leído no se reescribe:
   un valor que nadie tocó vuelve al servicio tal cual.
@@ -603,7 +616,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   una elegida, ofrece «Punto de acceso», opcional, entre los activos de esa vía que guarda
   `mto-resources` (`GET /track-access-points?trackId=&enabled=true`, `useTrackAccessPoints`, sin aviso
   si falla: lo dice el desplegable); cambiar de vía lo vacía y sin vía no viaja (`accessPointId` en
-  `locationRequest`). El texto libre de una bivial («Acceso (texto)», `accessPoint`) sigue aparte. Que
+  `locationRequest`). El EP acota las vías que se ofrecen: al cambiarlo, la vía elegida se queda si sigue
+  entre ellas y, si no, se vacía con su punto de acceso; nunca viaja una vía que el desplegable no ofrece. El texto libre de una bivial («Acceso (texto)», `accessPoint`) sigue aparte. Que
   admita biviales, que sea de esa vía, que sea preparado si el modelo lo exige o que aguante su peso es
   el 409 `VEH-001`, y uno que ya no está o aún no ha llegado, el 404 `TAP-404`, que relee la lista; los
   dos con el diálogo abierto. La ubicación (su historial, la posición de un vehículo y el tablero) lo
@@ -681,7 +695,10 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   `apiFetch({prefer, withStatus})`). Un 200 es lo de siempre; un 202 trae la operación, que el diálogo
   sigue (`useFollowGeneration`) por su id, nunca por su `Location`: al terminar bien dice lo mismo que la
   llamada síncrona y relee las tareas; si falla, su error (`operationError`; `OPS-410` es una abandonada)
-  con el diálogo abierto; cerrarlo deja de seguirla y avisa de que continúa en el servicio. El 429
+  con el diálogo abierto; cerrarlo deja de seguirla y avisa de que continúa en el servicio. Mientras la
+  sigue, «Añadir qué generar», «Previsualizar» y «Generar» quedan deshabilitados, como en el backoffice. Si
+  la operación ya no existe (404: el servicio la purgó), deja de preguntar, lo dice una vez, relee las
+  tareas y el diálogo sigue abierto y utilizable; cualquier otro fallo al preguntar se reintenta. El 429
   `OPS-429` dice cuándo reintentar. La previsualización sigue siendo síncrona.
 - **La campana y la bandeja son de la persona, y a quién va cada aviso lo decide el servicio con el
   token.** Aquí no se filtra por nadie ni se cuenta nada.

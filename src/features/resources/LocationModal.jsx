@@ -22,7 +22,8 @@ const UNKNOWN_ACCESS_POINT = 'TAP-404'
  * Solo se ofrecen los tipos que admite su movilidad y los campos de cada tipo; en uno de solo vía, los
  * sitios con acceso por vía, y en uno de solo carretera, los que tienen acceso por carretera. Con una
  * vía elegida se ofrece, opcional, el punto de acceso por el que entró, entre los activos de esa vía que
- * conoce mto-resources (el maestro de mto-configuration); cambiar de vía lo vacía. Lo evidente se
+ * conoce mto-resources (el maestro de mto-configuration); cambiar de vía lo vacía. El EP acota las vías:
+ * al cambiarlo, la vía elegida se queda si sigue entre las ofrecidas y, si no, se vacía. Lo evidente se
  * comprueba antes de llamar; lo demás lo dice el servicio con el diálogo abierto: 409 VEH-001 (también
  * un acceso que no admite biviales, que no es de esa vía, que no es preparado para un modelo que lo
  * exige o que no aguanta su peso) y 404 TAP-404 (el punto ya no está o aún no ha llegado a Recursos), que
@@ -83,6 +84,17 @@ export default function LocationModal({vehicle, names, onClose}) {
             form.setFieldValue('accessPointId', null)
         }
     }
+    // El EP acota las vías que se ofrecen: la elegida se queda si sigue entre ellas y, si no, se vacía con
+    // su punto de acceso. Nunca viaja una vía que el desplegable ya no ofrece.
+    const packageInput = form.getInputProps('executionPackageId')
+    const choosePackage = (value) => {
+        packageInput.onChange(value)
+        const offered = value === null ? names.trackOptions : names.trackOptionsIn(Number(value))
+        if (form.values.trackId !== null && !offered.some((option) => option.value === String(form.values.trackId))) {
+            form.setFieldValue('trackId', null)
+            form.setFieldValue('accessPointId', null)
+        }
+    }
     const siteOptions = (sites.data?.content ?? []).map((site) => ({value: site.id, label: unitLabel(site)}))
     const searchCarriers = async (text, {signal}) => {
         const page = await searchVehicles({search: text, active: true, size: 20}, {signal})
@@ -123,7 +135,7 @@ export default function LocationModal({vehicle, names, onClose}) {
                                     {...form.getInputProps('parkingSiteId')}/>
                         )}
                         {shown.executionPackageId && (
-                            <ReferenceSelect label="EP" options={names.packageOptions} {...form.getInputProps('executionPackageId')}/>
+                            <ReferenceSelect label="EP" options={names.packageOptions} {...packageInput} onChange={choosePackage}/>
                         )}
                         {shown.trackId && (
                             <ReferenceSelect label="Vía" withAsterisk={form.values.kind === 'ON_TRACK'}

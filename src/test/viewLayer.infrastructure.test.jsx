@@ -251,6 +251,29 @@ describe('la lista de un maestro', () => {
         expect(await screen.findByText('Nada coincide con la búsqueda.')).toBeInTheDocument()
     })
 
+    it('si la página en la que se está deja de existir (se borra su última fila), la lista vuelve a la última que existe', async () => {
+        const profiles = Array.from({length: 51}, (_, index) => ({
+            id: index + 1, profileId: `P-${String(index + 1).padStart(3, '0')}`, kp: `${index + 1}.000`, trackId: 3,
+            profileStatus: {id: 2, code: 'OK'}, cantilevers: [], disconnector: null, versionNumber: 1,
+        }))
+        const requests = serveGateway({profiles})
+        recordWrites('delete', `${BASE}/profiles/51`, () => {
+            profiles.pop()
+            return new HttpResponse(null, {status: 204})
+        })
+        const {user} = await open('/infraestructura/perfiles', sessionWith(MANAGER), 'Perfiles', 50)
+        await user.click(screen.getByRole('button', {name: 'Página 2'}))
+        await waitFor(() => expect(firstColumn('Perfiles')).toEqual(['P-051']))
+
+        await user.click(within(rowOf('Perfiles', 'P-051')).getByRole('button', {name: /^Borrar/}))
+        await user.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Borrar'}))
+        // La página 2 ya no existe: en vez de una página vacía, la última que hay.
+        await waitFor(() => expect(firstColumn('Perfiles')).toHaveLength(50))
+        expect(firstColumn('Perfiles')[0]).toBe('P-001')
+        expect(await screen.findByText('50 perfiles')).toBeInTheDocument()
+        expect(listRequests(requests.profiles).at(-1).url.searchParams.get('page')).toBe('0')
+    })
+
     it('quien solo lee no ve controles de escritura, pero cada vía ofrece su esquema', async () => {
         serveGateway()
         const {user} = await open('/infraestructura/vias', loginAs('config.lector'), 'Vías', 3)

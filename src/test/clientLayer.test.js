@@ -204,6 +204,7 @@ import {
     skippedOf,
     startTask,
     taskPatch,
+    taskMaterialRequest,
     taskRequest,
 } from '../api/maintenance/tasks.js'
 import {getOperation, GENERATION_PREFER, isFinishedOperation, OPERATION_STATUS, operationError} from '../api/maintenance/operations.js'
@@ -398,6 +399,7 @@ import {
     cancelReservation,
     consumeReservation,
     createReservation,
+    getReservation,
     isActiveReservation,
     releaseReservation,
     RESERVATION_STATUS,
@@ -523,6 +525,19 @@ describe('http.js: la puerta hacia la API', () => {
         expect(ids[1]).toMatch(UUID)
         expect(ids[0]).not.toBe(ids[1])
         expect(requests[0].headers.get('accept')).toContain('application/json')
+    })
+
+    it('un número que no cabe en coma flotante se lee como su texto exacto; los demás siguen siendo números', async () => {
+        useToken()
+        // El cuerpo tal como lo escribe el servicio: una cantidad numeric(19,6) con sus 19 cifras.
+        const body = '{"quantity":1234567890123.123456,"reserved":-9999999999999.999999,"minimum":12.500000,"count":7,"zero":0.000000,'
+            + '"ratio":0.30000000000000004,"tiny":1.0E-7,"big":12345678901234567890,"nested":[{"quantity":1.5}],"text":"1234567890123.123456"}'
+        server.use(http.get('/api/stock/exact', () => new HttpResponse(body, {headers: {'Content-Type': 'application/json'}})))
+
+        expect(await apiFetch('/api/stock/exact')).toEqual({
+            quantity: '1234567890123.123456', reserved: '-9999999999999.999999', minimum: 12.5, count: 7, zero: 0,
+            ratio: 0.30000000000000004, tiny: 1e-7, big: '12345678901234567890', nested: [{quantity: 1.5}], text: '1234567890123.123456',
+        })
     })
 
     it('la query repite los arrays, deja fuera lo vacio y conserva false', async () => {
@@ -1130,6 +1145,16 @@ describe('mergePatch.js: una modificacion de mantenimiento', () => {
         }, {fields: ['title', 'description', 'plannedDate', 'estimatedHours', 'teamId'], numberFields: ['estimatedHours'], version: 3})
 
         expect(patch).toEqual({description: 'Después', plannedDate: null, version: 3})
+    })
+
+    it('los números se comparan cifra a cifra, no en coma flotante: 19 cifras que solo cambian en la última son un cambio', () => {
+        const options = {fields: ['quantity'], numberFields: ['quantity'], version: 3}
+        const read = {quantity: '1234567890123.123456'}
+
+        expect(buildMergePatch(read, {quantity: '1234567890123.123457'}, options)).toEqual({quantity: '1234567890123.123457', version: 3})
+        expect(buildMergePatch(read, {quantity: '+1234567890123.1234560'}, options)).toBeNull()
+        expect(buildMergePatch({quantity: 12.5}, {quantity: '012.50'}, options)).toBeNull()
+        expect(buildMergePatch({quantity: 0}, {quantity: '-0.0'}, options)).toBeNull()
     })
 
     it('sin cambios no hay nada que mandar, y con cambios la version es obligatoria', () => {
@@ -2248,6 +2273,50 @@ describe('stock/*.js: el almacén de mto-stock', () => {
         expect(searches[1].url.search).toBe('?page=0&size=50&sort=occurredAt%2Cdesc&sort=id%2Casc')
     })
 
+    it('una cantidad viaja cifra a cifra: como número si cabe exacta en coma flotante y, si no, como su texto, y vuelve como se leyó', async () => {
+        useToken()
+        const BIG = '1234567890123.123456'
+        const exact = (quantity) => new HttpResponse(`{"id":"${RES}","quantity":${quantity},"minimumStockLevel":${quantity}}`,
+            {status: 200, headers: {'Content-Type': 'application/json'}})
+        const entries = record('post', '/api/stock/movements/entries', () => exact(BIG))
+        const outputs = record('post', '/api/stock/movements/outputs', () => exact(BIG))
+        const adjustments = record('post', '/api/stock/movements/adjustments', () => exact(BIG))
+        const transfers = record('post', '/api/stock/movements/transfers', () => HttpResponse.json([]))
+        const reservations = record('post', '/api/stock/reservations', () => exact(BIG))
+        const updates = record('put', `/api/stock/reservations/${RES}`, () => exact(BIG))
+        const materials = record('put', `/api/stock/materials/${MAT}`, () => exact(BIG))
+        const assemblies = record('put', `/api/stock/assemblies/${ASM}`, () => HttpResponse.json({}))
+        record('get', `/api/stock/reservations/${RES}`, () => exact(BIG))
+
+        const entered = await registerEntry(entryRequest({materialId: MAT, warehouseId: WH, quantity: BIG}))
+        await registerOutput(outputRequest({materialId: MAT, warehouseId: WH, quantity: ' 9999999999999.999999 '}))
+        await registerAdjustment(adjustmentRequest({materialId: MAT, warehouseId: WH, direction: 'POSITIVE', quantity: '+0000000000001.100000'}))
+        await registerTransfer(transferRequest({materialId: MAT, warehouseId: WH, targetWarehouseId: WH2, quantity: '.5'}))
+        await createReservation(reservationRequest({materialId: MAT, warehouseId: WH, projectId: PRJ, quantity: '5.'}))
+        // Lo leído no pasó por coma flotante, así que una modificación que no toca la cantidad la devuelve igual.
+        const read = await getReservation(RES)
+        await updateReservation(RES, reservationUpdateRequest({warehouseId: WH2, projectId: PRJ, quantity: read.quantity}))
+        await updateCatalogueEntry('materials', MAT, materialBody({code: 'MAT-001', name: 'Hilo', unitOfMeasure: 'm', minimumStockLevel: BIG,
+            active: true}, {creating: false}))
+        await updateCatalogueEntry('assemblies', ASM, assemblyBody({code: 'ASM-001', name: 'Ménsula', active: true},
+            [{materialId: MAT, quantity: BIG}, {materialId: WH, quantity: '2.50'}], {creating: false}))
+
+        // El cuerpo tal como sale, sin volver a leerlo como JSON (que lo pasaría otra vez por coma flotante).
+        expect(entries[0].body).toBe(`{"materialId":"${MAT}","warehouseId":"${WH}","quantity":"${BIG}"}`)
+        expect(entered.quantity).toBe(BIG)
+        expect(outputs[0].body).toContain('"quantity":"9999999999999.999999"')
+        expect(adjustments[0].body).toContain('"quantity":1.1}')
+        expect(transfers[0].body).toContain('"quantity":0.5}')
+        expect(reservations[0].body).toContain('"quantity":5}')
+        expect(read.quantity).toBe(BIG)
+        expect(updates[0].body).toBe(`{"warehouseId":"${WH2}","projectId":"${PRJ}","quantity":"${BIG}"}`)
+        expect(materials[0].body).toContain(`"minimumStockLevel":"${BIG}"`)
+        expect(assemblies[0].body).toContain(`"components":[{"materialId":"${MAT}","quantity":"${BIG}"},{"materialId":"${WH}","quantity":2.5}]`)
+        // Lo que no es un número no viaja nunca: ni como NaN (que JSON convierte en null) ni como texto.
+        expect(() => entryRequest({materialId: MAT, warehouseId: WH, quantity: '5,4'})).toThrow(/5,4/)
+        expect(() => entryRequest({materialId: MAT, warehouseId: WH, quantity: '1e3'})).toThrow(/1e3/)
+    })
+
     it('cada movimiento va a su ruta con lo escrito: lo vacío no viaja, la fecha va en UTC y una transferencia devuelve sus dos apuntes', async () => {
         useToken()
         const entries = record('post', '/api/stock/movements/entries', () => created({...MOVEMENT, type: 'ENTRY', quantity: 10, signedQuantity: 10}))
@@ -3046,6 +3115,34 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(materialPatch(reserving, {plannedQuantity: '9', consumedQuantity: '9', allowOverConsumption: true}))
             .toEqual({allowOverConsumption: true, version: 2})
         expect(materialLabel(reserved)).toBe('MAT-001 - Hilo de contacto')
+    })
+
+    it('las cantidades de una línea y de una tarea viajan cifra a cifra, y una que solo cambia en su última cifra es un cambio', async () => {
+        useToken()
+        const BIG = '1234567890123.123456'
+        const exact = () => new HttpResponse(`{"id":"${LINE}","stockSyncStatus":"NOT_REQUESTED","plannedQuantity":${BIG},"consumedQuantity":0.000000,`
+            + '"allowOverConsumption":false,"version":4}', {status: 200, headers: {'Content-Type': 'application/json'}})
+        record('get', `${BASE}/orders/:id/materials`, () => new HttpResponse(`[${JSON.stringify(line('NOT_REQUESTED')).replace('"plannedQuantity":4', `"plannedQuantity":${BIG}`)}]`,
+            {headers: {'Content-Type': 'application/json'}}))
+        const posts = record('post', `${BASE}/orders/:id/materials`, exact)
+        const patches = record('patch', `${BASE}/orders/:id/materials/:lineId`, exact)
+
+        const [read] = await listOrderMaterials(ORDER)
+        expect(read.plannedQuantity).toBe(BIG)
+        await registerMaterial(ORDER, materialRequest({materialId: {id: MAT, unitOfMeasure: 'm'}, warehouseId: {id: WH}, plannedQuantity: BIG,
+            taskId: null, allowOverConsumption: false}))
+        // Sin tocar lo previsto no viaja; con la última cifra cambiada, sí, y entera.
+        const untouched = materialPatch(read, {plannedQuantity: String(read.plannedQuantity), consumedQuantity: '1.5', allowOverConsumption: false})
+        const changed = materialPatch(read, {plannedQuantity: '1234567890123.123457', consumedQuantity: String(read.consumedQuantity),
+            allowOverConsumption: false})
+        await patchMaterial(ORDER, LINE, changed)
+
+        expect(posts[0].body).toContain(`"plannedQuantity":"${BIG}"`)
+        expect(untouched).toEqual({consumedQuantity: 1.5, version: read.version})
+        expect(patches[0].body).toBe(`{"plannedQuantity":"1234567890123.123457","version":${read.version}}`)
+        expect(JSON.stringify(taskMaterialRequest({material: {id: MAT, unitOfMeasure: 'm'}, warehouse: {id: WH}, quantity: BIG})))
+            .toBe(`{"materialId":"${MAT}","warehouseId":"${WH}","quantity":"${BIG}","unit":"m"}`)
+        expect(taskMaterialRequest({material: {id: MAT}, warehouse: {id: WH}, quantity: '2.50'}).quantity).toBe(2.5)
     })
 
     it('las líneas de material: la lista, el alta, lo cambiado, sincronizar y quitar sin cuerpo, y el almacén caído o diciendo que no', async () => {

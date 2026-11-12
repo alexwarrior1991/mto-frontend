@@ -346,11 +346,13 @@ export function useGenerateTasks(orderId) {
 /**
  * Una generación que sigue en el servicio: su operación cada 2 s mientras no termine y la pestaña se vea,
  * sin avisar de un fallo al preguntar (la siguiente vuelta lo reintenta). Al terminar llama una vez a
- * onFinished con ella y, salvo que falle, relee las tareas de la orden.
+ * onFinished con ella y, salvo que falle, relee las tareas de la orden. Un 404 no es un fallo que
+ * reintentar: el servicio ya no tiene la operación (la purgó, o no existe), así que se deja de preguntar,
+ * se releen las tareas por si terminó y se llama una vez a onMissing.
  *
  * @param {string|null} operationId null: nada que seguir
  */
-export function useFollowGeneration(orderId, operationId, onFinished) {
+export function useFollowGeneration(orderId, operationId, onFinished, onMissing) {
     const queryClient = useQueryClient()
     const handled = useRef(null)
     const operation = useQuery({
@@ -358,13 +360,23 @@ export function useFollowGeneration(orderId, operationId, onFinished) {
         queryFn: ({signal}) => getOperation(operationId, {signal}),
         enabled: operationId !== null,
         // Sin respuesta todavía (la primera pregunta falló) no está terminada: se sigue preguntando.
-        refetchInterval: (query) => (query.state.data && isFinishedOperation(query.state.data) ? false : FOLLOW_INTERVAL_MS),
+        refetchInterval: (query) => (query.state.error instanceof NotFoundError || (query.state.data && isFinishedOperation(query.state.data))
+            ? false : FOLLOW_INTERVAL_MS),
         refetchIntervalInBackground: false,
         staleTime: 0,
         meta: {notifyError: false},
     })
     const data = operation.data
+    const missing = operationId !== null && operation.error instanceof NotFoundError
     useEffect(() => {
+        if (missing) {
+            if (handled.current !== operationId) {
+                handled.current = operationId
+                void invalidateTasksOf(queryClient, orderId)
+                onMissing?.()
+            }
+            return
+        }
         if (!data || !isFinishedOperation(data) || handled.current === data.id) {
             return
         }
@@ -373,7 +385,7 @@ export function useFollowGeneration(orderId, operationId, onFinished) {
             void invalidateTasksOf(queryClient, orderId)
         }
         onFinished(data)
-    }, [data, onFinished, orderId, queryClient])
+    }, [data, missing, onFinished, onMissing, operationId, orderId, queryClient])
     return operation
 }
 

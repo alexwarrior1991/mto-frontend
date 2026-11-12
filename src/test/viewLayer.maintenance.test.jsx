@@ -1153,6 +1153,66 @@ describe('las órdenes', () => {
             expect(posts).toHaveLength(2)
         })
 
+        it('mientras se sigue, «Añadir qué generar» queda deshabilitado con Previsualizar y Generar, y vuelve si la generación falla', async () => {
+            vi.useFakeTimers({shouldAdvanceTime: true})
+            let current = {id: OPERATION, status: 'RUNNING'}
+            serveGeneration(() => current)
+            const {user} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), {tasks: {[ORDER1]: []}})
+
+            await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+            const dialog = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+            const buttons = () => ['Añadir qué generar', 'Previsualizar', 'Generar'].map((name) => within(dialog).getByRole('button', {name}))
+            buttons().forEach((button) => expect(button).toBeEnabled())
+            await user.click(within(dialog).getByRole('button', {name: 'Generar'}))
+            await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent('(en marcha)'))
+            buttons().forEach((button) => expect(button).toBeDisabled())
+            expect(within(dialog).getAllByRole('group', {name: /^Qué generar/})).toHaveLength(1)
+
+            current = {id: OPERATION, status: 'FAILED', error: {status: 409, errorCode: 'TRN-001', message: 'Order MO-000001 is COMPLETED'}}
+            await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS))
+            expect(await screen.findByText('El estado actual no permite esta operación. Order MO-000001 is COMPLETED')).toBeInTheDocument()
+            buttons().forEach((button) => expect(button).toBeEnabled())
+        })
+
+        it('si la operación ya no existe (404) se deja de preguntar, se dice una vez, se releen las tareas y el diálogo sigue abierto', async () => {
+            vi.useFakeTimers({shouldAdvanceTime: true})
+            const {posts} = serveGeneration(() => ({id: OPERATION, status: 'RUNNING'}))
+            let asks = 0
+            server.use(http.get(`${BASE}/operations/:id`, () => {
+                asks += 1
+                return asks === 1
+                    ? HttpResponse.json({id: OPERATION, status: 'RUNNING'})
+                    : HttpResponse.json({status: 404, error: 'NOT_FOUND', message: `Operation ${OPERATION} not found`, errorCode: 'OPS-404'},
+                        {status: 404})
+            }))
+            const {user, requests} = await openOrder(loginAs('mantenimiento.tecnico'), order({status: 'DRAFT'}), {tasks: {[ORDER1]: []}})
+
+            await user.click(await screen.findByRole('button', {name: 'Generar tareas'}))
+            const dialog = await screen.findByRole('dialog', {name: 'Generar tareas de MO-000001'})
+            await user.click(within(dialog).getByRole('button', {name: 'Generar'}))
+            await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent('(en marcha)'))
+            const taskReads = readsOf(requests, `${BASE}/orders/${ORDER1}/tasks`).length
+
+            await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS))
+            const gone = 'La operación ya no existe en el servicio; comprueba las tareas de la orden.'
+            expect(await screen.findByText(gone)).toBeInTheDocument()
+            expect(asks).toBe(2)
+            await waitFor(() => expect(readsOf(requests, `${BASE}/orders/${ORDER1}/tasks`).length).toBeGreaterThan(taskReads))
+            // No se pregunta más, y el aviso no se repite.
+            await act(() => vi.advanceTimersByTimeAsync(FOLLOW_INTERVAL_MS * 3))
+            expect(asks).toBe(2)
+            expect(screen.getAllByText(gone)).toHaveLength(1)
+            // El diálogo sigue abierto y se puede usar: sin seguimiento, con sus botones.
+            expect(screen.getByRole('dialog', {name: 'Generar tareas de MO-000001'})).toBeInTheDocument()
+            expect(within(dialog).queryByRole('status')).not.toBeInTheDocument()
+            ;['Añadir qué generar', 'Previsualizar', 'Generar'].forEach((name) => expect(within(dialog).getByRole('button', {name})).toBeEnabled())
+            // Cerrarlo ya no avisa de que la generación continúa: no hay nada que seguir.
+            await user.click(within(dialog).getByRole('button', {name: 'Volver'}))
+            await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Generar tareas de MO-000001'})).not.toBeInTheDocument())
+            expect(screen.queryByText('La generación sigue en el servicio: sus tareas aparecerán en la orden al terminar.')).not.toBeInTheDocument()
+            expect(posts).toHaveLength(1)
+        })
+
         it('por encima del tope de operaciones, el 429 OPS-429 dice cuándo reintentar con el diálogo abierto', async () => {
             server.use(http.post(`${BASE}/orders/${ORDER1}/tasks/generate`, () => HttpResponse.json({status: 429, error: 'TOO_MANY_REQUESTS',
                 message: 'There are already 8 background operations', errorCode: 'OPS-429'}, {status: 429, headers: {'Retry-After': '5'}})))

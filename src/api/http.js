@@ -1,4 +1,5 @@
 import {CORRELATION_HEADER, newCorrelationId} from './correlation.js'
+import {parseJsonExact} from './decimals.js'
 import {decodeErrorResponse, NetworkError, SessionExpiredError, TokenRejectedError} from './errors.js'
 
 /**
@@ -160,7 +161,8 @@ async function readBody(response, responseType, operation) {
         return null
     }
     try {
-        return JSON.parse(text)
+        // Un decimal de 19 cifras (una cantidad) no cabe en un Number: llega como su texto exacto.
+        return parseJsonExact(text)
     } catch (error) {
         throw new Error(`${operation}: la respuesta no es JSON`, {cause: error})
     }

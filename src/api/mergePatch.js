@@ -8,10 +8,12 @@
  * - la versión leída va siempre: si otra persona guardó antes, el servicio responde 409 CON-001.
  *
  * Los textos se comparan recortados (un blanco no es un cambio) y los números como números (12.1 y
- * 12.100 son lo mismo). Una lista que el servicio guarda como conjunto (las vías de un turno, sus
+ * 12.100 son lo mismo), cifra a cifra y no en coma flotante (decimals.js). Una lista que el servicio guarda como conjunto (las vías de un turno, sus
  * seccionadores, los tipos de una tarea) se compara sin orden, y vacía es vaciarla: viaja a null. Si
  * nada cambió devuelve null, y la pantalla cierra el diálogo sin llamar.
  */
+
+import {sameDecimal} from './decimals.js'
 
 export const MERGE_PATCH = 'application/merge-patch+json'
 
@@ -66,7 +68,8 @@ function same(before, after, asNumber) {
         return before === after
     }
     if (asNumber) {
-        return Number(before) === Number(after)
+        // Cifra a cifra: dos cantidades de 19 cifras que solo cambian en la última son el mismo Number.
+        return sameDecimal(before, after) ?? Number(before) === Number(after)
     }
     if (typeof before === 'object' || typeof after === 'object') {
         return JSON.stringify(before) === JSON.stringify(after)

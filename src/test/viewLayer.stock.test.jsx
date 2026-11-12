@@ -862,6 +862,27 @@ describe('las reservas', () => {
         expect(screen.getByRole('button', {name: `Liberar ${LABEL}`})).toBeInTheDocument()
     })
 
+    it('una cantidad de 19 cifras se pinta y vuelve cifra a cifra: modificar el almacén no la cambia', async () => {
+        const BIG = '1234567890123.123456'
+        serveStock({reservations: [ACTIVE]})
+        // El cuerpo tal como lo escribe el servicio: la cantidad con todas sus cifras, que no caben en un número de JavaScript.
+        const exact = JSON.stringify({content: [ACTIVE], page: {number: 0, size: 50, totalElements: 1, totalPages: 1}})
+            .replace(`"quantity":${ACTIVE.quantity}`, `"quantity":${BIG}`)
+        server.use(http.get(`${BASE}/reservations`, () => new HttpResponse(exact, {headers: {'Content-Type': 'application/json'}})))
+        const updates = recordWrites('put', `${BASE}/reservations/${RES1}`, (body) => HttpResponse.json({...ACTIVE, warehouse: NAVE2,
+            quantity: body.quantity}))
+        const {user} = await open('/almacen/reservas', loginAs('almacen.operario'), 'Reservas', 1)
+        expect(within(table('Reservas')).getByText(BIG)).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: /^Modificar /}))
+        const dialog = await screen.findByRole('dialog', {name: 'Modificar la reserva de MAT-001'})
+        expect(within(dialog).getByRole('textbox', {name: 'Cantidad'})).toHaveValue(BIG)
+        await choose(user, dialog, 'Almacén', 'WH-002 - Nave 2')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+
+        await waitFor(() => expect(updates).toEqual([{warehouseId: WH2, projectId: PRJ_MANUAL, quantity: BIG}]))
+    })
+
     it('la salida desde una reserva fija material, almacén y cantidad, trae su proyecto y manda el reservationId', async () => {
         const requests = serveStock({reservations: [ACTIVE]})
         const outputs = recordWrites('post', `${BASE}/movements/outputs`, () => HttpResponse.json(movement('OUTPUT', -5), {status: 201}))
