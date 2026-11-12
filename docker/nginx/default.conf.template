@@ -40,8 +40,12 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Origin "";
         proxy_set_header Cookie "";
-        # Las importaciones de mto-configuration admiten hasta 20 MB; el 1 MB por defecto las cortaria.
-        client_max_body_size 20m;
+        # Las importaciones de mto-configuration admiten un fichero de hasta 20 MB; el 1 MB por
+        # defecto las cortaria. El tope es de la peticion entera, que lleva ademas el envoltorio
+        # multipart: con 20m, un fichero a unos cientos de bytes del limite pasaba la comprobacion
+        # de la pantalla y se rechazaba aqui. 21m es tambien el tope de mto-gateway y de la
+        # peticion en mto-configuration.
+        client_max_body_size 21m;
         proxy_connect_timeout 5s;
         # El gateway corta a los 15 s y su circuito a los 20 s: esto no debe adelantarse.
         proxy_read_timeout 30s;
