@@ -140,8 +140,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   registro, sin los accesos), `notification/inbox.js` (la bandeja, el contador, marcar una o todas y
   `unreadCountText`, con «100+»), `notification/activity.js` (el registro, el detalle de una línea con
   su `payload` y los accesos; `searchActivity` rechaza antes de llamar la categoría `ACCESS`, y
-  `searchAccess`, una IP que no es un literal, `isIpLiteral`) y `notification/links.js`
-  (`notificationTarget`: a dónde lleva el enlace de una notificación).
+  `searchAccess`, una IP que no es un literal, `isIpLiteral`), `notification/links.js`
+  (`notificationTarget`: a dónde lleva el enlace de una notificación) y `notification/admin.js` (la
+  administración, `/admin/**`: `sourcesStatus`, `loadedRules`, `searchDeliveries` con su desempate y
+  `retryDelivery`, `deadLetterQueues`, `peekDeadLetters` y `reprocessDeadLetters`, `sendTestEmail` y
+  `sendBroadcast`; lo copiado del servicio para no ofrecer lo que va a fallar, `canRetryDelivery` y
+  `hasMessages`; y lo que se comprueba antes de llamar: `emailProblem`, `linkProblem`, `audienceProblem`,
+  `audiencesProblem`, `isUuid`, y cómo viaja un aviso, `broadcastRequest`; sus enumerados tolerantes,
+  en `enums.js`: `DELIVERY_STATUS`, `DELIVERY_SCOPE`, `INBOX_MESSAGE_STATUS`, `SOURCE_CURSOR_KIND`,
+  `REPROCESS_OUTCOME` y `REPROCESS_STOP`; `AUDIENCE_KINDS` y `BROADCAST_CHANNELS` solo viajan en
+  peticiones).
   `resources/` es `mto-resources`: `resources/values.js` (`resourcesPath`, `personLabel`, `unitLabel`, y
   cómo está una caducidad, `expiryState`, con `EXPIRY_WARNING_DAYS`, 30),
   `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
@@ -302,8 +310,15 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `AccessPage` (los accesos, con la IP comprobada antes de pedir);
   - `EventDetailModal.jsx`: `ActivityEventModal`, que pide la línea con su `payload`, y
     `AccessEventModal`, con la fila, porque la lista de accesos sí lo trae;
+  - `NotificationAdminPage` (el port de `NotificationAdminView`, `notificaciones/administracion`), con
+    sus cinco pestañas en `LazyTabs`: `AdminSourcesPanel`, `AdminDeadLettersPanel` (con
+    `DeadLetterPeekModal` y `DeadLetterReprocessModal`), `AdminDeliveriesPanel`, `AdminRulesPanel` y
+    `AdminBroadcastsPanel` (con `TestEmailModal` y `BroadcastModal`); `adminTexts.js`, lo que dice cada
+    una (el resumen de las fuentes, el de una pasada de reproceso, el freno de una regla, la
+    confirmación de un aviso);
   - `useNotifications.js` (las claves `['notifications', …]`, el contador cada 30 s sin aviso de
-    error, y marcar, que relee la bandeja y el contador sin esperarlos), `notificationRoutes.js` y
+    error, y marcar, que relee la bandeja y el contador sin esperarlos; y las de la administración,
+    `['notifications', 'admin', …]`, con lo que relee cada escritura), `notificationRoutes.js` y
     `notificationTexts.js` (recuentos, el nombre de la campana, los campos de una línea y su
     `payload` clave a clave).
 
@@ -752,9 +767,48 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **El detalle de una línea del registro se pide a su línea**: la lista no trae el `payload` y
   `GET /activity/{id}` sí; el de un acceso viene en su fila. Se enseña tal cual, clave a clave,
   ordenado y como texto: aquí no se interpreta nada.
-- **Las listas de `mto-notification` desempatan con lo que el servicio deja ordenar**: la bandeja por
-  `createdAt,desc`, porque no admite el id, y el registro y los accesos por `seq,desc`. Un `sort`
-  desconocido es un 400 `REQ-400`.
+- **Las listas de `mto-notification` desempatan con lo que el servicio deja ordenar**: la bandeja y las
+  entregas de la administración por `createdAt,desc`, porque no admiten el id, y el registro y los
+  accesos por `seq,desc`. Un `sort` desconocido es un 400 `REQ-400`.
+- **La administración de notificaciones es la de `mto-notification`, y lo que admite cada cosa lo dice
+  el servicio.** `notificaciones/administracion`, con `notification-admin` (un rol de realm no la abre;
+  la llevan `mto-notification-admin` y `mto-ops`). En el menú cuelga de «Notificaciones», el grupo de la
+  bandeja. Cinco pestañas en `LazyTabs`: cada una pide sus datos la primera vez que se abre y con su
+  «Actualizar», sin sondeo; al entrar solo se piden las fuentes.
+  - **Fuentes** (`GET /admin/sources`): el inbox por fuente y estado, el lector de Keycloak (hasta dónde
+    leyó, quién lo tiene arrendado, su último error), las ráfagas abiertas y las entregas por estado. Las
+    cifras son del servicio; un estado de entrega nuevo se enseña con su clave, detrás de los conocidos.
+    Un fallo se avisa y deja el resumen y las tablas vacíos.
+  - **Mensajes muertos (DLQ)** (`GET /admin/dead-letters`): `messages: null` es «Sin cola en el broker»,
+    y `enabled: false`, RabbitMQ apagado en el despliegue, que se dice sin tabla ni acciones. «Mirar» y
+    «Reprocesar» se ofrecen solo donde hay mensajes (`hasMessages`): sin cola sería el 409 `SRC-409`.
+    «Mirar» pide los primeros 20 (`?max=20`) y enseña lo que hay, nunca el cuerpo; si falla, se avisa y no
+    se abre nada, y al cerrar no se relee nada. «Reprocesar» (`POST …/reprocess?max=`, sin cuerpo) dice en
+    su diálogo qué va a pasar, pide de 1 a 100 (20 de partida; fuera de rango o vacío no se llama), enseña
+    en el mismo diálogo el resultado (pedidos, sacados, procesados, duplicados, fallidos, cuántos quedan,
+    por qué paró y qué fue de cada mensaje) y relee las colas; un error se dice con el diálogo abierto, sin
+    releer. Nada lo repite solo.
+  - **Entregas** (`GET /admin/deliveries`): paginadas (50), filtradas (estado, canal escrito entero y
+    notificación por su id) y ordenadas en el servicio; lo que no se filtra no viaja. Un id de
+    notificación a medias no pide nada: el campo se marca y la lista sigue con el último filtro bien
+    formado (`isUuid`). «Reintentar» solo en una fallida o una omitida (`canRetryDelivery`, copiado del
+    servicio; lo demás, también un estado desconocido, sería su 409 `DLV-409`), sin confirmación, y la
+    lista se relee salga bien o no.
+  - **Reglas** (`GET /admin/rules`): de solo lectura (se cambian en el YAML del servicio), enteras, con
+    filtro local sin mayúsculas ni tildes. Sin gravedad, «La del evento»; el freno, «Uno cada 30 min por
+    …», con la duración ISO en días, horas y minutos, o tal cual si no se sabe leer.
+  - **Avisos manuales**: no pide nada al abrirse. El correo de prueba (`POST /admin/test-email {to}`,
+    202) exige una dirección con forma de email, sin confirmación; el aviso general
+    (`POST /admin/broadcasts`, 201; su `Location` no se usa) ofrece solo lo que el servicio acepta (las
+    cuatro clases de audiencia, una por línea como `CLASE:clave`; los dos canales; las tres gravedades),
+    comprueba lo evidente antes de llamar (título, al menos una audiencia bien formada con la regla del
+    servicio, al menos un canal, un enlace que la bandeja sepa seguir) y **se confirma antes de enviarse**,
+    diciendo a quién va y por dónde: llega a personas de verdad. Lo vacío no viaja, las audiencias van sin
+    repetir y los canales en el orden `inbox`, `email`. Los errores del servicio van a su campo
+    (`audiences[0]`, al de las audiencias), con el diálogo abierto; tras enviar, las entregas se releen si
+    su pestaña ya se abrió, y la pestaña dice lo último enviado.
+  - Sus códigos se dicen por lo que son, sin pedir recargar: `DLV-404`, `DLV-409`, `SRC-404`, `SRC-409`
+    (con el detalle del servicio), `SRC-503` y `NTF-422` (con su detalle).
 - **Un trabajo se lanza y se sigue; no se espera.**
   - Lanzar responde 202 con el trabajo, o 429 con el trabajo ya rechazado y un `Retry-After`
     (`rejectedJobOf`): se apunta como rechazado y el aviso dice cuándo reintentar, no es un fallo.

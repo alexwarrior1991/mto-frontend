@@ -22,6 +22,7 @@ import TaskTypesPage from '../features/maintenance/TaskTypesPage.jsx'
 import TeamsPage from '../features/maintenance/TeamsPage.jsx'
 import AccessPage from '../features/notifications/AccessPage.jsx'
 import ActivityPage from '../features/notifications/ActivityPage.jsx'
+import NotificationAdminPage from '../features/notifications/NotificationAdminPage.jsx'
 import NotificationsPage from '../features/notifications/NotificationsPage.jsx'
 import FleetBoardPage from '../features/resources/FleetBoardPage.jsx'
 import InstrumentsPage from '../features/resources/InstrumentsPage.jsx'
@@ -102,6 +103,7 @@ export const PAGES = Object.freeze({
     resourcesInstruments: InstrumentsPage,
     resourcesDiscrepancies: PositionDiscrepanciesPage,
     notifications: NotificationsPage,
+    notificationAdmin: NotificationAdminPage,
     activity: ActivityPage,
     access: AccessPage,
 })

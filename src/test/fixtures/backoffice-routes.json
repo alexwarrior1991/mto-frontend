@@ -49,6 +49,7 @@
     "recursos/instrumentos",
     "recursos/discrepancias",
     "notificaciones",
+    "notificaciones/administracion",
     "actividad",
     "actividad/accesos"
   ]

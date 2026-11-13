@@ -219,7 +219,42 @@ import {
     searchAccess,
     searchActivity,
 } from '../api/notification/activity.js'
-import {ACCESS_OUTCOME, ACTIVITY_CATEGORY, ACTIVITY_SEVERITY, activityCategories, ACTOR_KIND} from '../api/notification/enums.js'
+import {
+    audienceProblem,
+    audiencesOf,
+    audiencesProblem,
+    BROADCAST_CHANNELS,
+    broadcastRequest,
+    canRetryDelivery,
+    DEAD_LETTER_PEEK,
+    deadLetterQueues,
+    DELIVERIES_PAGE_SIZE,
+    deliveryRecipient,
+    emailProblem,
+    hasMessages,
+    linkProblem,
+    loadedRules,
+    peekDeadLetters,
+    reprocessDeadLetters,
+    retryDelivery,
+    searchDeliveries,
+    sendBroadcast,
+    sendTestEmail,
+    sourcesStatus,
+} from '../api/notification/admin.js'
+import {
+    ACCESS_OUTCOME,
+    ACTIVITY_CATEGORY,
+    ACTIVITY_SEVERITY,
+    activityCategories,
+    ACTOR_KIND,
+    DELIVERY_SCOPE,
+    DELIVERY_STATUS,
+    INBOX_MESSAGE_STATUS,
+    REPROCESS_OUTCOME,
+    REPROCESS_STOP,
+    SOURCE_CURSOR_KIND,
+} from '../api/notification/enums.js'
 import {INBOX_PAGE_SIZE, markAllRead, markRead, searchInbox, unreadCount, unreadCountText} from '../api/notification/inbox.js'
 import {notificationTarget} from '../api/notification/links.js'
 import {actorText, subjectText} from '../api/notification/values.js'
@@ -958,6 +993,20 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
         expect(errorMessage(new ApiError(500, {problem: problem({detail: 'NPE'})}))).toBe('Error inesperado (500). NPE')
         expect(errorMessage(new TooManyRequestsError(429))).toBe('Error inesperado (429).')
         expect(errorMessage(new Error('otra cosa'))).toBe('Error inesperado.')
+    })
+
+    it('la administración de notificaciones: cada código dice lo que pasó, antes del mensaje genérico de su estado y sin pedir recargar', () => {
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'DLV-404', detail: 'Delivery d-1 was not found'})}))).toBe('Esa entrega ya no existe.')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'DLV-409', detail: 'Delivery d-1 is SENT'})})))
+            .toBe('La entrega ya no admite el reintento: solo se reintenta una fallida o una omitida.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'SRC-404', detail: 'Source nope is not configured'})})))
+            .toBe('Esa fuente no existe en mto-notification.')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'SRC-409', detail: 'Queue q.dlq does not exist'})})))
+            .toBe('RabbitMQ está apagado en este despliegue, o esa cola de mensajes muertos no existe en el broker. Queue q.dlq does not exist')
+        expect(errorMessage(new UnavailableError(503, {problem: problem({code: 'SRC-503', detail: 'Broker unavailable'})})))
+            .toBe('RabbitMQ no responde ahora: la cola se queda como estaba. Inténtalo más tarde.')
+        expect(errorMessage(new ValidationError(422, {problem: problem({code: 'NTF-422', detail: 'Unknown audience kind TEAM'})})))
+            .toBe('El aviso nombra una audiencia o un canal que el servicio no conoce. Unknown audience kind TEAM')
     })
 })
 
@@ -4145,5 +4194,254 @@ describe('notification/*.js: la bandeja, el registro y los accesos de mto-notifi
         expect(sortWithTieBreak({field: 'createdAt', direction: 'asc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['createdAt,asc'])
         expect(sortWithTieBreak({field: 'title', direction: 'desc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['title,desc', 'createdAt,desc'])
         expect(sortWithTieBreak(null, ['trackId,asc', 'startKp,asc'])).toEqual(['trackId,asc', 'startKp,asc', 'id,asc'])
+    })
+
+    it('la administración: las reglas cargadas y el estado de las fuentes se leen como los da el servicio', async () => {
+        useToken('token-1')
+        const rules = record('get', `${BASE}/admin/rules`, () => HttpResponse.json({
+            source: 'classpath:notification-rules.yml',
+            variables: {'large-burst-threshold': 50},
+            rules: [
+                {key: 'maintenance-order-urgent', events: ['maintenance.order.created'], when: "payload.type == 'URGENT'", severity: 'CRITICAL',
+                    audiences: ['PROFILE:mto-maintenance-manager', 'USER:#{payload.assignedUser}'], channels: ['inbox', 'email'],
+                    title: 'Orden urgente', body: 'Cuerpo', link: '/mantenimiento/ordenes/#{event.subjectId}', throttleWindow: 'PT30M',
+                    throttleKey: '#{payload.code}', keyOfTomorrow: 1},
+                {key: 'rara', events: null, when: null, severity: 'FATAL', audiences: null, channels: null, title: null, link: null},
+            ],
+        }))
+        const sources = record('get', `${BASE}/admin/sources`, () => HttpResponse.json({
+            cursors: [
+                {kind: 'KEYCLOAK_LOGIN', lastEventTime: '2026-09-28T06:07:00Z', leaseOwner: 'pod-1', leaseUntil: '2026-09-28T06:08:00Z',
+                    lastPollAt: '2026-09-28T06:07:10Z', lastSuccessAt: '2026-09-28T06:07:10Z', lastError: null},
+                {kind: 'KEYCLOAK_WEBHOOK', lastEventTime: null},
+            ],
+            inbox: [{sourceService: 'mto-maintenance', status: 'PROCESSED', total: 1204}, {sourceService: 'mto-stock', status: 'PARKED', total: 2}],
+            openBursts: 3,
+            deliveries: {PENDING: 1, SENT: 40, DEFERRED: 7},
+        }))
+
+        const loaded = await loadedRules()
+        const status = await sourcesStatus()
+
+        expect(rules[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(loaded.source).toBe('classpath:notification-rules.yml')
+        expect(loaded.variables).toEqual({'large-burst-threshold': 50})
+        expect(loaded.rules[0]).toMatchObject({key: 'maintenance-order-urgent', throttleWindow: 'PT30M', channels: ['inbox', 'email']})
+        expect(ACTIVITY_SEVERITY.label(loaded.rules[1].severity)).toBe('Desconocido')
+        expect(loaded.rules[1]).toMatchObject({events: [], audiences: [], channels: []})
+        expect(sources[0].url.pathname).toBe(`${BASE}/admin/sources`)
+        expect(status.cursors.map((cursor) => SOURCE_CURSOR_KIND.label(cursor.kind))).toEqual(['Accesos de Keycloak', 'Desconocido'])
+        expect(SOURCE_CURSOR_KIND.label('KEYCLOAK_ADMIN')).toBe('Administración de Keycloak')
+        expect(status.inbox.map((count) => INBOX_MESSAGE_STATUS.label(count.status))).toEqual(['Procesado', 'Desconocido'])
+        expect(INBOX_MESSAGE_STATUS.selectable().map((option) => option.label)).toEqual(['Recibido', 'En proceso', 'Procesado', 'Fallido'])
+        expect(status.openBursts).toBe(3)
+        expect(status.deliveries).toEqual({PENDING: 1, SENT: 40, DEFERRED: 7})
+    })
+
+    it('la administración: las entregas se filtran y se ordenan en el servicio, y solo una fallida o una omitida se reintenta', async () => {
+        useToken()
+        const delivery = (id, status, scope = 'RECIPIENT') => ({
+            id, notificationId: N1, channel: 'email', scope, audienceKey: 'PROFILE:mto-ops', recipient: 'ops@mto.local',
+            recipientUsername: 'config.ops', status, attempts: 3, maxAttempts: 5, nextAttemptAt: null, sentAt: null,
+            lastError: 'Connection refused', createdAt: '2026-09-28T06:07:00Z',
+        })
+        const lists = record('get', `${BASE}/admin/deliveries`, (_request, call) => HttpResponse.json(call === 1
+            ? page([delivery('d-1', 'FAILED'), delivery('d-2', 'BOUNCED', 'TOPIC')], {size: 50})
+            : page([], {size: 50})))
+        const retries = record('post', `${BASE}/admin/deliveries/:id/retry`, (request) => {
+            const id = new URL(request.url).pathname.split('/').at(-2)
+            if (id === 'd-sent') {
+                return notificationError(409, 'DLV-409', 'Delivery d-sent is SENT')
+            }
+            return id === 'd-gone' ? notificationError(404, 'DLV-404', 'Delivery d-gone was not found') : HttpResponse.json(delivery(id, 'PENDING'))
+        })
+
+        const filtered = await searchDeliveries({status: 'FAILED', channel: ' email ', notificationId: ` ${N1} `,
+            sort: {field: 'status', direction: 'asc'}})
+        await searchDeliveries()
+        await searchDeliveries({sort: {field: 'createdAt', direction: 'asc'}, page: 2})
+        const retried = await retryDelivery('d-1')
+        const conflict = await failure(retryDelivery('d-sent'))
+        const gone = await failure(retryDelivery('d-gone'))
+
+        expect(lists[0].url.search).toBe(`?status=FAILED&channel=email&notificationId=${N1}&page=0&size=50&sort=status%2Casc&sort=createdAt%2Cdesc`)
+        expect(lists[1].url.search).toBe('?page=0&size=50&sort=createdAt%2Cdesc')
+        expect(lists[2].url.search).toBe('?page=1&size=50&sort=createdAt%2Casc')
+        expect(DELIVERIES_PAGE_SIZE).toBe(50)
+        // Un id a medias no llega al servicio, que respondería 400.
+        await expect(searchDeliveries({notificationId: '5e6f7a8b-0000'})).rejects.toThrow(/No es el id/)
+        expect(lists).toHaveLength(3)
+
+        expect(filtered.content.map((row) => DELIVERY_STATUS.label(row.status))).toEqual(['Fallida', 'Desconocido'])
+        expect(filtered.content.map((row) => DELIVERY_SCOPE.label(row.scope))).toEqual(['Destinatario', 'Desconocido'])
+        expect(DELIVERY_STATUS.selectable().map((option) => option.label)).toEqual(['Pendiente', 'En curso', 'Enviada', 'Fallida', 'Omitida'])
+        expect(['PENDING', 'IN_PROGRESS', 'SENT', 'FAILED', 'SKIPPED', 'BOUNCED', null].map(canRetryDelivery))
+            .toEqual([false, false, false, true, true, false, false])
+        expect(deliveryRecipient(filtered.content[0])).toBe('ops@mto.local (config.ops)')
+        expect(deliveryRecipient({recipient: 'ops@mto.local', recipientUsername: null})).toBe('ops@mto.local')
+        expect(deliveryRecipient({recipient: null, audienceKey: 'PROFILE:mto-ops'})).toBe('PROFILE:mto-ops')
+
+        expect(retries[0].method).toBe('POST')
+        expect(retries[0].url.pathname).toBe(`${BASE}/admin/deliveries/d-1/retry`)
+        expect(retries[0].body).toBe('')
+        expect(retried.status).toBe('PENDING')
+        expect(conflict).toBeInstanceOf(ConflictError)
+        expect(conflict.code).toBe('DLV-409')
+        expect(gone).toBeInstanceOf(NotFoundError)
+        expect(gone.code).toBe('DLV-404')
+    })
+
+    it('la administración: las colas de mensajes muertos se cuentan, se miran y se reprocesan, y sus errores llegan tipados', async () => {
+        useToken()
+        const queue = (source, messages) => ({source, queue: `mto.notification.${source}.queue`,
+            deadLetterQueue: `mto.notification.${source}.queue.dlq`, messages})
+        const lists = record('get', `${BASE}/admin/dead-letters`, (_request, call) => HttpResponse.json(call === 1
+            ? {enabled: true, queues: [queue('maintenance', 3), queue('stock', 0), queue('field', null)]}
+            : {enabled: false, queues: null}))
+        const peeks = record('get', `${BASE}/admin/dead-letters/:source`, (request) => {
+            const source = new URL(request.url).pathname.split('/').at(-1)
+            if (source !== 'maintenance') {
+                return notificationError(404, 'SRC-404', `Source ${source} is not configured`)
+            }
+            return HttpResponse.json({
+                source, deadLetterQueue: 'mto.notification.maintenance.queue.dlq', messages: 3,
+                peeked: [
+                    {
+                        message: {messageId: 'm-1', sourceService: 'mto-maintenance', eventType: 'MAINTENANCE_ORDER_CREATED',
+                            aggregateType: 'order', aggregateId: 'o-1', exchange: 'mto.maintenance.exchange',
+                            routingKey: 'mto.maintenance.order.created', deathReason: 'rejected', deathCount: 2,
+                            deadLetteredAt: '2026-09-28T06:07:00Z', payloadBytes: 812, problem: null},
+                        inbox: {status: 'FAILED', attempts: 3, failedAt: '2026-09-28T06:07:00Z', failureReason: 'No rule engine'},
+                    },
+                    {message: {messageId: null, problem: 'The body is not an envelope'}, inbox: null},
+                ],
+            })
+        })
+        const runs = record('post', `${BASE}/admin/dead-letters/:source/reprocess`, (request, call) => {
+            const source = new URL(request.url).pathname.split('/').at(-2)
+            if (source === 'field') {
+                return notificationError(409, 'SRC-409', 'The queue does not exist')
+            }
+            if (source === 'stock') {
+                return notificationError(503, 'SRC-503', 'The broker is unavailable')
+            }
+            return HttpResponse.json(call === 1
+                ? {source, deadLetterQueue: 'q.dlq', requested: 10, fetched: 3, processed: 1, duplicates: 1, failed: 1, remaining: 1,
+                    stoppedBy: 'EMPTY', results: [
+                        {messageId: 'm-1', eventType: 'X', routingKey: 'k', outcome: 'PROCESSED', reason: null},
+                        {messageId: 'm-2', eventType: 'X', routingKey: 'k', outcome: 'PARKED', reason: 'later'},
+                    ]}
+                : {source, deadLetterQueue: 'q.dlq', requested: 20, fetched: 0, stoppedBy: 'BROKER_GONE', remaining: null, results: null})
+        })
+
+        const queues = await deadLetterQueues()
+        const off = await deadLetterQueues()
+        const peek = await peekDeadLetters('maintenance', {max: 5})
+        await peekDeadLetters('maintenance')
+        const unknownSource = await failure(peekDeadLetters('nope'))
+        const first = await reprocessDeadLetters('maintenance', 10)
+        const second = await reprocessDeadLetters('maintenance', 20)
+        const noQueue = await failure(reprocessDeadLetters('field', 20))
+        const broker = await failure(reprocessDeadLetters('stock', 20))
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/admin/dead-letters`)
+        expect(queues.enabled).toBe(true)
+        expect(queues.queues.map(hasMessages)).toEqual([true, false, false])
+        expect(off).toEqual({enabled: false, queues: []})
+
+        expect(peeks.map((request) => request.url.pathname + request.url.search)).toEqual([
+            `${BASE}/admin/dead-letters/maintenance?max=5`, `${BASE}/admin/dead-letters/maintenance?max=${DEAD_LETTER_PEEK}`,
+            `${BASE}/admin/dead-letters/nope?max=20`])
+        expect(peek.peeked[0].message).toMatchObject({messageId: 'm-1', deathCount: 2, payloadBytes: 812})
+        expect(INBOX_MESSAGE_STATUS.label(peek.peeked[0].inbox.status)).toBe('Fallido')
+        expect(peek.peeked[1]).toEqual({message: {messageId: null, problem: 'The body is not an envelope'}, inbox: null})
+        expect(unknownSource).toBeInstanceOf(NotFoundError)
+        expect(unknownSource.code).toBe('SRC-404')
+
+        expect(runs[0].method).toBe('POST')
+        expect(runs[0].url.pathname + runs[0].url.search).toBe(`${BASE}/admin/dead-letters/maintenance/reprocess?max=10`)
+        expect(runs[0].body).toBe('')
+        expect(first).toMatchObject({requested: 10, fetched: 3, processed: 1, duplicates: 1, failed: 1, remaining: 1, stoppedBy: 'EMPTY'})
+        expect(first.results.map((result) => REPROCESS_OUTCOME.label(result.outcome))).toEqual(['Procesado', 'Desconocido'])
+        expect(REPROCESS_STOP.label(first.stoppedBy)).toBe('la cola se quedó sin mensajes')
+        expect(REPROCESS_STOP.isKnown(second.stoppedBy)).toBe(false)
+        expect(second.remaining).toBeNull()
+        expect(second.results).toEqual([])
+        expect(noQueue).toBeInstanceOf(ConflictError)
+        expect(noQueue.code).toBe('SRC-409')
+        expect(broker).toBeInstanceOf(UnavailableError)
+        expect(broker.code).toBe('SRC-503')
+
+        // Fuera de 1..100 no se llama: el servicio respondería 400 VAL-001.
+        for (const max of [0, 101, 2.5, '', null]) {
+            await expect(reprocessDeadLetters('maintenance', max)).rejects.toThrow(/de 1 a 100/)
+        }
+        expect(runs).toHaveLength(4)
+    })
+
+    it('la administración: un correo de prueba y un aviso general viajan con su cuerpo, y sus rechazos llegan tipados', async () => {
+        useToken()
+        const created = (ruleKey, audiences) => ({id: N1, ruleKey, category: 'SYSTEM', severity: 'INFO', title: 'x', audiences,
+            createdAt: '2026-09-28T06:07:00Z', createdBy: 'notificacion.responsable'})
+        const mails = record('post', `${BASE}/admin/test-email`, (_request, call) => (call === 1
+            ? HttpResponse.json(created('test-email', ['USER:notificacion.responsable']), {status: 202})
+            : notificationError(400, 'REQ-VALIDATION', 'Validation failed', [{field: 'to', message: 'must be a well-formed email address'}])))
+        const broadcasts = record('post', `${BASE}/admin/broadcasts`, (_request, call) => (call === 1
+            ? HttpResponse.json(created('manual-broadcast', ['PROFILE:mto-ops']), {status: 201, headers: {Location: '/api/v1/x'}})
+            : notificationError(422, 'NTF-422', 'Unknown audience kind TEAM')))
+
+        const mail = await sendTestEmail('  ops@mto.local ')
+        const badMail = await failure(sendTestEmail('ops@'))
+        const request = broadcastRequest({
+            title: '  Parada programada del sábado ', body: '   ', link: '', severity: 'WARNING',
+            audiences: 'PROFILE:mto-ops\n\n  CLIENT_ROLE:mto-notification-api:notification-inbox \nPROFILE:mto-ops',
+            channels: ['email', 'inbox'],
+        })
+        const sent = await sendBroadcast(request)
+        const rejected = await failure(sendBroadcast({...request, audiences: ['TEAM:a']}))
+
+        expect(JSON.parse(mails[0].body)).toEqual({to: 'ops@mto.local'})
+        expect(mail.ruleKey).toBe('test-email')
+        expect(badMail).toBeInstanceOf(ValidationError)
+        expect(badMail.fieldErrors).toEqual([expect.objectContaining({field: 'to', message: 'must be a well-formed email address'})])
+        expect(JSON.parse(broadcasts[0].body)).toEqual({
+            title: 'Parada programada del sábado', severity: 'WARNING',
+            audiences: ['PROFILE:mto-ops', 'CLIENT_ROLE:mto-notification-api:notification-inbox'], channels: ['inbox', 'email'],
+        })
+        expect(sent.audiences).toEqual(['PROFILE:mto-ops'])
+        expect(broadcastRequest({title: 'a', body: ' b ', link: ' /notificaciones ', severity: 'INFO', audiences: 'USER:a', channels: ['inbox']}))
+            .toEqual({title: 'a', body: 'b', link: '/notificaciones', severity: 'INFO', audiences: ['USER:a'], channels: ['inbox']})
+        expect(rejected).toBeInstanceOf(ValidationError)
+        expect(rejected.code).toBe('NTF-422')
+        expect(rejected.hasFieldErrors).toBe(false)
+    })
+
+    it('la administración: una audiencia se comprueba con la regla del servicio antes de viajar', () => {
+        for (const valid of ['USER:nombre.de.usuario', 'USER_ID:9f1c', 'PROFILE:mto-admin', 'CLIENT_ROLE:mto-stock-api:stock-read',
+            'profile:mto-admin', 'user-id:9f1c', ' client-role : mto-stock-api:stock-read ']) {
+            expect(audienceProblem(valid), valid).toBeNull()
+        }
+        expect(audienceProblem('mto-admin')).toBe('«mto-admin» no es CLASE:clave')
+        expect(audienceProblem(':mto-admin')).toBe('«:mto-admin» no es CLASE:clave')
+        expect(audienceProblem('PROFILE:  ')).toBe('«PROFILE:» no es CLASE:clave')
+        expect(audienceProblem('TEAM:a')).toBe('«TEAM:a»: la clase es USER, USER_ID, PROFILE o CLIENT_ROLE')
+        expect(audienceProblem('CLIENT_ROLE:stock-read')).toBe('«CLIENT_ROLE:stock-read»: un rol de cliente es CLIENT_ROLE:cliente:rol')
+        expect(audienceProblem(`USER:${'a'.repeat(300)}`)).toBe('Una audiencia tiene como mucho 300 caracteres')
+
+        expect(audiencesOf(' USER:a \r\n\nPROFILE:b\nUSER:a')).toEqual(['USER:a', 'PROFILE:b'])
+        expect(audiencesProblem(' \n ')).toBe('Al menos una audiencia')
+        expect(audiencesProblem('USER:a\nTEAM:b\nmal')).toBe('«TEAM:b»: la clase es USER, USER_ID, PROFILE o CLIENT_ROLE')
+        expect(audiencesProblem('USER:a\nPROFILE:b')).toBeNull()
+        expect(BROADCAST_CHANNELS).toEqual([{value: 'inbox', label: 'Bandeja'}, {value: 'email', label: 'Correo'}])
+
+        expect(emailProblem('  ')).toBe('La dirección es obligatoria')
+        expect(emailProblem('ops@')).toBe('No tiene forma de email')
+        expect(emailProblem(`${'a'.repeat(315)}@mto.local`)).toBe('Como mucho 320 caracteres')
+        expect(emailProblem(' ops@mto.local ')).toBeNull()
+        expect(linkProblem('')).toBeNull()
+        expect(linkProblem('/notificaciones')).toBeNull()
+        expect(linkProblem('https://estado.example/x')).toBeNull()
+        expect(linkProblem('notificaciones')).toBe('Una ruta de la aplicación (/notificaciones) o una dirección http(s)')
+        expect(linkProblem(`/${'a'.repeat(500)}`)).toBe('Como mucho 500 caracteres')
     })
 })

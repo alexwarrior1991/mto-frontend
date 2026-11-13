@@ -4,6 +4,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {UNREAD_REFRESH_MS} from '../features/notifications/useNotifications.js'
+import {formatDateTime} from '../ui/format.js'
 import {renderRoute} from './render.jsx'
 import {server} from './server.js'
 import {loginAs, sessionWith} from './session.js'
@@ -18,7 +19,10 @@ import {loginAs, sessionWith} from './session.js'
  * Y lo que el backoffice no hacía: el detalle de una línea pide su payload, que la lista no trae; un
  * enlace absoluto se abre en otra pestaña y uno de otro esquema no abre nada; una notificación de
  * accesos no ofrece la línea del registro; una IP a medio escribir no se pide; y los filtros de la URL
- * que no se conocen se ignoran.
+ * que no se conocen se ignoran. Y la administración del servicio (notificaciones/administracion), con
+ * los casos de «Fase 6» de ViewLayerTest: el menú, cada pestaña pidiendo lo suyo al abrirse, las fuentes,
+ * las colas de mensajes muertos con mirar y reprocesar, las entregas con su reintento, las reglas y los
+ * avisos manuales.
  */
 
 const BASE = '/api/notifications'
@@ -214,7 +218,10 @@ describe('el menú', () => {
     it('ofrece la bandeja, el registro y los accesos, cada uno con su permiso', () => {
         const session = loginAs('notificacion.auditor')
         const items = buildMenu(session)
-        expect(items.some((item) => item.label === 'Notificaciones' && item.path === '/notificaciones')).toBe(true)
+        // La bandeja es la primera entrada de su grupo, del que cuelga la administración de quien la tiene.
+        const inbox = items.find((item) => item.key === 'notificaciones')
+        expect(inbox.label).toBe('Notificaciones')
+        expect(inbox.children.map((child) => [child.label, child.path])).toEqual([['Notificaciones', '/notificaciones']])
         const activity = items.find((item) => item.key === 'actividad')
         expect(activity.children.map((child) => [child.label, child.path])).toEqual([
             ['Registro de actividad', '/actividad'], ['Accesos', '/actividad/accesos']])
@@ -580,5 +587,622 @@ describe('abrir una fila', () => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         await access.user.dblClick(rowOf('Accesos', 'access.login.failed'))
         expect(await screen.findByRole('dialog', {name: 'access.login.failed'})).toBeInTheDocument()
+    })
+})
+
+describe('la administración de notificaciones', () => {
+    const ADMIN = '/notificaciones/administracion'
+    const ADMIN_API = `${BASE}/admin`
+    const DLQ = 'mto.notification.maintenance.queue.dlq'
+
+    const queue = (source, messages) => ({source, queue: `mto.notification.${source}.queue`,
+        deadLetterQueue: `mto.notification.${source}.queue.dlq`, messages})
+    const delivery = (id, status, extra = {}) => ({
+        id, notificationId: N1, channel: 'email', scope: 'RECIPIENT', audienceKey: null, recipient: 'ops@mto.local',
+        recipientUsername: 'config.ops', status, attempts: 3, maxAttempts: 5, nextAttemptAt: null, sentAt: null, lastError: null,
+        createdAt: AT, ...extra,
+    })
+    const rule = (key, extra = {}) => ({
+        key, events: ['maintenance.order.created'], when: null, severity: null, audiences: ['PROFILE:mto-ops'], channels: ['inbox'],
+        title: `Título de ${key}`, body: 'Cuerpo', link: null, throttleWindow: null, throttleKey: null, ...extra,
+    })
+    const created = (title, audiences) => ({id: N2, ruleKey: 'manual-broadcast', category: 'SYSTEM', severity: 'INFO', title, body: null,
+        link: null, audiences, createdAt: AT, createdBy: 'notificacion.responsable'})
+
+    /**
+     * La administración en el gateway simulado. Cada respuesta es un valor o una función (llamada, url,
+     * cuerpo) → valor o respuesta; cada petición queda apuntada.
+     */
+    function serveAdmin({
+        sources = {cursors: [], inbox: [], openBursts: 0, deliveries: {}}, queues = {enabled: true, queues: []}, peek = null,
+        reprocess = null, deliveries = [], retry = null, rules = {source: 'classpath:notification-rules.yml', variables: {}, rules: []},
+        testEmail = null, broadcast = null,
+    } = {}) {
+        const requests = []
+        const calls = {}
+        const answer = async (request, key, value, fallbackStatus = 200) => {
+            const url = new URL(request.url)
+            const text = request.method === 'GET' ? '' : await request.text()
+            requests.push({method: request.method, path: url.pathname, url, body: text ? JSON.parse(text) : null})
+            calls[key] = (calls[key] ?? 0) + 1
+            const result = typeof value === 'function' ? value(calls[key], url, text ? JSON.parse(text) : null) : value
+            return result instanceof Response ? result : HttpResponse.json(result, {status: fallbackStatus})
+        }
+        server.use(
+            http.get(`${ADMIN_API}/sources`, ({request}) => answer(request, 'sources', sources)),
+            http.get(`${ADMIN_API}/dead-letters`, ({request}) => answer(request, 'queues', queues)),
+            http.get(`${ADMIN_API}/dead-letters/:source`, ({request}) => answer(request, 'peek', peek)),
+            http.post(`${ADMIN_API}/dead-letters/:source/reprocess`, ({request}) => answer(request, 'reprocess', reprocess)),
+            http.get(`${ADMIN_API}/deliveries`, ({request}) => answer(request, 'deliveries', (call, url) => {
+                const rows = typeof deliveries === 'function' ? deliveries(call, url) : deliveries
+                if (rows instanceof Response) {
+                    return rows
+                }
+                const status = url.searchParams.get('status')
+                return pageOf(rows.filter((row) => !status || row.status === status), url)
+            })),
+            http.post(`${ADMIN_API}/deliveries/:id/retry`, ({request}) => answer(request, 'retry', retry)),
+            http.get(`${ADMIN_API}/rules`, ({request}) => answer(request, 'rules', rules)),
+            http.post(`${ADMIN_API}/test-email`, ({request}) => answer(request, 'testEmail', testEmail, 202)),
+            http.post(`${ADMIN_API}/broadcasts`, ({request}) => answer(request, 'broadcast', broadcast, 201)),
+        )
+        return requests
+    }
+
+    const adminCalls = (requests) => requests.map((request) => `${request.method} ${request.path.slice(ADMIN_API.length)}${request.url.search}`)
+    const to = (requests, path, method = 'GET') => requests.filter((request) => request.path === `${ADMIN_API}${path}` && request.method === method)
+    const headers = (name) => within(table(name)).getAllByRole('columnheader').map((header) => header.textContent)
+    const textRows = (name) => dataRows(name).map(cells)
+    const actionsOf = (row) => within(row).queryAllByRole('button').map((button) => button.getAttribute('aria-label'))
+    const adminSession = () => sessionWith([P.NOTIFICATION_ADMIN])
+
+    async function openTab(user, name) {
+        await user.click(screen.getByRole('tab', {name}))
+    }
+
+    async function openAdmin(options, tab = null) {
+        const requests = serveAdmin(options)
+        const view = renderRoute(ADMIN, {session: adminSession()})
+        await screen.findByRole('heading', {name: 'Administración de notificaciones'})
+        await waitFor(() => expect(to(requests, '/sources')).toHaveLength(1))
+        if (tab) {
+            await openTab(view.user, tab)
+        }
+        return {...view, requests}
+    }
+
+    it('cuelga de la bandeja en el menú, solo con su rol de cliente', async () => {
+        const requests = serveAdmin()
+        const both = sessionWith([P.NOTIFICATION_INBOX, P.NOTIFICATION_ADMIN])
+        const group = buildMenu(both).find((item) => item.key === 'notificaciones')
+        expect(group.label).toBe('Notificaciones')
+        expect(group.children.map((child) => [child.label, child.path])).toEqual([
+            ['Notificaciones', '/notificaciones'], ['Administración', ADMIN]])
+        // Sin la bandeja, el grupo es una etiqueta con la administración dentro.
+        expect(buildMenu(adminSession()).find((item) => item.key === 'notificaciones').children.map((child) => child.label))
+            .toEqual(['Administración'])
+
+        const opened = renderRoute(ADMIN, {session: both})
+        expect(await screen.findByRole('heading', {name: 'Administración de notificaciones', level: 2})).toBeInTheDocument()
+        await waitFor(() => expect(document.title).toBe('Administración de notificaciones · MTO'))
+        expect(screen.getByRole('link', {name: 'Administración'})).toHaveAttribute('aria-current', 'page')
+        await waitFor(() => expect(to(requests, '/sources')).toHaveLength(1))
+        opened.unmount()
+
+        // Un rol de realm que se llame igual no la abre, ni la pone en el menú, ni llama a nada.
+        requests.length = 0
+        const realm = sessionWith([P.NOTIFICATION_INBOX, P.NOTIFICATION_ACTIVITY_READ], {realmRoles: ['notification-admin']})
+        expect(buildMenu(realm).find((item) => item.key === 'notificaciones').children.map((child) => child.label)).toEqual(['Notificaciones'])
+        renderRoute(ADMIN, {session: realm})
+        expect(await screen.findByText('No tienes permiso para abrir esta pantalla')).toBeInTheDocument()
+        expect(screen.getByText('notification-admin')).toBeInTheDocument()
+        expect(requests).toEqual([])
+    })
+
+    it('cada pestaña pide lo suyo la primera vez que se abre, y no al volver a ella', async () => {
+        const {user, requests} = await openAdmin()
+
+        expect(screen.getAllByRole('tab').map((tab) => tab.textContent))
+            .toEqual(['Fuentes', 'Mensajes muertos (DLQ)', 'Entregas', 'Reglas', 'Avisos manuales'])
+        expect(screen.getByRole('tab', {name: 'Fuentes'})).toHaveAttribute('aria-selected', 'true')
+        expect(adminCalls(requests)).toEqual(['GET /sources'])
+
+        await openTab(user, 'Mensajes muertos (DLQ)')
+        await waitFor(() => expect(adminCalls(requests)).toEqual(['GET /sources', 'GET /dead-letters']))
+        await openTab(user, 'Entregas')
+        await waitFor(() => expect(adminCalls(requests)).toHaveLength(3))
+        expect(adminCalls(requests).at(-1)).toBe('GET /deliveries?page=0&size=50&sort=createdAt%2Cdesc')
+        await openTab(user, 'Reglas')
+        await waitFor(() => expect(adminCalls(requests).at(-1)).toBe('GET /rules'))
+        await openTab(user, 'Avisos manuales')
+        expect(await screen.findByRole('button', {name: 'Aviso general'})).toBeInTheDocument()
+
+        for (const name of ['Fuentes', 'Mensajes muertos (DLQ)', 'Entregas', 'Reglas']) {
+            await openTab(user, name)
+        }
+        expect(await screen.findByRole('table', {name: 'Reglas'})).toBeInTheDocument()
+        expect(adminCalls(requests)).toHaveLength(4)
+    })
+
+    it('las fuentes enseñan lo que cuenta el servicio y se vuelven a pedir con «Actualizar»', async () => {
+        const first = {
+            cursors: [
+                {kind: 'KEYCLOAK_LOGIN', lastEventTime: AT, leaseOwner: 'pod-1', leaseUntil: AT, lastPollAt: AT, lastSuccessAt: AT, lastError: null},
+                {kind: 'KEYCLOAK_ADMIN', lastEventTime: null, leaseOwner: 'pod-2', leaseUntil: null, lastPollAt: null, lastSuccessAt: null,
+                    lastError: 'Keycloak 503'},
+            ],
+            inbox: [{sourceService: 'mto-maintenance', status: 'PROCESSED', total: 1204}, {sourceService: 'mto-stock', status: 'PARKED', total: 2}],
+            openBursts: 3,
+            deliveries: {SKIPPED: 5, PENDING: 1, IN_PROGRESS: 0, SENT: 40, FAILED: 2, DEFERRED: 7},
+        }
+        const {user, requests} = await openAdmin({
+            sources: (call) => (call === 1 ? first
+                : call === 2 ? {cursors: [], inbox: [], openBursts: null, deliveries: null}
+                    : notificationError(503, 'NTF-503', 'Database unavailable')),
+        })
+
+        expect(await screen.findByText('Ráfagas abiertas: 3 · Entregas: Pendiente 1 · En curso 0 · Enviada 40 · Fallida 2 · Omitida 5 · DEFERRED 7'))
+            .toBeInTheDocument()
+        expect(headers('Inbox por fuente y estado')).toEqual(['Fuente', 'Estado', 'Mensajes'])
+        expect(textRows('Inbox por fuente y estado')).toEqual([['mto-maintenance', 'Procesado', '1204'], ['mto-stock', 'Desconocido', '2']])
+        expect(headers('Lector de Keycloak')).toEqual(['Lector', 'Leído hasta', 'Último sondeo', 'Último éxito', 'Arrendado por', 'Último error'])
+        const when = formatDateTime(AT)
+        expect(textRows('Lector de Keycloak')).toEqual([
+            ['Accesos de Keycloak', when, when, when, `pod-1 hasta ${when}`, ''],
+            ['Administración de Keycloak', '', '', '', 'pod-2', 'Keycloak 503'],
+        ])
+
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        expect(await screen.findByText('Ráfagas abiertas: 0')).toBeInTheDocument()
+        expect(to(requests, '/sources')).toHaveLength(2)
+
+        // Un fallo se avisa y deja el resumen y las dos tablas vacíos.
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        expect(await screen.findByText(/El servicio no está disponible ahora mismo/)).toBeInTheDocument()
+        expect(screen.getByText(/Referencia: corr-NTF-503/)).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByText(/Ráfagas abiertas/)).not.toBeInTheDocument())
+        expect(textRows('Inbox por fuente y estado')).toEqual([])
+        expect(textRows('Lector de Keycloak')).toEqual([])
+    })
+
+    it('las colas de mensajes muertos ofrecen mirar y reprocesar solo donde hay mensajes', async () => {
+        const {user, requests} = await openAdmin({
+            queues: (call) => (call === 1 ? {enabled: true, queues: [queue('maintenance', 3), queue('stock', 0), queue('field', null)]}
+                : call === 2 ? {enabled: false, queues: []}
+                    : notificationError(503, 'SRC-503', 'The broker is unavailable')),
+        }, 'Mensajes muertos (DLQ)')
+
+        await waitFor(() => expect(textRows('Colas de mensajes muertos')).toHaveLength(3))
+        expect(screen.getByText('Lo que una fuente publicó y no se pudo aplicar. Mirar no saca nada de la cola; reprocesar sí.')).toBeInTheDocument()
+        expect(headers('Colas de mensajes muertos')).toEqual(['Fuente', 'Cola', 'Cola de mensajes muertos', 'Mensajes', 'Acciones'])
+        expect(textRows('Colas de mensajes muertos').map((row) => row.slice(0, 4))).toEqual([
+            ['maintenance', 'mto.notification.maintenance.queue', DLQ, '3'],
+            ['stock', 'mto.notification.stock.queue', 'mto.notification.stock.queue.dlq', '0'],
+            ['field', 'mto.notification.field.queue', 'mto.notification.field.queue.dlq', 'Sin cola en el broker'],
+        ])
+        expect(dataRows('Colas de mensajes muertos').map(actionsOf)).toEqual([
+            ['Mirar los mensajes de maintenance', 'Reprocesar los mensajes de maintenance'], [], []])
+
+        // RabbitMQ apagado en el despliegue: se dice, sin tabla ni acciones.
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        expect(await screen.findByText('RabbitMQ está apagado en este despliegue: no hay colas de mensajes muertos que mirar ni reprocesar.'))
+            .toBeInTheDocument()
+        expect(screen.queryByRole('table', {name: 'Colas de mensajes muertos'})).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Actualizar'}))
+        expect(await screen.findByText('RabbitMQ no responde ahora: la cola se queda como estaba. Inténtalo más tarde.')).toBeInTheDocument()
+        await waitFor(() => expect(textRows('Colas de mensajes muertos')).toEqual([]))
+        expect(screen.queryByText(/RabbitMQ está apagado/)).not.toBeInTheDocument()
+        expect(to(requests, '/dead-letters')).toHaveLength(3)
+    })
+
+    it('mirar una cola enseña sus primeros mensajes sin sacarlos, y un fallo no abre nada', async () => {
+        const {user, requests} = await openAdmin({
+            queues: {enabled: true, queues: [queue('maintenance', 3), queue('users', 1)]},
+            peek: (_call, url) => (url.pathname.endsWith('/users')
+                ? notificationError(404, 'SRC-404', 'Source users is not configured')
+                : {
+                    source: 'maintenance', deadLetterQueue: DLQ, messages: 3,
+                    peeked: [
+                        {
+                            message: {messageId: 'm-1', sourceService: 'mto-maintenance', eventType: 'MAINTENANCE_ORDER_CREATED',
+                                aggregateType: 'order', aggregateId: 'o-1', exchange: 'mto.maintenance.exchange',
+                                routingKey: 'mto.maintenance.order.created', deathReason: 'rejected', deathCount: 2, deadLetteredAt: AT,
+                                payloadBytes: 812, problem: null},
+                            inbox: {status: 'FAILED', attempts: 3, failedAt: AT, failureReason: 'No rule engine'},
+                        },
+                        {message: {messageId: 'm-2', deathReason: 'expired', deathCount: 1, problem: 'La firma no es válida'}, inbox: null},
+                    ],
+                }),
+        }, 'Mensajes muertos (DLQ)')
+        await waitFor(() => expect(textRows('Colas de mensajes muertos')).toHaveLength(2))
+
+        await user.click(screen.getByRole('button', {name: 'Mirar los mensajes de maintenance'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Mensajes muertos de maintenance'})
+        expect(within(dialog).getByText(`${DLQ}: 3 en la cola; se enseñan los primeros 2, que siguen en ella. `
+            + 'El cuerpo de un mensaje no se enseña nunca.')).toBeInTheDocument()
+        expect(headers('Mensajes muertos de maintenance')).toEqual(['Mensaje', 'Tipo', 'Clave de enrutado', 'Exchange', 'Origen', 'Agregado',
+            'Motivo del broker', 'Apartado', 'Tamaño', 'Problema', 'Inbox'])
+        const when = formatDateTime(AT)
+        expect(textRows('Mensajes muertos de maintenance')).toEqual([
+            ['m-1', 'MAINTENANCE_ORDER_CREATED', 'mto.maintenance.order.created', 'mto.maintenance.exchange', 'mto-maintenance', 'order o-1',
+                'rejected x2', when, '812 B', '', `Fallido · 3 intentos · falló el ${when} · No rule engine`],
+            ['m-2', '', '', '', '', '', 'expired', '', '', 'La firma no es válida', 'Sin registro en el inbox'],
+        ])
+        expect(to(requests, '/dead-letters/maintenance').map((request) => request.url.search)).toEqual(['?max=20'])
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        // Mirar no cambia nada: ni reprocesa ni relee las colas.
+        expect(requests.filter((request) => request.method === 'POST')).toEqual([])
+        expect(to(requests, '/dead-letters')).toHaveLength(1)
+
+        await user.click(screen.getByRole('button', {name: 'Mirar los mensajes de users'}))
+        expect(await screen.findByText('Esa fuente no existe en mto-notification.')).toBeInTheDocument()
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('reprocesar pregunta cuántos, enseña qué fue de cada uno en el mismo diálogo y relee las colas', async () => {
+        const {user, requests} = await openAdmin({
+            queues: {enabled: true, queues: [queue('maintenance', 3)]},
+            reprocess: (call) => (call === 1
+                ? {source: 'maintenance', deadLetterQueue: DLQ, requested: 20, fetched: 3, processed: 1, duplicates: 1, failed: 1, remaining: 1,
+                    stoppedBy: 'EMPTY', results: [
+                        {messageId: 'm-1', eventType: 'MAINTENANCE_ORDER_CREATED', routingKey: 'mto.maintenance.order.created',
+                            outcome: 'PROCESSED', reason: null},
+                        {messageId: 'm-2', eventType: 'MAINTENANCE_ORDER_CREATED', routingKey: 'mto.maintenance.order.created',
+                            outcome: 'DUPLICATE', reason: null},
+                        {messageId: 'm-3', eventType: 'X', routingKey: 'k', outcome: 'FAILED', reason: 'No rule engine'},
+                    ]}
+                : call === 2
+                    ? {source: 'maintenance', deadLetterQueue: DLQ, requested: 5, fetched: null, processed: null, duplicates: null,
+                        failed: null, remaining: null, stoppedBy: 'BROKER_GONE', results: [
+                            {messageId: 'm-9', eventType: 'X', routingKey: 'k', outcome: 'PARKED', reason: null}]}
+                    : notificationError(409, 'SRC-409', 'Queue does not exist')),
+        }, 'Mensajes muertos (DLQ)')
+        await waitFor(() => expect(textRows('Colas de mensajes muertos')).toHaveLength(1))
+
+        await user.click(screen.getByRole('button', {name: 'Reprocesar los mensajes de maintenance'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Reprocesar los mensajes muertos de maintenance'})
+        expect(within(dialog).getByText(`Pasa los primeros mensajes de ${DLQ} otra vez por el consumidor de maintenance, cada uno una vez. `
+            + 'Los que se aplican, y los que ya estaban aplicados, salen de la cola; los que vuelven a fallar se quedan en ella, con su motivo. '
+            + 'No se republica nada, y lo que se aplique puede generar avisos, como cualquier evento.')).toBeInTheDocument()
+        const max = within(dialog).getByRole('textbox', {name: 'Máximo de mensajes'})
+        expect(max).toHaveValue('20')
+        const run = within(dialog).getByRole('button', {name: 'Reprocesar'})
+
+        // Fuera de 1..100, o vacío, no se llama.
+        for (const wrong of ['0', '101', '']) {
+            await user.clear(max)
+            if (wrong) {
+                await user.type(max, wrong)
+            }
+            await user.click(run)
+            expect(await within(dialog).findAllByText('Entre 1 y 100 mensajes')).toHaveLength(2)
+        }
+        expect(to(requests, '/dead-letters/maintenance/reprocess', 'POST')).toHaveLength(0)
+
+        await user.clear(max)
+        await user.type(max, '20')
+        expect(within(dialog).getAllByText('Entre 1 y 100 mensajes')).toHaveLength(1)
+        await user.click(run)
+        expect(await within(dialog).findByText('Pedidos 20 · sacados 3 · procesados 1 · duplicados 1 · fallidos 1 · quedan 1 en la cola · '
+            + 'paró porque la cola se quedó sin mensajes')).toBeInTheDocument()
+        expect(headers('Resultado del reproceso')).toEqual(['Mensaje', 'Tipo', 'Clave de enrutado', 'Resultado', 'Motivo'])
+        expect(textRows('Resultado del reproceso').map((row) => [row[0], row[3], row[4]])).toEqual([
+            ['m-1', 'Procesado', ''], ['m-2', 'Duplicado', ''], ['m-3', 'Fallido', 'No rule engine']])
+        const posts = to(requests, '/dead-letters/maintenance/reprocess', 'POST')
+        expect(posts.map((request) => [request.url.search, request.body])).toEqual([['?max=20', null]])
+        // El diálogo sigue abierto y las colas se han releído una vez.
+        await waitFor(() => expect(to(requests, '/dead-letters')).toHaveLength(2))
+
+        // Un motivo de parada y un resultado que esta versión no conoce no rompen el resumen.
+        await user.clear(max)
+        await user.type(max, '5')
+        await user.click(run)
+        expect(await within(dialog).findByText('Pedidos 5 · sacados 0 · procesados 0 · duplicados 0 · fallidos 0 · '
+            + 'paró por un motivo que esta versión no conoce')).toBeInTheDocument()
+        expect(textRows('Resultado del reproceso').map((row) => [row[0], row[3]])).toEqual([['m-9', 'Desconocido']])
+        await waitFor(() => expect(to(requests, '/dead-letters')).toHaveLength(3))
+
+        // Un fallo se avisa con el diálogo abierto, y las colas no se releen.
+        await user.click(run)
+        expect(await screen.findByText('RabbitMQ está apagado en este despliegue, o esa cola de mensajes muertos no existe en el broker. '
+            + 'Queue does not exist')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Reprocesar los mensajes muertos de maintenance'})).toBeInTheDocument()
+        expect(to(requests, '/dead-letters')).toHaveLength(3)
+    })
+
+    it('las entregas se filtran y se ordenan en el servicio, y solo una fallida o una omitida ofrece reintentar', async () => {
+        const rows = [
+            delivery('d-1', 'FAILED', {lastError: 'Connection refused'}),
+            delivery('d-2', 'SKIPPED', {recipientUsername: null, recipient: 'guardia@mto.local'}),
+            delivery('d-3', 'SENT', {scope: 'AUDIENCE', recipient: null, recipientUsername: null, audienceKey: 'PROFILE:mto-ops', sentAt: AT}),
+            delivery('d-4', 'BOUNCED', {scope: 'TOPIC'}),
+        ]
+        const {user, requests} = await openAdmin({deliveries: rows}, 'Entregas')
+        await waitFor(() => expect(textRows('Entregas')).toHaveLength(4))
+        const lastList = () => to(requests, '/deliveries').at(-1).url.searchParams
+
+        expect(headers('Entregas')).toEqual(['Creada', 'Canal', 'Ámbito', 'Para', 'Estado', 'Intentos', 'Próximo intento', 'Enviada',
+            'Último error', 'Notificación', 'Acciones'])
+        const when = formatDateTime(AT)
+        expect(textRows('Entregas').map((row) => row.slice(0, 10))).toEqual([
+            [when, 'email', 'Destinatario', 'ops@mto.local (config.ops)', 'Fallida', '3/5', '', '', 'Connection refused', N1],
+            [when, 'email', 'Destinatario', 'guardia@mto.local', 'Omitida', '3/5', '', '', '', N1],
+            [when, 'email', 'Audiencia', 'PROFILE:mto-ops', 'Enviada', '3/5', '', when, '', N1],
+            [when, 'email', 'Desconocido', 'ops@mto.local (config.ops)', 'Desconocido', '3/5', '', '', '', N1],
+        ])
+        expect(screen.getByText('4 entregas')).toBeInTheDocument()
+        expect(dataRows('Entregas').map(actionsOf)).toEqual([
+            ['Reintentar la entrega a ops@mto.local (config.ops)'], ['Reintentar la entrega a guardia@mto.local'], [], []])
+
+        // El estado, sin «Desconocido»; lo que no se filtra no viaja.
+        await user.click(screen.getByRole('combobox', {name: 'Estado'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent))
+            .toEqual(['Pendiente', 'En curso', 'Enviada', 'Fallida', 'Omitida'])
+        await user.click(screen.getByRole('option', {name: 'Fallida'}))
+        expect(await screen.findByText('1 entrega')).toBeInTheDocument()
+        expect([...lastList().keys()]).toEqual(['status', 'page', 'size', 'sort'])
+        expect(lastList().get('status')).toBe('FAILED')
+
+        // El canal viaja recortado.
+        await user.type(screen.getByRole('textbox', {name: 'Canal'}), ' email ')
+        await waitFor(() => expect(lastList().get('channel')).toBe('email'))
+
+        // Un id de notificación a medias no pide nada y se marca; entero, sí.
+        const before = to(requests, '/deliveries').length
+        const id = screen.getByRole('textbox', {name: 'Notificación (id)'})
+        await user.type(id, N1.slice(0, 13))
+        expect(await screen.findByText('El id entero de una notificación (un UUID)')).toBeInTheDocument()
+        expect(to(requests, '/deliveries')).toHaveLength(before)
+        await user.type(id, N1.slice(13))
+        await waitFor(() => expect(lastList().get('notificationId')).toBe(N1))
+        expect(screen.queryByText('El id entero de una notificación (un UUID)')).not.toBeInTheDocument()
+
+        // El orden por estado viaja, con createdAt para desempatar.
+        await user.click(within(table('Entregas')).getByRole('button', {name: 'Estado'}))
+        await waitFor(() => expect(lastList().getAll('sort')).toEqual(['status,asc', 'createdAt,desc']))
+        await user.click(within(table('Entregas')).getByRole('button', {name: 'Creada'}))
+        await waitFor(() => expect(lastList().getAll('sort')).toEqual(['createdAt,asc']))
+        expect(within(table('Entregas')).queryByRole('button', {name: 'Para'})).not.toBeInTheDocument()
+    })
+
+    it('reintentar una entrega la devuelve a la cola y relee la lista, también si el servicio dice que no', async () => {
+        const {user, requests} = await openAdmin({
+            deliveries: [delivery('d-1', 'FAILED')],
+            retry: (call) => (call === 1 ? delivery('d-1', 'PENDING') : notificationError(409, 'DLV-409', 'Delivery d-1 is SENT')),
+        }, 'Entregas')
+        await waitFor(() => expect(textRows('Entregas')).toHaveLength(1))
+
+        // Sin confirmación: no hay nada que perder.
+        await user.click(screen.getByRole('button', {name: 'Reintentar la entrega a ops@mto.local (config.ops)'}))
+        expect(await screen.findByText('Entrega en cola otra vez')).toBeInTheDocument()
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        const posts = to(requests, '/deliveries/d-1/retry', 'POST')
+        expect(posts.map((request) => request.body)).toEqual([null])
+        await waitFor(() => expect(to(requests, '/deliveries')).toHaveLength(2))
+
+        await waitFor(() => expect(screen.getByRole('button', {name: 'Reintentar la entrega a ops@mto.local (config.ops)'})).toBeEnabled())
+        await user.click(screen.getByRole('button', {name: 'Reintentar la entrega a ops@mto.local (config.ops)'}))
+        expect(await screen.findByText('La entrega ya no admite el reintento: solo se reintenta una fallida o una omitida.')).toBeInTheDocument()
+        await waitFor(() => expect(to(requests, '/deliveries')).toHaveLength(3))
+    })
+
+    it('las reglas cargadas son de solo lectura y se filtran sin llamar', async () => {
+        const {user, requests} = await openAdmin({rules: {
+            source: 'classpath:notification-rules.yml',
+            variables: {'maintenance-service-account': 'service-account-mto-maintenance-svc', 'large-burst-threshold': 50},
+            rules: [
+                rule('maintenance-order-urgent', {
+                    events: ['maintenance.order.created', 'maintenance.order.status-changed'], when: "payload.type == 'URGENT'",
+                    severity: 'CRITICAL', audiences: ['PROFILE:mto-maintenance-manager', 'USER:#{payload.assignedUser}'],
+                    channels: ['inbox', 'email'], title: 'Orden urgente #{payload.code}', link: '/mantenimiento/ordenes/#{event.subjectId}',
+                    throttleWindow: 'PT30M', throttleKey: '#{payload.code}',
+                }),
+                rule('stock-below-minimum', {events: ['stock.material.below-minimum'], throttleWindow: 'P1DT2H', title: 'Bajo mínimo'}),
+                rule('users-access-streak', {events: ['access.login.failed-streak'], severity: 'FATAL', throttleWindow: '30m', title: 'Racha'}),
+            ],
+        }}, 'Reglas')
+        await waitFor(() => expect(textRows('Reglas')).toHaveLength(3))
+
+        expect(screen.getByText('Cargadas de classpath:notification-rules.yml')).toBeInTheDocument()
+        expect(screen.getByText('Variables: large-burst-threshold = 50 · maintenance-service-account = service-account-mto-maintenance-svc'))
+            .toBeInTheDocument()
+        expect(headers('Reglas')).toEqual(['Clave', 'Eventos', 'Condición', 'Gravedad', 'Audiencias', 'Canales', 'Título', 'Enlace', 'Freno'])
+        expect(textRows('Reglas')).toEqual([
+            ['maintenance-order-urgent', 'maintenance.order.created, maintenance.order.status-changed', "payload.type == 'URGENT'", 'Crítica',
+                'PROFILE:mto-maintenance-manager, USER:#{payload.assignedUser}', 'inbox, email', 'Orden urgente #{payload.code}',
+                '/mantenimiento/ordenes/#{event.subjectId}', 'Uno cada 30 min por #{payload.code}'],
+            ['stock-below-minimum', 'stock.material.below-minimum', '', 'La del evento', 'PROFILE:mto-ops', 'inbox', 'Bajo mínimo', '',
+                'Uno cada 1 d 2 h'],
+            ['users-access-streak', 'access.login.failed-streak', '', 'Desconocido', 'PROFILE:mto-ops', 'inbox', 'Racha', '', 'Uno cada 30m'],
+        ])
+        expect(screen.getByText('3 reglas')).toBeInTheDocument()
+        // Ningún botón que escriba: solo «Actualizar» y las pestañas.
+        expect(within(table('Reglas')).queryAllByRole('button')).toEqual([])
+        expect(screen.queryByRole('button', {name: /Nuev|Modificar|Borrar|Guardar/})).not.toBeInTheDocument()
+
+        await user.type(screen.getByRole('textbox', {name: 'Filtrar las reglas'}), 'MINIMO')
+        await waitFor(() => expect(textRows('Reglas').map((row) => row[0])).toEqual(['stock-below-minimum']))
+        expect(screen.getByText('1 de 3 reglas')).toBeInTheDocument()
+        await user.click(screen.getByRole('button', {name: 'Borrar el filtro'}))
+        await user.type(screen.getByRole('textbox', {name: 'Filtrar las reglas'}), 'EMAIL')
+        await waitFor(() => expect(textRows('Reglas').map((row) => row[0])).toEqual(['maintenance-order-urgent']))
+        expect(to(requests, '/rules')).toHaveLength(1)
+    })
+
+    it('un correo de prueba comprueba la dirección, lleva el error del servicio a su campo y relee las entregas', async () => {
+        const {user, requests} = await openAdmin({
+            testEmail: (call) => (call === 1
+                ? HttpResponse.json({
+                    timestamp: AT, status: 400, error: 'Bad Request', message: 'Validation failed', errorCode: 'REQ-VALIDATION',
+                    correlationId: 'corr-val', validationErrors: [{field: 'to', message: 'El dominio no acepta correo'}],
+                }, {status: 400})
+                : {...created('Correo de prueba de mto-notification', ['USER:notificacion.responsable']), ruleKey: 'test-email'}),
+        }, 'Entregas')
+        await waitFor(() => expect(to(requests, '/deliveries')).toHaveLength(1))
+        await openTab(user, 'Avisos manuales')
+        expect(screen.getByText(/El correo de prueba manda un mensaje a la dirección que digas/)).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', {name: 'Correo de prueba'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Correo de prueba'})
+        const field = within(dialog).getByRole('textbox', {name: 'Para'})
+        expect(field).toHaveAttribute('placeholder', 'ops@mto.local')
+        const send = within(dialog).getByRole('button', {name: 'Enviar'})
+
+        await user.type(field, '   ')
+        await user.click(send)
+        expect(await within(dialog).findByText('La dirección es obligatoria')).toBeInTheDocument()
+        await user.clear(field)
+        await user.type(field, 'ops@')
+        await user.click(send)
+        expect(await within(dialog).findByText('No tiene forma de email')).toBeInTheDocument()
+        await user.clear(field)
+        await user.click(field)
+        await user.paste(`${'a'.repeat(315)}@mto.local`)
+        await user.click(send)
+        expect(await within(dialog).findByText('Como mucho 320 caracteres')).toBeInTheDocument()
+        expect(to(requests, '/test-email', 'POST')).toHaveLength(0)
+
+        // El error del servicio, en su campo y con el diálogo abierto.
+        await user.clear(field)
+        await user.type(field, '  ops@mto.local ')
+        await user.click(send)
+        expect(await within(dialog).findByText('El dominio no acepta correo')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Correo de prueba'})).toBeInTheDocument()
+        expect(to(requests, '/deliveries')).toHaveLength(1)
+
+        // Sin confirmación: se envía recortado, se cierra y avisa.
+        await user.click(send)
+        expect(await screen.findByText('Correo de prueba en cola para ops@mto.local: cómo le va se ve en Entregas')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(to(requests, '/test-email', 'POST').map((request) => request.body)).toEqual([{to: 'ops@mto.local'}, {to: 'ops@mto.local'}])
+        expect(screen.getByText(`Último enviado: «Correo de prueba de mto-notification», el ${formatDateTime(AT)}, a USER:notificacion.responsable`))
+            .toBeInTheDocument()
+        // Las entregas, que ya se habían abierto, se releen.
+        await waitFor(() => expect(to(requests, '/deliveries')).toHaveLength(2))
+    })
+
+    it('un aviso general se comprueba antes de llamar, se confirma diciendo a quién va y viaja sin lo vacío', async () => {
+        const {user, requests} = await openAdmin({
+            broadcast: created('Parada programada del sábado', ['CLIENT_ROLE:mto-notification-api:notification-inbox', 'PROFILE:mto-ops']),
+        }, 'Avisos manuales')
+
+        await user.click(screen.getByRole('button', {name: 'Aviso general'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Aviso general'})
+        const title = within(dialog).getByRole('textbox', {name: 'Título'})
+        const link = within(dialog).getByRole('textbox', {name: 'Enlace'})
+        const audiences = within(dialog).getByRole('textbox', {name: 'Audiencias'})
+        const channels = within(dialog).getByRole('combobox', {name: 'Canales'})
+        const send = within(dialog).getByRole('button', {name: 'Enviar'})
+
+        // Lo que se ofrece y los valores de partida.
+        expect(within(dialog).getByRole('combobox', {name: 'Gravedad'})).toHaveValue('Información')
+        // De partida, solo la bandeja (el valor del desplegable múltiple).
+        expect([...dialog.querySelectorAll('input[type="hidden"]')].map((input) => input.value)).toContain('inbox')
+        expect(within(dialog).getByText('Una por línea, CLASE:clave: USER:nombre.de.usuario, USER_ID:id-de-keycloak, PROFILE:mto-admin, '
+            + 'CLIENT_ROLE:mto-stock-api:stock-read')).toBeInTheDocument()
+        await user.click(within(dialog).getByRole('combobox', {name: 'Gravedad'}))
+        expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual(['Información', 'Aviso', 'Crítica'])
+        await user.click(screen.getByRole('option', {name: 'Aviso'}))
+
+        // Sin lo evidente no hay confirmación.
+        await user.click(send)
+        expect(await within(dialog).findByText('El título es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('Al menos una audiencia')).toBeInTheDocument()
+        expect(screen.queryByRole('dialog', {name: 'Enviar el aviso general'})).not.toBeInTheDocument()
+
+        await user.type(title, '  Parada programada del sábado ')
+        await user.type(link, 'notificaciones')
+        for (const [written, problem] of [
+            ['mto-ops', '«mto-ops» no es CLASE:clave'],
+            ['TEAM:a', '«TEAM:a»: la clase es USER, USER_ID, PROFILE o CLIENT_ROLE'],
+            ['CLIENT_ROLE:notification-inbox', '«CLIENT_ROLE:notification-inbox»: un rol de cliente es CLIENT_ROLE:cliente:rol'],
+        ]) {
+            await user.clear(audiences)
+            await user.type(audiences, written)
+            await user.click(send)
+            expect(await within(dialog).findByText(problem)).toBeInTheDocument()
+        }
+        expect(within(dialog).getAllByText('Una ruta de la aplicación (/notificaciones) o una dirección http(s)')).toHaveLength(2)
+        await user.clear(link)
+
+        // Sin canales, tampoco.
+        await user.clear(audiences)
+        await user.click(audiences)
+        await user.paste('PROFILE:mto-ops\n\n CLIENT_ROLE:mto-notification-api:notification-inbox \nPROFILE:mto-ops')
+        await user.click(channels)
+        await user.keyboard('{Backspace}{Escape}')
+        await user.click(send)
+        expect(await within(dialog).findByText('Al menos un canal')).toBeInTheDocument()
+        expect(screen.queryByRole('dialog', {name: 'Enviar el aviso general'})).not.toBeInTheDocument()
+
+        // Los dos canales, elegidos al revés: viajan en el orden del servicio.
+        await user.click(channels)
+        await user.click(await screen.findByRole('option', {name: 'Correo'}))
+        await user.click(await screen.findByRole('option', {name: 'Bandeja'}))
+        await user.keyboard('{Escape}')
+        await user.click(send)
+
+        const confirmation = await screen.findByRole('dialog', {name: 'Enviar el aviso general'})
+        expect(within(confirmation).getByText('«Parada programada del sábado» se envía a 2 audiencias (PROFILE:mto-ops, '
+            + 'CLIENT_ROLE:mto-notification-api:notification-inbox) por Bandeja y Correo. Llega a personas de verdad y no se puede retirar. '
+            + '¿Enviar?')).toBeInTheDocument()
+        // Hasta confirmar no se llama; «Volver» deja el aviso como estaba.
+        expect(to(requests, '/broadcasts', 'POST')).toHaveLength(0)
+        await user.click(within(confirmation).getByRole('button', {name: 'Volver'}))
+        await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Enviar el aviso general'})).not.toBeInTheDocument())
+        expect(to(requests, '/broadcasts', 'POST')).toHaveLength(0)
+
+        await user.click(send)
+        await user.click(within(await screen.findByRole('dialog', {name: 'Enviar el aviso general'})).getByRole('button', {name: 'Enviar'}))
+        expect(await screen.findByText('Aviso enviado a 2 audiencias')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(to(requests, '/broadcasts', 'POST').map((request) => request.body)).toEqual([{
+            title: 'Parada programada del sábado', severity: 'WARNING',
+            audiences: ['PROFILE:mto-ops', 'CLIENT_ROLE:mto-notification-api:notification-inbox'], channels: ['inbox', 'email'],
+        }])
+        expect(screen.getByText(/^Último enviado: «Parada programada del sábado», el .*, a CLIENT_ROLE:mto-notification-api:notification-inbox, PROFILE:mto-ops$/))
+            .toBeInTheDocument()
+        // La pestaña de entregas no se había abierto: no se pide.
+        expect(to(requests, '/deliveries')).toHaveLength(0)
+    })
+
+    it('un aviso general que el servicio rechaza deja el diálogo abierto, con cada error en su campo', async () => {
+        const {user, requests} = await openAdmin({
+            broadcast: (call) => (call === 1
+                ? HttpResponse.json({
+                    timestamp: AT, status: 400, error: 'Bad Request', message: 'Validation failed', errorCode: 'REQ-VALIDATION',
+                    correlationId: 'corr-val', validationErrors: [
+                        {field: 'title', message: 'El título no puede llevar saltos de línea'},
+                        {field: 'audiences[0]', message: 'La audiencia no puede estar en blanco'},
+                    ],
+                }, {status: 400})
+                : notificationError(422, 'NTF-422', 'Unknown channel sms')),
+        }, 'Avisos manuales')
+
+        await user.click(screen.getByRole('button', {name: 'Aviso general'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Aviso general'})
+        await user.type(within(dialog).getByRole('textbox', {name: 'Título'}), 'Aviso')
+        await user.type(within(dialog).getByRole('textbox', {name: 'Audiencias'}), 'USER:config.ops')
+        const sendAndConfirm = async () => {
+            await user.click(within(dialog).getByRole('button', {name: 'Enviar'}))
+            await user.click(within(await screen.findByRole('dialog', {name: 'Enviar el aviso general'})).getByRole('button', {name: 'Enviar'}))
+        }
+
+        await sendAndConfirm()
+        expect(await within(dialog).findByText('El título no puede llevar saltos de línea')).toBeInTheDocument()
+        expect(within(dialog).getByText('La audiencia no puede estar en blanco')).toBeInTheDocument()
+        expect(within(dialog).getByRole('textbox', {name: 'Audiencias'})).toHaveAttribute('aria-invalid', 'true')
+        expect(screen.queryByRole('dialog', {name: 'Enviar el aviso general'})).not.toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Aviso general'})).toBeInTheDocument()
+
+        await sendAndConfirm()
+        expect(await screen.findByText('El aviso nombra una audiencia o un canal que el servicio no conoce. Unknown channel sms')).toBeInTheDocument()
+        expect(screen.getByText(/Referencia: corr-NTF-422/)).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Aviso general'})).toBeInTheDocument()
+        expect(within(dialog).getByRole('textbox', {name: 'Título'})).toHaveValue('Aviso')
+        expect(to(requests, '/broadcasts', 'POST')).toHaveLength(2)
+        expect(screen.queryByText(/Último enviado/)).not.toBeInTheDocument()
     })
 })
