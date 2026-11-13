@@ -218,10 +218,7 @@ describe('el menú', () => {
     it('ofrece la bandeja, el registro y los accesos, cada uno con su permiso', () => {
         const session = loginAs('notificacion.auditor')
         const items = buildMenu(session)
-        // La bandeja es la primera entrada de su grupo, del que cuelga la administración de quien la tiene.
-        const inbox = items.find((item) => item.key === 'notificaciones')
-        expect(inbox.label).toBe('Notificaciones')
-        expect(inbox.children.map((child) => [child.label, child.path])).toEqual([['Notificaciones', '/notificaciones']])
+        expect(items.some((item) => item.label === 'Notificaciones' && item.path === '/notificaciones')).toBe(true)
         const activity = items.find((item) => item.key === 'actividad')
         expect(activity.children.map((child) => [child.label, child.path])).toEqual([
             ['Registro de actividad', '/actividad'], ['Accesos', '/actividad/accesos']])
@@ -230,8 +227,8 @@ describe('el menú', () => {
     it('los accesos tienen su permiso aparte, que el registro no da', async () => {
         serveNotifications()
         const session = sessionWith([P.NOTIFICATION_ACTIVITY_READ])
-        const activity = buildMenu(session).find((item) => item.key === 'actividad')
-        expect(activity.children.map((child) => child.label)).toEqual(['Registro de actividad'])
+        expect(buildMenu(session).filter((item) => item.path !== '/').map((item) => [item.label, item.path]))
+            .toEqual([['Registro de actividad', '/actividad']])
         expect(buildMenu(session).some((item) => item.label === 'Notificaciones')).toBe(false)
 
         renderRoute('/actividad/accesos', {session})
@@ -678,9 +675,8 @@ describe('la administración de notificaciones', () => {
         expect(group.label).toBe('Notificaciones')
         expect(group.children.map((child) => [child.label, child.path])).toEqual([
             ['Notificaciones', '/notificaciones'], ['Administración', ADMIN]])
-        // Sin la bandeja, el grupo es una etiqueta con la administración dentro.
-        expect(buildMenu(adminSession()).find((item) => item.key === 'notificaciones').children.map((child) => child.label))
-            .toEqual(['Administración'])
+        // Sin la bandeja no hay grupo: la administración es un enlace suelto, con el título de su pantalla.
+        expect(buildMenu(adminSession()).some((item) => item.label === 'Administración de notificaciones' && item.path === ADMIN)).toBe(true)
 
         const opened = renderRoute(ADMIN, {session: both})
         expect(await screen.findByRole('heading', {name: 'Administración de notificaciones', level: 2})).toBeInTheDocument()
@@ -692,7 +688,7 @@ describe('la administración de notificaciones', () => {
         // Un rol de realm que se llame igual no la abre, ni la pone en el menú, ni llama a nada.
         requests.length = 0
         const realm = sessionWith([P.NOTIFICATION_INBOX, P.NOTIFICATION_ACTIVITY_READ], {realmRoles: ['notification-admin']})
-        expect(buildMenu(realm).find((item) => item.key === 'notificaciones').children.map((child) => child.label)).toEqual(['Notificaciones'])
+        expect(buildMenu(realm).some((item) => item.path === ADMIN || item.children?.some((child) => child.path === ADMIN))).toBe(false)
         renderRoute(ADMIN, {session: realm})
         expect(await screen.findByText('No tienes permiso para abrir esta pantalla')).toBeInTheDocument()
         expect(screen.getByText('notification-admin')).toBeInTheDocument()

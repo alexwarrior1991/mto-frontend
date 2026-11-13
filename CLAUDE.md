@@ -184,7 +184,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   Query → sesión → router), `runtimeConfig.js` (`/config.json`), `queryClient.js` (el aviso de error
   global), `theme.js`, **`routeTable.js`** (todas las rutas del backoffice, con su título, sus
   permisos y su entrada de menú), `pages.js` (la pantalla de cada ruta: todas tienen la suya),
-  `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú), `layout/` (`RootLayout`,
+  `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú: un grupo con una sola entrada
+  visible es esa entrada, como enlace), `layout/` (`RootLayout`,
   `AppHeader` con «Abrir en el backoffice» y la campana, `MainMenu`) y `pages/` (Inicio con el
   diagnóstico y las sondas, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
@@ -372,6 +373,10 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   (`resource_access`), y solo los del catálogo de cada cliente. Un rol de realm nunca concede nada,
   aunque se llame como un permiso; los nombres no se repiten entre clientes. `securityLayer.test.js`
   compara `ROLE_CATALOG` con los roles de cliente del realm (`fixtures/realm-client-roles.json`).
+- **Un grupo del menú con una sola entrada visible se pinta como enlace, no como desplegable**
+  (`buildMenu`), con el título de su pantalla: quien solo lee su bandeja ve «Notificaciones», y quien
+  solo lee el registro, «Registro de actividad», como en el backoffice, donde el nodo del grupo es la
+  propia pantalla. Con dos o más entradas visibles el grupo sigue siendo un grupo.
 - **El menú y `RequirePermission` no son la seguridad.** Esconden lo que la persona no puede abrir;
   manda el 403 de cada servicio, que se notifica. Los botones siguen los permisos del servicio con
   `session.hasAll(...)`.
@@ -773,7 +778,7 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **La administración de notificaciones es la de `mto-notification`, y lo que admite cada cosa lo dice
   el servicio.** `notificaciones/administracion`, con `notification-admin` (un rol de realm no la abre;
   la llevan `mto-notification-admin` y `mto-ops`). En el menú cuelga de «Notificaciones», el grupo de la
-  bandeja. Cinco pestañas en `LazyTabs`: cada una pide sus datos la primera vez que se abre y con su
+  bandeja; quien solo tiene una de las dos ve esa, como enlace suelto. Cinco pestañas en `LazyTabs`: cada una pide sus datos la primera vez que se abre y con su
   «Actualizar», sin sondeo; al entrar solo se piden las fuentes.
   - **Fuentes** (`GET /admin/sources`): el inbox por fuente y estado, el lector de Keycloak (hasta dónde
     leyó, quién lo tiene arrendado, su último error), las ráfagas abiertas y las entregas por estado. Las

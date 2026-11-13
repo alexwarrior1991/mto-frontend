@@ -186,7 +186,8 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     camino y cómo quedó, con los nombres de sus referencias. Solo con `config-audit` y `config-read`
     juntos (`mto-auditor` y `mto-admin`). Desde el historial no se edita ni se restaura nada.
   - **Administración de notificaciones** (`notificaciones/administracion`, con `notification-admin`:
-    `mto-notification-admin` y `mto-ops`), colgando de «Notificaciones» en el menú: cómo están las
+    `mto-notification-admin` y `mto-ops`), colgando de «Notificaciones» en el menú (quien solo lee su bandeja sigue viendo el enlace
+    «Notificaciones» de siempre: un grupo con una sola entrada visible es esa entrada): cómo están las
     fuentes de `mto-notification`, sus colas de mensajes muertos (mirarlas y reprocesarlas), las
     entregas de correo (y reintentar las fallidas u omitidas), las reglas cargadas y los avisos
     manuales (un correo de prueba y un aviso general, que se confirma antes de enviarse).
