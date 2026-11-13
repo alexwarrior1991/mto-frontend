@@ -750,6 +750,345 @@ describe('los catálogos', () => {
     })
 })
 
+describe('las plantillas de inspección se mantienen desde su pantalla', () => {
+    const TEMPLATES = `${BASE}/inspection-templates`
+    const TYPES = 'Plantilla activa de cada tipo de activo'
+    const VERSIONS = 'Plantillas de inspección'
+    const CREATED_AT = '2026-11-13T08:40:00Z'
+    const audit = {createdAt: CREATED_AT, updatedAt: CREATED_AT, createdBy: 'config.responsable', updatedBy: 'config.responsable'}
+    const point = (code, orderIndex, extra = {}) => ({id: `i-${code}`, code, label: `Punto ${code}`, unit: null, minValue: null, maxValue: null,
+        requiresMeasure: false, orderIndex, ...extra})
+    const height = () => point('P-01', 1, {label: 'Altura del hilo', unit: 'mm', minValue: 5300, maxValue: 5700, requiresMeasure: true})
+    const bracket = () => point('P-02', 2, {label: 'Estado de la ménsula'})
+    /** Perfil con la versión 2 activa y la 1 anterior, y Seccionador con una sola versión, sin activar. */
+    const three = () => [
+        {id: 'tpl2', assetType: 'PROFILE', version: 2, name: 'Perfil', active: true, items: [bracket(), height()], lockVersion: 0, audit},
+        {id: 'tpl1', assetType: 'PROFILE', version: 1, name: 'Perfil viejo', active: false, items: [point('P-00', 1)], lockVersion: 3, audit},
+        {id: 'tplD', assetType: 'DISCONNECTOR', version: 1, name: 'Seccionador', active: false, items: [], lockVersion: 1, audit},
+    ]
+    const SUPERVISOR = () => loginAs('mantenimiento.responsable')
+    const typeRows = () => dataRows(TYPES).map((cells) => textsOf(cells).slice(0, 3))
+    const versionRows = () => dataRows(VERSIONS).map((cells) => textsOf(cells).slice(0, 6))
+    const typeRow = (type) => rowOf(TYPES, type)
+    const versionRow = (id, templates) => rowElements(VERSIONS)[templatesOrder(templates).indexOf(id)]
+    const templatesOrder = (templates) => [...templates].sort((left, right) => left.assetType.localeCompare(right.assetType)
+        || right.version - left.version).map((template) => template.id)
+    const field = (dialog, name) => within(dialog).getByRole('textbox', {name})
+    async function retype(user, input, text) {
+        await user.clear(input)
+        if (text) {
+            await user.type(input, text)
+        }
+    }
+
+    it('enseñan la activa de cada tipo de activo, y solo supervise con write las mantiene', async () => {
+        const templates = three()
+        serveMaintenance({templates})
+        const created = `config.responsable · ${formatDateTime(CREATED_AT)}`
+
+        const reader = await open('/mantenimiento/plantillas', sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_WRITE]), VERSIONS, 3)
+        expect(typeRows()).toEqual([
+            ['Tramo de vía', 'Sin plantilla activa', '0'], ['Perfil', 'Versión 2 · Perfil', '2'],
+            ['Seccionador', 'Sin plantilla activa', '1'], ['Aislador de sección', 'Sin plantilla activa', '0']])
+        expect(versionRows()).toEqual([
+            ['Seccionador', '1', 'Seccionador', 'Anterior', '0', created],
+            ['Perfil', '2', 'Perfil', 'Activa', '2', created],
+            ['Perfil', '1', 'Perfil viejo', 'Anterior', '1', created],
+        ])
+        // Los puntos de la activa, elegida al abrir, por su orden.
+        expect(dataRows('Puntos de Perfil (versión 2)').map(textsOf)).toEqual([
+            ['P-01', 'Altura del hilo', 'Sí', 'mm', '5300', '5700'], ['P-02', 'Estado de la ménsula', 'No', '', '', '']])
+        // Con write sin supervise, nada que escriba: solo ver los puntos de cada versión.
+        expect(rowElements(TYPES).flatMap(actionsOf)).toEqual([])
+        expect(rowElements(VERSIONS).map(actionsOf)).toEqual([
+            ['Puntos de Seccionador (versión 1)'], ['Puntos de Perfil (versión 2)'], ['Puntos de Perfil viejo (versión 1)']])
+        reader.unmount()
+
+        const supervisorOnly = await open('/mantenimiento/plantillas', sessionWith([P.MAINTENANCE_READ, P.MAINTENANCE_SUPERVISE]), VERSIONS, 3)
+        expect(rowElements(TYPES).flatMap(actionsOf)).toEqual([])
+        expect(rowElements(VERSIONS).flatMap(actionsOf).filter((name) => !name.startsWith('Puntos de'))).toEqual([])
+        supervisorOnly.unmount()
+
+        const both = await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 3)
+        expect(rowElements(TYPES).map(actionsOf)).toEqual([['Nueva versión de Tramo de vía'], ['Nueva versión de Perfil'],
+            ['Nueva versión de Seccionador'], ['Nueva versión de Aislador de sección']])
+        expect(actionsOf(versionRow('tpl2', templates))).toEqual(['Puntos de Perfil (versión 2)',
+            'Nueva versión a partir de la versión 2 de Perfil', 'Renombrar la versión 2 de Perfil', 'Desactivar la versión 2 de Perfil'])
+        expect(actionsOf(versionRow('tpl1', templates))).toEqual(['Puntos de Perfil viejo (versión 1)',
+            'Nueva versión a partir de la versión 1 de Perfil', 'Renombrar la versión 1 de Perfil', 'Activar la versión 1 de Perfil'])
+        both.unmount()
+
+        // Un servicio anterior: una sola versión sin lockVersion y no se ofrece escribir nada; «Creada», vacía sin audit.
+        templates.push({id: 'tplI', assetType: 'SECTION_INSULATOR', version: 1, name: 'Aislador', active: true, items: []})
+        const older = await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 4)
+        expect(rowElements(TYPES).flatMap(actionsOf)).toEqual([])
+        expect(rowElements(VERSIONS).flatMap(actionsOf).filter((name) => !name.startsWith('Puntos de'))).toEqual([])
+        expect(versionRows().find((row) => row[2] === 'Aislador')).toEqual(['Aislador de sección', '1', 'Aislador', 'Activa', '0', ''])
+        older.unmount()
+
+        // Una versión de un tipo que esta aplicación no conoce se lee y no ofrece nada; los cuatro conocidos siguen ofreciendo crear.
+        templates.pop()
+        templates.push({id: 'tplX', assetType: 'SWITCH_HEATER', version: 1, name: 'Calefactor', active: true, items: [], lockVersion: 0, audit})
+        await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 4)
+        expect(versionRows().at(-1).slice(0, 4)).toEqual(['Desconocido', '1', 'Calefactor', 'Activa'])
+        expect(actionsOf(rowElements(VERSIONS).at(-1))).toEqual(['Puntos de Calefactor (versión 1)'])
+        expect(rowElements(TYPES).flatMap(actionsOf)).toHaveLength(4)
+        expect(typeRows()).toHaveLength(4)
+    })
+
+    it('una versión nueva parte de la activa y viaja entera, con la versión a la que sustituye', async () => {
+        const templates = three()
+        const requests = serveMaintenance({templates})
+        const posts = recordWrites('post', TEMPLATES, (body) => {
+            const made = {id: 'tpl3', assetType: 'PROFILE', version: 3, name: body.name, active: true, lockVersion: 0, audit,
+                items: body.items.map((item, index) => ({id: `n-${index}`, orderIndex: index + 1, unit: null, minValue: null, maxValue: null, ...item}))}
+            templates[0] = {...templates[0], active: false, lockVersion: 1}
+            templates.push(made)
+            return HttpResponse.json(made, {status: 201, headers: {Location: '/api/v1/maintenance/inspection-templates/tpl3'}})
+        })
+        const {user} = await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 3)
+
+        await user.click(within(typeRow('Perfil')).getByRole('button', {name: 'Nueva versión de Perfil'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Nueva versión de la plantilla de Perfil'})
+        expect(within(dialog).getByText('Parte de los puntos de la versión 2. La nueva versión nace activa y la versión 2, la activa ahora, '
+            + 'pasa a anterior. Los puntos de una versión no se cambian después. Las inspecciones ya creadas no cambian.')).toBeInTheDocument()
+        expect(field(dialog, 'Nombre')).toHaveValue('Perfil')
+        // Los puntos de la activa, en su orden (P-01 es el primero por orderIndex).
+        expect([1, 2].map((position) => field(dialog, `Punto ${position}: código`).value)).toEqual(['P-01', 'P-02'])
+        expect(field(dialog, 'Punto 1: texto')).toHaveValue('Altura del hilo')
+        expect([field(dialog, 'Punto 1: unidad').value, field(dialog, 'Punto 1: mínimo').value, field(dialog, 'Punto 1: máximo').value])
+            .toEqual(['mm', '5300', '5700'])
+        expect(within(dialog).getByRole('checkbox', {name: 'Punto 1: exige medida'})).toBeChecked()
+        expect(within(dialog).getByRole('checkbox', {name: 'Punto 2: exige medida'})).not.toBeChecked()
+        expect(within(dialog).getByRole('button', {name: 'Subir el punto 1'})).toBeDisabled()
+        expect(within(dialog).getByRole('button', {name: 'Bajar el punto 1'})).toBeEnabled()
+        expect(within(dialog).getByRole('button', {name: 'Subir el punto 2'})).toBeEnabled()
+        expect(within(dialog).getByRole('button', {name: 'Bajar el punto 2'})).toBeDisabled()
+        const save = within(dialog).getByRole('button', {name: 'Crear y activar'})
+
+        // Cada comprobación con su mensaje, sin llamar.
+        await retype(user, field(dialog, 'Nombre'), '   ')
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir punto'}))
+        await user.click(save)
+        expect(await within(dialog).findByText('El nombre es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('El código es obligatorio')).toBeInTheDocument()
+        expect(within(dialog).getByText('El texto es obligatorio')).toBeInTheDocument()
+        expect(field(dialog, 'Punto 3: código')).toHaveAttribute('aria-invalid', 'true')
+
+        await retype(user, field(dialog, 'Nombre'), ' Perfil 2027 ')
+        await retype(user, field(dialog, 'Punto 3: texto'), 'Tercero')
+        await retype(user, field(dialog, 'Punto 3: código'), 'p 3')
+        await user.click(save)
+        expect(await within(dialog).findByText("Mayúsculas sin tildes, cifras, '_', '.' y '-', sin espacios y empezando por letra o cifra"))
+            .toBeInTheDocument()
+        // El repetido es el de después, no el primero.
+        await retype(user, field(dialog, 'Punto 3: código'), 'P-01')
+        await user.click(save)
+        expect(await within(dialog).findByText('Código repetido en la plantilla')).toBeInTheDocument()
+        expect(field(dialog, 'Punto 3: código')).toHaveAttribute('aria-invalid', 'true')
+        expect(field(dialog, 'Punto 1: código')).not.toHaveAttribute('aria-invalid', 'true')
+        await retype(user, field(dialog, 'Punto 3: código'), 'P-03')
+
+        await retype(user, field(dialog, 'Punto 1: mínimo'), '5800')
+        await user.click(save)
+        expect(await within(dialog).findByText('El mínimo no puede ser mayor que el máximo')).toBeInTheDocument()
+        for (const wrong of ['1.2345', '1234567890', 'mucho']) {
+            await retype(user, field(dialog, 'Punto 1: mínimo'), wrong)
+            await user.click(save)
+            expect(await within(dialog).findByText('Un número con punto decimal y hasta tres decimales, como 5250.5')).toBeInTheDocument()
+        }
+        expect(posts).toHaveLength(0)
+
+        // Quitar el tercero y bajar el primero: viaja la lista entera en el orden de la pantalla.
+        await retype(user, field(dialog, 'Punto 1: mínimo'), '-5.5')
+        await user.click(within(dialog).getByRole('button', {name: 'Quitar el punto 3'}))
+        await user.click(within(dialog).getByRole('button', {name: 'Bajar el punto 1'}))
+        expect([1, 2].map((position) => field(dialog, `Punto ${position}: código`).value)).toEqual(['P-02', 'P-01'])
+        await user.click(save)
+
+        expect(await screen.findByText('Creada la versión 3 de la plantilla de Perfil, ya activa')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(posts).toHaveLength(1)
+        expect(posts[0].contentType).toBe('application/json')
+        expect(posts[0].body).toStrictEqual({
+            assetType: 'PROFILE', name: 'Perfil 2027', replacesVersion: 2,
+            items: [
+                {code: 'P-02', label: 'Estado de la ménsula', requiresMeasure: false},
+                {code: 'P-01', label: 'Altura del hilo', unit: 'mm', minValue: -5.5, maxValue: 5700, requiresMeasure: true},
+            ],
+        })
+        // La lista se relee entera, y la nueva queda elegida.
+        await waitFor(() => expect(readsOf(requests, TEMPLATES)).toHaveLength(2))
+        await waitFor(() => expect(typeRows()[1]).toEqual(['Perfil', 'Versión 3 · Perfil 2027', '3']))
+        expect(versionRows().map((row) => row.slice(0, 4))).toEqual([
+            ['Seccionador', '1', 'Seccionador', 'Anterior'], ['Perfil', '3', 'Perfil 2027', 'Activa'], ['Perfil', '2', 'Perfil', 'Anterior'],
+            ['Perfil', '1', 'Perfil viejo', 'Anterior']])
+        expect(screen.getByRole('heading', {name: 'Puntos de Perfil 2027 (versión 3)'})).toBeInTheDocument()
+        expect(firstColumn('Puntos de Perfil 2027 (versión 3)')).toEqual(['P-02', 'P-01'])
+    })
+
+    it('una versión a partir de una anterior, o de nada, y los errores del servicio caen en su fila', async () => {
+        const templates = three()
+        const requests = serveMaintenance({templates})
+        const posts = recordWrites('post', TEMPLATES, (body, call) => {
+            if (call === 1) {
+                return maintenanceError(400, 'REQ-VALIDATION', 'Validation failed', [
+                    {field: 'name', message: 'El nombre no vale'},
+                    {field: 'items[1].code', message: 'El código no vale'},
+                    {field: 'items[0].maxValue', message: 'Demasiadas cifras'},
+                    {field: 'items', message: 'La lista no vale'},
+                    {field: 'items[1]', message: 'no puede ser nulo'},
+                    {field: 'replacesVersion', message: 'must be greater than or equal to 1'},
+                ])
+            }
+            if (call === 2) {
+                return maintenanceError(400, 'VAL-001', "items[1].code: 'T-1' is repeated in the template")
+            }
+            if (call === 3) {
+                return maintenanceError(409, 'CON-001', 'The active template of TRACK_SECTION is not version null')
+            }
+            const made = {id: 'tplT', assetType: 'TRACK_SECTION', version: 1, name: body.name, active: true, lockVersion: 0, audit, items: []}
+            templates.push(made)
+            return HttpResponse.json(made, {status: 201})
+        })
+        const {user} = await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 3)
+
+        // Desde una anterior: parte de ella, y la que pasa a anterior es la activa del tipo.
+        await user.click(screen.getByRole('button', {name: 'Nueva versión a partir de la versión 1 de Perfil'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Nueva versión de la plantilla de Perfil'})
+        expect(within(dialog).getByText(/^Parte de los puntos de la versión 1\. La nueva versión nace activa y la versión 2, la activa ahora, pasa a anterior\. /))
+            .toBeInTheDocument()
+        expect(field(dialog, 'Nombre')).toHaveValue('Perfil viejo')
+        expect(field(dialog, 'Punto 1: código')).toHaveValue('P-00')
+        await user.click(within(dialog).getByRole('button', {name: 'Cancelar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        // La primera de un tipo sin ninguna empieza vacía y exige un punto.
+        await user.click(screen.getByRole('button', {name: 'Nueva versión de Tramo de vía'}))
+        dialog = await screen.findByRole('dialog', {name: 'Nueva versión de la plantilla de Tramo de vía'})
+        expect(within(dialog).getByText('Es la primera versión de Tramo de vía. La nueva versión nace activa. '
+            + 'Los puntos de una versión no se cambian después. Las inspecciones ya creadas no cambian.')).toBeInTheDocument()
+        expect(field(dialog, 'Nombre')).toHaveValue('')
+        expect(within(dialog).queryByRole('textbox', {name: 'Punto 1: código'})).not.toBeInTheDocument()
+        const save = within(dialog).getByRole('button', {name: 'Crear y activar'})
+        await user.type(field(dialog, 'Nombre'), '  Tramo ')
+        await user.click(save)
+        expect(await within(dialog).findByText('Una plantilla lleva al menos un punto')).toBeInTheDocument()
+        expect(posts).toHaveLength(0)
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir punto'}))
+        expect(within(dialog).queryByText('Una plantilla lleva al menos un punto')).not.toBeInTheDocument()
+        await user.click(within(dialog).getByRole('button', {name: 'Añadir punto'}))
+        await user.type(field(dialog, 'Punto 1: código'), ' T-1 ')
+        await user.type(field(dialog, 'Punto 1: texto'), ' Balasto ')
+        await user.type(field(dialog, 'Punto 1: unidad'), '  ')
+        await user.type(field(dialog, 'Punto 2: código'), 'T-2')
+        await user.type(field(dialog, 'Punto 2: texto'), 'Traviesas')
+
+        // Los errores del servicio, cada uno en su sitio y con el diálogo abierto.
+        await user.click(save)
+        expect(await within(dialog).findByText('El nombre no vale')).toBeInTheDocument()
+        expect(field(dialog, 'Nombre')).toHaveAttribute('aria-invalid', 'true')
+        expect(within(dialog).getByText('El código no vale')).toBeInTheDocument()
+        expect(field(dialog, 'Punto 2: código')).toHaveAttribute('aria-invalid', 'true')
+        expect(within(dialog).getByText('Demasiadas cifras')).toBeInTheDocument()
+        expect(field(dialog, 'Punto 1: máximo')).toHaveAttribute('aria-invalid', 'true')
+        expect(within(dialog).getByText('La lista no vale. Fila 2: no puede ser nulo')).toBeInTheDocument()
+        expect(await screen.findByText('replacesVersion: must be greater than or equal to 1')).toBeInTheDocument()
+        // Sin activa, replacesVersion no viaja; los textos van recortados y la unidad en blanco, fuera.
+        expect(posts[0].body).toStrictEqual({assetType: 'TRACK_SECTION', name: 'Tramo', items: [
+            {code: 'T-1', label: 'Balasto', requiresMeasure: false}, {code: 'T-2', label: 'Traviesas', requiresMeasure: false}]})
+
+        await user.click(save)
+        expect(await screen.findByText("La petición no es válida. items[1].code: 'T-1' is repeated in the template")).toBeInTheDocument()
+        await user.click(save)
+        expect(await screen.findByText('Conflicto con otro cambio: recarga y vuelve a intentarlo.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Nueva versión de la plantilla de Tramo de vía'})).toBeInTheDocument()
+        // Ninguno de los tres rechazos relee la lista.
+        expect(readsOf(requests, TEMPLATES)).toHaveLength(1)
+
+        await user.click(save)
+        expect(await screen.findByText('Creada la versión 1 de la plantilla de Tramo de vía, ya activa')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        await waitFor(() => expect(readsOf(requests, TEMPLATES)).toHaveLength(2))
+        await waitFor(() => expect(typeRows()[0]).toEqual(['Tramo de vía', 'Versión 1 · Tramo', '1']))
+        expect(posts).toHaveLength(4)
+    })
+
+    it('una versión se renombra, se activa y se desactiva con su lockVersion, y la lista se vuelve a leer', async () => {
+        const templates = three()
+        const requests = serveMaintenance({templates})
+        const patches = recordWrites('patch', `${TEMPLATES}/:id`, (body, call) => {
+            if (call === 1) {
+                return maintenanceError(409, 'CON-001', 'Stale lockVersion')
+            }
+            if (call === 5) {
+                return maintenanceError(404, 'TPL-404', 'Inspection template tplD was not found')
+            }
+            return HttpResponse.json({...templates[0], ...body})
+        })
+        const reads = () => readsOf(requests, TEMPLATES).length
+        const {user} = await open('/mantenimiento/plantillas', SUPERVISOR(), VERSIONS, 3)
+
+        // Renombrar: vacío no llama; el mismo nombre se cierra sin llamar.
+        await user.click(screen.getByRole('button', {name: 'Renombrar la versión 2 de Perfil'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Renombrar la versión 2 de Perfil'})
+        expect(field(dialog, 'Nombre')).toHaveValue('Perfil')
+        await retype(user, field(dialog, 'Nombre'), '  ')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await within(dialog).findByText('El nombre es obligatorio')).toBeInTheDocument()
+        await retype(user, field(dialog, 'Nombre'), ' Perfil ')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(patches).toHaveLength(0)
+
+        // Una versión vieja: se avisa con el diálogo abierto y sin releer; después, bien.
+        await user.click(screen.getByRole('button', {name: 'Renombrar la versión 2 de Perfil'}))
+        dialog = await screen.findByRole('dialog', {name: 'Renombrar la versión 2 de Perfil'})
+        await retype(user, field(dialog, 'Nombre'), ' Perfil 2027 ')
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Conflicto con otro cambio: recarga y vuelve a intentarlo.')).toBeInTheDocument()
+        expect(screen.getByRole('dialog', {name: 'Renombrar la versión 2 de Perfil'})).toBeInTheDocument()
+        expect(reads()).toBe(1)
+        await user.click(within(dialog).getByRole('button', {name: 'Guardar'}))
+        expect(await screen.findByText('Renombrada la versión 2 de Perfil')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(patches.at(-1)).toStrictEqual({body: {name: 'Perfil 2027', lockVersion: 0}, contentType: 'application/merge-patch+json'})
+        await waitFor(() => expect(reads()).toBe(2))
+
+        // Activar una anterior: dice cuál pasa a anterior, y hasta confirmar no se llama.
+        await user.click(screen.getByRole('button', {name: 'Activar la versión 1 de Perfil'}))
+        let confirm = await screen.findByRole('dialog', {name: 'Activar la versión 1 de Perfil'})
+        expect(within(confirm).getByText('La versión 2, la activa ahora, pasa a anterior. Las inspecciones nuevas de Perfil copiarán los puntos '
+            + 'de la versión 1; las ya creadas no cambian.')).toBeInTheDocument()
+        expect(patches).toHaveLength(2)
+        await user.click(within(confirm).getByRole('button', {name: 'Activar'}))
+        expect(await screen.findByText('Activada la versión 1 de Perfil')).toBeInTheDocument()
+        expect(patches.at(-1)).toStrictEqual({body: {active: true, lockVersion: 3}, contentType: 'application/merge-patch+json'})
+        await waitFor(() => expect(reads()).toBe(3))
+
+        // Desactivar la activa: el tipo se queda sin plantilla.
+        await user.click(screen.getByRole('button', {name: 'Desactivar la versión 2 de Perfil'}))
+        confirm = await screen.findByRole('dialog', {name: 'Desactivar la versión 2 de Perfil'})
+        expect(within(confirm).getByText('Perfil se queda sin plantilla activa: las inspecciones nuevas de ese tipo no tendrán checklist hasta '
+            + 'que se active una versión. Las ya creadas no cambian.')).toBeInTheDocument()
+        await user.click(within(confirm).getByRole('button', {name: 'Desactivar'}))
+        expect(await screen.findByText('Desactivada la versión 2 de Perfil')).toBeInTheDocument()
+        expect(patches.at(-1).body).toStrictEqual({active: false, lockVersion: 0})
+        await waitFor(() => expect(reads()).toBe(4))
+
+        // Activar la de un tipo sin activa (el texto corto), y un rechazo: se avisa y la lista se relee igualmente.
+        await user.click(screen.getByRole('button', {name: 'Activar la versión 1 de Seccionador'}))
+        confirm = await screen.findByRole('dialog', {name: 'Activar la versión 1 de Seccionador'})
+        expect(within(confirm).getByText('Las inspecciones nuevas de Seccionador copiarán los puntos de la versión 1; las ya creadas no cambian.'))
+            .toBeInTheDocument()
+        await user.click(within(confirm).getByRole('button', {name: 'Activar'}))
+        expect(await screen.findByText('Esa versión de la plantilla de inspección no existe: recarga la lista.')).toBeInTheDocument()
+        expect(patches.at(-1).body).toStrictEqual({active: true, lockVersion: 1})
+        await waitFor(() => expect(reads()).toBe(5))
+        expect(patches).toHaveLength(5)
+    })
+})
+
 /** Dos tipos con su equipo exigido: uno con un valor que esta aplicación no conoce, que se conserva. */
 const EQUIPPED_TYPES = Object.freeze([
     {id: 't1', code: 'RG-01', description: 'Revisión visual', functionalGroup: 'STRUCTURAL_SUPPORTS', standardMinutesPerUnit: 10, unit: 'PROFILE',

@@ -44,7 +44,7 @@ export default function ProfilesPage() {
     ]
 
     return (
-        <MasterPage master={MASTERS.profiles} columns={columns} filters={filters} labelOf={profileLabel}
+        <MasterPage master={MASTERS.profiles} columns={columns} filters={filters} references={references} labelOf={profileLabel}
                     renderEditor={({row, onClose}) => <ProfileEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }

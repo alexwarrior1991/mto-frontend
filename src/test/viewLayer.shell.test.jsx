@@ -68,7 +68,7 @@ describe('el menu: solo lo que la persona puede abrir, en el orden del backoffic
         expect(menu().queryByRole('button', {name: 'Almacén'})).not.toBeInTheDocument()
         expect(menu().queryByRole('link', {name: 'Accesos'})).not.toBeInTheDocument()
         expect(buildMenu(loginAs('config.responsable')).map((item) => item.label))
-            .toEqual(['Inicio', 'Infraestructura', 'Trabajos', 'Notificaciones', 'Actividad', 'Catálogos'])
+            .toEqual(['Inicio', 'Infraestructura', 'Trabajos', 'Notificaciones', 'Registro de actividad', 'Catálogos'])
     })
 
     it('almacen.lector ve el almacen entero y nada de configuracion', () => {
@@ -79,11 +79,24 @@ describe('el menu: solo lo que la persona puede abrir, en el orden del backoffic
             'Proyectos', 'Movimientos', 'Reservas', 'Conjuntos'])
     })
 
-    it('un grupo sin su primera entrada sale igual con lo que se puede abrir (Actividad solo con Accesos)', () => {
-        const items = buildMenu(sessionWith([P.NOTIFICATION_ACCESS_READ]))
+    it('un grupo con una sola entrada visible es esa entrada, como enlace y con el título de su pantalla; con dos, sigue siendo un grupo', async () => {
+        // Sin su primera entrada, lo que se puede abrir sale igual (Actividad solo con Accesos).
+        const plain = (session) => buildMenu(session).filter((item) => item.path !== '/').map((item) => [item.kind, item.label, item.path])
+        expect(plain(sessionWith([P.NOTIFICATION_ACCESS_READ]))).toEqual([['link', 'Accesos', '/actividad/accesos']])
+        expect(plain(sessionWith([P.NOTIFICATION_ACTIVITY_READ]))).toEqual([['link', 'Registro de actividad', '/actividad']])
+        expect(plain(sessionWith([P.NOTIFICATION_INBOX]))).toEqual([['link', 'Notificaciones', '/notificaciones']])
+        // Fuera de su grupo, «Administración» se llama como su pantalla.
+        expect(plain(sessionWith([P.NOTIFICATION_ADMIN])))
+            .toEqual([['link', 'Administración de notificaciones', '/notificaciones/administracion']])
 
-        const activity = items.find((item) => item.key === 'actividad')
-        expect(activity.children.map((child) => child.path)).toEqual(['/actividad/accesos'])
+        const two = buildMenu(sessionWith([P.NOTIFICATION_ACTIVITY_READ, P.NOTIFICATION_ACCESS_READ])).find((item) => item.key === 'actividad')
+        expect(two.kind).toBe('group')
+        expect(two.children.map((child) => child.path)).toEqual(['/actividad', '/actividad/accesos'])
+
+        renderRoute('/', {session: sessionWith([P.NOTIFICATION_INBOX])})
+        await screen.findByRole('heading', {name: 'Inicio'})
+        expect(menu().getByRole('link', {name: 'Notificaciones'})).toHaveAttribute('href', '/notificaciones')
+        expect(menu().queryByRole('button', {name: 'Notificaciones'})).not.toBeInTheDocument()
     })
 
     it('los diecisiete catalogos, solo con config-read', () => {

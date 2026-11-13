@@ -1,15 +1,17 @@
 import {Button, CloseButton, Group, Stack, Text, TextInput, Title} from '@mantine/core'
 import {useDebouncedValue} from '@mantine/hooks'
-import {IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash} from '@tabler/icons-react'
+import {IconHistory, IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash} from '@tabler/icons-react'
 import {useMemo, useState} from 'react'
-import {deleteMaster} from '../../api/configuration/masters.js'
+import {deleteMaster, masterRevisionsPath} from '../../api/configuration/masters.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import ConfirmModal from '../../ui/ConfirmModal.jsx'
 import {formatDateTime} from '../../ui/format.js'
 import {notifySuccess} from '../../ui/notifySuccess.js'
+import RevisionsModal from '../../ui/RevisionsModal.jsx'
 import RowActionButton from '../../ui/RowActionButton.jsx'
 import ServerDataTable from '../../ui/ServerDataTable.jsx'
+import {MASTER_HISTORY, NO_ENTITY} from './masterHistory.js'
 import {countText, deletedText, deleteWarning, nameOf} from './masterResources.js'
 import {PAGE_SIZE, useMasterList, useMasterMutation} from './useMasters.js'
 
@@ -26,19 +28,26 @@ const SEARCH_DELAY_MS = 400
  * lógico) config-delete. La columna de acciones existe siempre, también para quien solo lee, porque un
  * maestro puede ofrecer acciones de lectura (el esquema de una vía).
  *
+ * El historial de una fila pide config-audit y config-read juntos: leer el dato no da derecho a ver
+ * quién lo cambió, y el historial enseña la fila. Con uno solo el servicio responde 403, así que el
+ * botón no se ofrece. Va detrás de las acciones propias del maestro y antes de borrar.
+ *
  * @param {object} master la entrada de MASTERS
  * @param {Array} columns las columnas propias; «Modificado» la añade esta pantalla
  * @param {Array<{key: string, initial?: *, render: Function}>} [filters] los filtros propios:
  *        render(valor, cambiar) pinta el control
- * @param {Function} [rowActions] fila → acciones de lectura, entre modificar y borrar
+ * @param {Function} [rowActions] fila → acciones de lectura, entre modificar y el historial
+ * @param {object} references los nombres de las referencias, con los que el historial dice cómo quedó
+ *        la fila en cada revisión
  * @param {Function} renderEditor ({row, onClose}) → el editor; row es null en un alta, o una copia de
  *        la fila
  * @param {Function} [labelOf] cómo se nombra una fila en los mensajes
  */
-export default function MasterPage({master, columns, filters = [], rowActions = null, renderEditor, labelOf = nameOf}) {
+export default function MasterPage({master, columns, filters = [], rowActions = null, references, renderEditor, labelOf = nameOf}) {
     const session = useSession()
     const canWrite = session.has(P.CONFIG_WRITE)
     const canDelete = session.has(P.CONFIG_DELETE)
+    const canAudit = session.hasAll(P.CONFIG_AUDIT, P.CONFIG_READ)
 
     const [search, setSearch] = useState('')
     const [debouncedSearch] = useDebouncedValue(search, SEARCH_DELAY_MS)
@@ -52,6 +61,7 @@ export default function MasterPage({master, columns, filters = [], rowActions = 
     // null: cerrado; {row: null}: alta; {row: copia}: modificación.
     const [editing, setEditing] = useState(null)
     const [deleting, setDeleting] = useState(null)
+    const [history, setHistory] = useState(null)
 
     const filter = useMemo(() => ({searchText: debouncedSearch, ...filterValues}), [debouncedSearch, filterValues])
     const list = useMasterList(master.path, {page, sort, filter})
@@ -85,6 +95,10 @@ export default function MasterPage({master, columns, filters = [], rowActions = 
                 <RowActionButton label={`Modificar ${labelOf(row)}`} tooltip="Modificar" icon={IconPencil} onClick={() => edit(row)}/>
             )}
             {rowActions?.(row)}
+            {canAudit && (
+                <RowActionButton label={`Historial de ${labelOf(row)}`} tooltip="Historial" icon={IconHistory}
+                                 onClick={() => setHistory(row)}/>
+            )}
             {canDelete && (
                 <RowActionButton label={`Borrar ${labelOf(row)}`} tooltip="Borrar" icon={IconTrash} color="red"
                                  onClick={() => setDeleting(row)}/>
@@ -123,6 +137,11 @@ export default function MasterPage({master, columns, filters = [], rowActions = 
                              onPageChange={(next) => setPaging({key: listKey, page: next})}
                              rowActions={actions} onRowDoubleClick={canWrite ? edit : null}/>
             {editing && renderEditor({row: editing.row, onClose: () => setEditing(null)})}
+            {history && (
+                <RevisionsModal label={labelOf(history)} path={masterRevisionsPath(master.path, history.id)}
+                                describe={(entity) => MASTER_HISTORY[master.path](entity, references)} whenMissing={NO_ENTITY}
+                                onClose={() => setHistory(null)}/>
+            )}
             {deleting && (
                 <ConfirmModal title={`Borrar ${master.singular} ${labelOf(deleting)}`} confirmLabel="Borrar"
                               loading={removing.isPending} onConfirm={confirmDelete} onClose={() => setDeleting(null)}>

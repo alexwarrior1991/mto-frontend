@@ -115,12 +115,21 @@ function notFoundMessage(error) {
         // haya llegado. Se relee la lista del desplegable.
         case 'TAP-404':
             return 'Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'
+        // mto-maintenance: una versión de una plantilla de inspección que no existe. Nada se borra, así que
+        // es un id de otro despliegue: releer la lista la enseña como está.
+        case 'TPL-404':
+            return 'Esa versión de la plantilla de inspección no existe: recarga la lista.'
         // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
         case 'NTF-404':
             return 'Esa notificación ya no existe o no va dirigida a ti.'
         // mto-notification: una línea purgada, o un acceso, que nunca sale por /activity.
         case 'ACT-404':
             return 'Esa línea del registro ya no existe.'
+        // mto-notification, su administración: una entrega purgada, o una fuente que no es de las suyas.
+        case 'DLV-404':
+            return 'Esa entrega ya no existe.'
+        case 'SRC-404':
+            return 'Esa fuente no existe en mto-notification.'
         default:
             return 'No se ha encontrado lo que se pedía.' + detail(error)
     }
@@ -134,6 +143,11 @@ function validationMessage(error) {
     // mto-maintenance: mto-stock ha dicho que no al sincronizar una linea de material.
     if (error.code === 'STK-422') {
         return 'El almacén ha rechazado la operación.' + detail(error)
+    }
+    // mto-notification: un aviso general con una audiencia o un canal que no existen alli. El formulario
+    // solo ofrece los que conoce, asi que es un servicio con otros: su detalle dice cual.
+    if (error.code === 'NTF-422') {
+        return 'El aviso nombra una audiencia o un canal que el servicio no conoce.' + detail(error)
     }
     // mto-users: Keycloak no admite lo pedido (la politica de contrasenas del realm, un atributo que
     // el perfil de usuario exige...). Su detalle, que es el texto de Keycloak, es lo que lo explica.
@@ -214,6 +228,12 @@ function conflictMessage(error) {
         // mto-users: un nombre de usuario o un email repetido. Recargar no lo arregla, asi que no se pide.
         case 'USR-409':
             return 'Ya existe un usuario con ese nombre de usuario o ese email.' + detail(error)
+        // mto-notification, su administración: una entrega que ya no está fallida ni omitida (otra persona
+        // la reintentó, o salió), y una cola de mensajes muertos que el broker no tiene. Recargar no lo arregla.
+        case 'DLV-409':
+            return 'La entrega ya no admite el reintento: solo se reintenta una fallida o una omitida.'
+        case 'SRC-409':
+            return 'RabbitMQ está apagado en este despliegue, o esa cola de mensajes muertos no existe en el broker.' + detail(error)
         default:
             return 'Conflicto con otro cambio: recarga y vuelve a intentarlo.' + detail(error)
     }
@@ -223,6 +243,10 @@ function unavailableMessage(error) {
     // mto-maintenance no ha podido hablar con mto-stock: la linea se queda como estaba.
     if (error.code === 'STK-503') {
         return 'El almacén no responde: la línea de material se queda como estaba. Inténtalo más tarde.' + detail(error)
+    }
+    // mto-notification no ha podido hablar con RabbitMQ al mirar o reprocesar una cola de mensajes muertos.
+    if (error.code === 'SRC-503') {
+        return 'RabbitMQ no responde ahora: la cola se queda como estaba. Inténtalo más tarde.'
     }
     // mto-resources no puede leer Keycloak para su informe de puestos: pasará, vale reintentarlo.
     if (error.code === 'KCK-503') {

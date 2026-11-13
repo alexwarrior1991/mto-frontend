@@ -8,6 +8,11 @@ import {MENU_GROUPS, ROUTES} from './routeTable.js'
  * los Catalogos). Un grupo sale si la persona puede abrir algo de el, y se ordena por su primera
  * entrada.
  *
+ * Un grupo con una sola entrada visible no es un desplegable: es esa entrada, como enlace, con el
+ * titulo de su pantalla (quien solo lee su bandeja ve «Notificaciones», y no «Notificaciones ▸
+ * Notificaciones»). Es lo que hace el backoffice, donde el nodo del grupo es la propia pantalla. Con
+ * dos o mas, el grupo sigue siendo un grupo.
+ *
  * Esconder no es proteger: quien manda es el 403 del servicio.
  */
 export function buildMenu(session) {
@@ -21,6 +26,7 @@ export function buildMenu(session) {
             kind: 'link',
             path: route.path ? `/${route.path}` : '/',
             label: route.menu.label ?? route.title,
+            title: route.title,
             icon: route.menu.icon,
             order: route.menu.order,
         }
@@ -39,11 +45,12 @@ export function buildMenu(session) {
         group.children.push(link)
     }
     groups.forEach((group) => group.children.sort(byOrder))
-    items.sort(byOrder)
+    const shown = items.map((item) => (item.kind === 'group' && item.children.length === 1 ? alone(item.children[0]) : item))
+    shown.sort(byOrder)
 
     // Los catalogos van a mano, como en el backoffice: su pantalla lleva el recurso en la ruta.
     if (session.has(P.CONFIG_READ)) {
-        items.push({
+        shown.push({
             kind: 'group',
             key: 'catalogos',
             label: 'Catálogos',
@@ -56,7 +63,12 @@ export function buildMenu(session) {
             })),
         })
     }
-    return items
+    return shown
+}
+
+/** La unica entrada visible de un grupo, como enlace suelto: fuera del grupo se llama como su pantalla. */
+function alone(link) {
+    return {...link, label: link.title}
 }
 
 /** La entrada del menu que corresponde a una URL: la exacta, o la mas larga que la contenga (la ficha de una orden marca Ordenes). */

@@ -9,7 +9,7 @@ import {prefixOf} from '../services.js'
  * comparten la familia de endpoints de CRUDController, así que van parametrizados por recurso.
  *
  * Permisos que aplica el servicio: leer pide config-read; crear y modificar, config-write; borrar,
- * config-delete.
+ * config-delete; el historial de una fila, config-audit y config-read juntos.
  *
  * Cómo viaja un maestro (README_API.md §3 y §4 de mto-configuration):
  * - La lista se pide página a página a POST /{recurso}/filter. Sin orden elegido, sort no viaja y
@@ -79,6 +79,17 @@ export function updateMaster(resource, dto) {
 
 export function deleteMaster(resource, id) {
     return apiFetch(`${base(resource)}/${id}`, {method: 'DELETE', responseType: 'none'})
+}
+
+/**
+ * La ruta del historial de una fila, para listRevisions (README_API.md §6): sus revisiones paginadas,
+ * la más reciente primero. El servicio pide config-audit y config-read juntos, y responde 404 NOT-001
+ * si la fila no tiene ninguna (su id no ha existido nunca, o se sembró en una migración). La entidad
+ * de una revisión llega con versionNumber a null y, en paquetes, estaciones y vías, sin sus hijos: no
+ * es un cuerpo para un PUT.
+ */
+export function masterRevisionsPath(resource, id) {
+    return `${base(resource)}/${id}/revisions`
 }
 
 /**

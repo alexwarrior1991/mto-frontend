@@ -73,15 +73,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `sameDecimal`), `dates.js` (también
   `localDateTimeToInstant`, una fecha y hora escritas como Instant, y `instantToLocalDateTime`, el
   camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
-  `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
+  `listRevisions`, sin `sort`; lo comparten almacén, mantenimiento, recursos y `mto-configuration`), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas;
   `AUDIENCE_ONLY`, la audiencia de `mto-field`, que el token lleva aunque aquí no tenga pantallas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
   `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
-  `lovEntryWithEnabled`) y `configuration/masters.js` (los siete maestros: `filterMasters`, el CRUD,
-  `trackSchematic`, `listBusinessEntities`, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
+  `lovEntryWithEnabled`; y `lovRevisionsPath`, el historial de una entrada) y `configuration/masters.js`
+  (los siete maestros: `filterMasters`, el CRUD, `trackSchematic`, `listBusinessEntities`,
+  `masterRevisionsPath`, el historial de una fila, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
   `lovRef`, `CLEARED_LOV_REF`) y `configuration/jobs.js` (los trabajos en segundo plano: `JOB_TYPE`
   y `JOB_STATUS` tolerantes, `JOB_FAMILIES` y `familyOf`, `isTerminal`, `isDownloadable`,
   `hasErrorReport`, los lanzadores `importProfiles`, `importLovs`, `exportProfiles` y `republish`,
@@ -116,7 +117,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `maintenance/assets.js` (la búsqueda, el alta de un tramo, `assetPatch`, desactivar con `DELETE`
     y reactivar; quién lo desactivó, `isDisabledAtSource` e `isDisabledLocally`, y `canReactivate`) y
     `maintenance/catalogs.js` (los equipos, que se escriben enteros, los tipos de tarea y el equipo que
-    exige cada uno, `taskTypeEquipmentPatch`, y las plantillas de inspección);
+    exige cada uno, `taskTypeEquipmentPatch`, y las plantillas de inspección: `createInspectionTemplate` y
+    `patchInspectionTemplate`, cómo viaja una versión nueva, `templateRequest`, sus parches con
+    `lockVersion`, `templateRenamePatch` y `templateActivePatch`, y lo que se ofrece: `activeTemplateOf`,
+    `baseTemplateOf`, `templatesAreWritable` e `isWritableTemplate`);
   - `maintenance/orders.js` (las órdenes, sus transiciones con su cuerpo, `transitionRequest`, y sus
     estados; `orderPatch`, con lo que admite su estado), `maintenance/tasks.js` (las tareas de una
     orden, generarlas, iniciarlas y completarlas, `completeRequest`, y su checklist) y
@@ -139,8 +143,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   registro, sin los accesos), `notification/inbox.js` (la bandeja, el contador, marcar una o todas y
   `unreadCountText`, con «100+»), `notification/activity.js` (el registro, el detalle de una línea con
   su `payload` y los accesos; `searchActivity` rechaza antes de llamar la categoría `ACCESS`, y
-  `searchAccess`, una IP que no es un literal, `isIpLiteral`) y `notification/links.js`
-  (`notificationTarget`: a dónde lleva el enlace de una notificación).
+  `searchAccess`, una IP que no es un literal, `isIpLiteral`), `notification/links.js`
+  (`notificationTarget`: a dónde lleva el enlace de una notificación) y `notification/admin.js` (la
+  administración, `/admin/**`: `sourcesStatus`, `loadedRules`, `searchDeliveries` con su desempate y
+  `retryDelivery`, `deadLetterQueues`, `peekDeadLetters` y `reprocessDeadLetters`, `sendTestEmail` y
+  `sendBroadcast`; lo copiado del servicio para no ofrecer lo que va a fallar, `canRetryDelivery` y
+  `hasMessages`; y lo que se comprueba antes de llamar: `emailProblem`, `linkProblem`, `audienceProblem`,
+  `audiencesProblem`, `isUuid`, y cómo viaja un aviso, `broadcastRequest`; sus enumerados tolerantes,
+  en `enums.js`: `DELIVERY_STATUS`, `DELIVERY_SCOPE`, `INBOX_MESSAGE_STATUS`, `SOURCE_CURSOR_KIND`,
+  `REPROCESS_OUTCOME` y `REPROCESS_STOP`; `AUDIENCE_KINDS` y `BROADCAST_CHANNELS` solo viajan en
+  peticiones).
   `resources/` es `mto-resources`: `resources/values.js` (`resourcesPath`, `personLabel`, `unitLabel`, y
   cómo está una caducidad, `expiryState`, con `EXPIRY_WARNING_DAYS`, 30),
   `resources/enums.js` (las categorías con su rango, `categoriesAtLeast`, los niveles de unidad y a qué
@@ -175,7 +187,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   Query → sesión → router), `runtimeConfig.js` (`/config.json`), `queryClient.js` (el aviso de error
   global), `theme.js`, **`routeTable.js`** (todas las rutas del backoffice, con su título, sus
   permisos y su entrada de menú), `pages.js` (la pantalla de cada ruta: todas tienen la suya),
-  `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú), `layout/` (`RootLayout`,
+  `routes.js`, `router.js`, `RouteScreen.jsx`, `navigation.js` (el menú: un grupo con una sola entrada
+  visible es esa entrada, como enlace), `layout/` (`RootLayout`,
   `AppHeader` con «Abrir en el backoffice» y la campana, `MainMenu`) y `pages/` (Inicio con el
   diagnóstico y las sondas, sin permiso, no existe, error de ruta, error fatal).
 - `ui/` — lo compartido, que no conoce los módulos: `errors/` (`messages.js`, la tabla de `UiErrors`;
@@ -191,7 +204,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `OffsetPager.jsx` (anteriores y siguientes para una lista sin total), `ServerSearchSelect.jsx` (un
   desplegable que busca en el servidor mientras se escribe y conserva lo elegido: el perfil de un
   seccionador y los desplegables del almacén), `RevisionsModal.jsx` (el port de `RevisionsDialog`: el
-  historial de una fila), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
+  historial de una fila; `whenMissing`, lo que dice de una revisión sin fila, que solo dan los
+  historiales de `mto-configuration`), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
   los seccionadores que abre un turno), `TreeTable.jsx` (un árbol con columnas, `role="treegrid"`: el
   organigrama, porque `Tree` de Mantine no tiene columnas) y `typedDates.js` (las fechas, y fechas y
   horas, escritas en un `DateInput`). `notifySuccess.js` trae además `notifyWarning`, el aviso amarillo
@@ -202,12 +216,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   es el port de `ui/lov`:
   - `CataloguePage`, con `key` por recurso para que cambiar de catálogo empiece de cero;
   - `CatalogueTable`, `CatalogueEditorModal` (`@mantine/form`) y `CatalogueBulkCreateModal`;
-  - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar) y
+  - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar, y
+    `describeRevision`, cómo quedó una entrada en una revisión de su historial) y
     `useCatalogue.js` (la clave `['configuration', 'lovs', recurso]` y las escrituras que releen).
 
   `infrastructure/` es el port de `ui/master`:
   - `MasterPage` (el port de `MasterView`): la lista de un maestro con su búsqueda, sus filtros, sus
-    columnas, «Modificado» y la columna de acciones siempre presente; una página por maestro
+    columnas, «Modificado» y la columna de acciones siempre presente, con el historial de cada fila
+    (`masterHistory.js`, el port de `MasterHistory`: la línea de cada maestro en una revisión); una página por maestro
     (`ExecutionPackagesPage`, `StationsPage`, `TracksPage`, `ProfilesPage`, `DisconnectorsPage`,
     `SectionInsulatorsPage`, `TrackAccessPointsPage`) pone columnas, filtros y editor;
   - `MasterEditorModal` (el marco de cada editor) y un editor por maestro sobre `@mantine/form`, con
@@ -280,7 +296,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     (`DefectEditorModal` y `DefectTransitionModals`);
   - `ReportsPage` (el avance y el mes, con sus descargas) y los catálogos: `TeamsPage` (con
     `TeamEditorModal`), `TaskTypesPage` (con `TaskEquipmentModal`, el equipo que exige un tipo) e
-    `InspectionTemplatesPage`;
+    `InspectionTemplatesPage` (con `InspectionTemplateVersionModal`, la versión nueva con su lista de
+    puntos, e `InspectionTemplateRenameModal`);
   - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos y los tipos de tarea),
     `useMaintenance.js` (las claves `['maintenance', …]`,
     las consultas y las escrituras con lo que releen), `useMaintenanceNames.js` (el port de
@@ -298,8 +315,15 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     `AccessPage` (los accesos, con la IP comprobada antes de pedir);
   - `EventDetailModal.jsx`: `ActivityEventModal`, que pide la línea con su `payload`, y
     `AccessEventModal`, con la fila, porque la lista de accesos sí lo trae;
+  - `NotificationAdminPage` (el port de `NotificationAdminView`, `notificaciones/administracion`), con
+    sus cinco pestañas en `LazyTabs`: `AdminSourcesPanel`, `AdminDeadLettersPanel` (con
+    `DeadLetterPeekModal` y `DeadLetterReprocessModal`), `AdminDeliveriesPanel`, `AdminRulesPanel` y
+    `AdminBroadcastsPanel` (con `TestEmailModal` y `BroadcastModal`); `adminTexts.js`, lo que dice cada
+    una (el resumen de las fuentes, el de una pasada de reproceso, el freno de una regla, la
+    confirmación de un aviso);
   - `useNotifications.js` (las claves `['notifications', …]`, el contador cada 30 s sin aviso de
-    error, y marcar, que relee la bandeja y el contador sin esperarlos), `notificationRoutes.js` y
+    error, y marcar, que relee la bandeja y el contador sin esperarlos; y las de la administración,
+    `['notifications', 'admin', …]`, con lo que relee cada escritura), `notificationRoutes.js` y
     `notificationTexts.js` (recuentos, el nombre de la campana, los campos de una línea y su
     `payload` clave a clave).
 
@@ -353,6 +377,10 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   (`resource_access`), y solo los del catálogo de cada cliente. Un rol de realm nunca concede nada,
   aunque se llame como un permiso; los nombres no se repiten entre clientes. `securityLayer.test.js`
   compara `ROLE_CATALOG` con los roles de cliente del realm (`fixtures/realm-client-roles.json`).
+- **Un grupo del menú con una sola entrada visible se pinta como enlace, no como desplegable**
+  (`buildMenu`), con el título de su pantalla: quien solo lee su bandeja ve «Notificaciones», y quien
+  solo lee el registro, «Registro de actividad», como en el backoffice, donde el nodo del grupo es la
+  propia pantalla. Con dos o más entradas visibles el grupo sigue siendo un grupo.
 - **El menú y `RequirePermission` no son la seguridad.** Esconden lo que la persona no puede abrir;
   manda el 403 de cada servicio, que se notifica. Los botones siguen los permisos del servicio con
   `session.hasAll(...)`.
@@ -525,6 +553,24 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **El historial de una fila es el del servicio**: paginado, la más reciente primero, sin `sort`. Sin
   revisiones el servicio responde 404, que es «sin historial todavía» y no se avisa
   (`meta.silentNotFound`).
+- **El historial de un maestro y de un catálogo es el de `mto-configuration`, y pide dos permisos.**
+  `GET /{recurso}/{id}/revisions` (los siete maestros y los 17 catálogos; `masterRevisionsPath`,
+  `lovRevisionsPath`), en el mismo `RevisionsModal`, sin pedir nada más.
+  - El botón «Historial de …» de cada fila se ofrece solo con `config-audit` **y** `config-read`
+    (`session.hasAll`): con uno solo el servicio responde 403. En un maestro va detrás de sus acciones
+    propias (el esquema de una vía) y antes de borrar; en un catálogo, entre modificar y borrar, y la
+    columna de acciones existe si hay algo que ofrecer (escribir, borrar o auditar).
+  - «Cómo quedó» la pone `MASTER_HISTORY` por maestro y `describeRevision` para una entrada: sus campos
+    principales y los nombres de sus referencias como en su lista (`#id` lo que ya no está), sin
+    separadores sueltos por lo que falta. Los nombres son los de hoy, también para el servicio. Las
+    cifras se pintan como llegan, sin redondear.
+  - Una fila sin revisiones (sembrada por una migración) es el 404 `NOT-001`: «sin historial todavía»,
+    sin aviso. Una revisión sin fila (`entity: null`) dice «Sin datos de la fila en esta revisión»
+    («de la entrada», en un catálogo: `whenMissing`), y el borrado de una entrada de catálogo, que es
+    físico y solo guarda el id, «Borrada del catálogo: sus datos están en la revisión anterior».
+  - `source` es la cadena leída (`HTTP` o `SYSTEM`); `userId`, `requestMethod` y `requestUri` no se
+    leen. La `entity` de una revisión no es un cuerpo para un `PUT` (`versionNumber` llega a `null`):
+    desde el historial no se edita nada.
 - **Un desplegable del almacén busca en el servidor** (`StockPicker` sobre `ServerSearchSelect`): en
   un diálogo solo ofrece lo activo, porque el servicio rechaza lo retirado; en un filtro y en
   Existencias, también lo retirado, marcado como tal, para encontrar lo de antes.
@@ -669,6 +715,39 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   cada persona con el enlace a su ficha y «Nada» en una sección vacía. Si Keycloak no responde (503
   `KCK-503`), se dice en la pantalla con «Reintentar» y sin aviso aparte; «Actualizar» lo vuelve a pedir.
   Dice, no arregla.
+- **Las plantillas de inspección se mantienen desde su pantalla, y una versión nunca cambia sus
+  puntos** (`mantenimiento/plantillas`, el port de `InspectionTemplatesView`). Una plantilla está
+  versionada por tipo de activo, con una activa por tipo como mucho; una inspección copia los puntos de
+  la activa al crearse, y las ya creadas no cambian.
+  - Quien lee (`maintenance-read`) ve la activa de cada tipo de activo (los cuatro, tengan versiones o
+    no; «Sin plantilla activa»), todas las versiones con quién creó cada una, y los puntos de la que
+    elija; al abrir, los de la primera activa.
+  - Escribir pide `maintenance-supervise` **y** `maintenance-write` (`session.hasAll`), **y que el
+    servicio deje**: si alguna versión leída llega sin `lockVersion` (un `mto-maintenance` anterior, que
+    no tiene `POST` ni `PATCH`), no se ofrece nada a nadie (`templatesAreWritable`); una lista vacía
+    cuenta como escribible. Una versión de un tipo de activo desconocido se lee y no ofrece nada.
+  - **`version` es el número de la versión, no el bloqueo.** El bloqueo es `lockVersion`, que viaja
+    dentro del parche; `version` no se manda nunca (el `PATCH` lo rechaza con 400 `VAL-001`). Por eso
+    estos parches no salen de `buildMergePatch`, que pone `version`.
+  - «Nueva versión» (`POST`, JSON) lleva la lista **entera** de puntos en el orden de la pantalla (añadir,
+    quitar, subir y bajar; 100 como mucho), sin `orderIndex`, `id` ni `version`, y lo vacío no viaja.
+    Parte de la activa del tipo (sin ella, de su versión más alta; sin ninguna, vacía) o de la versión de
+    su fila. `replacesVersion` es siempre el número de la **activa del tipo tal como se leyó**, y no viaja
+    si no hay. Nace activa y la activa pasa a anterior: lo dice el aviso del diálogo, sin un segundo
+    «¿seguro?» («Crear y activar»). Tras crearla, la lista se relee y queda elegida.
+  - Antes de llamar (`templateVersionErrors`): el nombre, al menos un punto, y de cada punto su código
+    (con la forma del servicio y sin repetir: se marca el repetido, no el primero; no se pasa a
+    mayúsculas solo), su texto, y un mínimo y un máximo que sean medidas (con signo, 9 enteros y 3
+    decimales, como las de un checklist) y no estén al revés.
+  - Los errores del servicio, con el diálogo abierto: `name` en el nombre; `items[i].campo` en el campo
+    de la fila `i` (`requiresMeasure`, en su texto); `items` e `items[i]` bajo la lista («Fila 2: …»); lo
+    demás, un aviso con su ruta. Un 400 `VAL-001` sin campos y un 409 `CON-001` se avisan sin releer.
+  - Renombrar (`PATCH` merge-patch, `{name, lockVersion}`; el mismo nombre se cierra sin llamar) deja el
+    diálogo abierto ante un `CON-001` o un `TPL-404`. Activar y desactivar (`{active, lockVersion}`) se
+    confirman diciendo qué pasa (la activa pasa a anterior; el tipo se queda sin plantilla y sus
+    inspecciones nuevas, sin checklist) y **releen la lista salga bien o no**, porque la confirmación ya
+    está cerrada. El 404 `TPL-404` dice que esa versión no existe y pide recargar la lista.
+  - Nada se borra, los puntos de una versión no se editan y no hay historial: las versiones lo son.
 - **El equipo que exige un tipo de tarea lo cambia quien supervisa** (`TaskTypesPage`, columna «Equipo
   exigido» y su botón «Equipo de …», con `maintenance-supervise` **y** `maintenance-write`):
   `PATCH /task-types/{code}` merge-patch con la versión leída, el equipo como conjunto, quitarlo todo
@@ -730,9 +809,48 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **El detalle de una línea del registro se pide a su línea**: la lista no trae el `payload` y
   `GET /activity/{id}` sí; el de un acceso viene en su fila. Se enseña tal cual, clave a clave,
   ordenado y como texto: aquí no se interpreta nada.
-- **Las listas de `mto-notification` desempatan con lo que el servicio deja ordenar**: la bandeja por
-  `createdAt,desc`, porque no admite el id, y el registro y los accesos por `seq,desc`. Un `sort`
-  desconocido es un 400 `REQ-400`.
+- **Las listas de `mto-notification` desempatan con lo que el servicio deja ordenar**: la bandeja y las
+  entregas de la administración por `createdAt,desc`, porque no admiten el id, y el registro y los
+  accesos por `seq,desc`. Un `sort` desconocido es un 400 `REQ-400`.
+- **La administración de notificaciones es la de `mto-notification`, y lo que admite cada cosa lo dice
+  el servicio.** `notificaciones/administracion`, con `notification-admin` (un rol de realm no la abre;
+  la llevan `mto-notification-admin` y `mto-ops`). En el menú cuelga de «Notificaciones», el grupo de la
+  bandeja; quien solo tiene una de las dos ve esa, como enlace suelto. Cinco pestañas en `LazyTabs`: cada una pide sus datos la primera vez que se abre y con su
+  «Actualizar», sin sondeo; al entrar solo se piden las fuentes.
+  - **Fuentes** (`GET /admin/sources`): el inbox por fuente y estado, el lector de Keycloak (hasta dónde
+    leyó, quién lo tiene arrendado, su último error), las ráfagas abiertas y las entregas por estado. Las
+    cifras son del servicio; un estado de entrega nuevo se enseña con su clave, detrás de los conocidos.
+    Un fallo se avisa y deja el resumen y las tablas vacíos.
+  - **Mensajes muertos (DLQ)** (`GET /admin/dead-letters`): `messages: null` es «Sin cola en el broker»,
+    y `enabled: false`, RabbitMQ apagado en el despliegue, que se dice sin tabla ni acciones. «Mirar» y
+    «Reprocesar» se ofrecen solo donde hay mensajes (`hasMessages`): sin cola sería el 409 `SRC-409`.
+    «Mirar» pide los primeros 20 (`?max=20`) y enseña lo que hay, nunca el cuerpo; si falla, se avisa y no
+    se abre nada, y al cerrar no se relee nada. «Reprocesar» (`POST …/reprocess?max=`, sin cuerpo) dice en
+    su diálogo qué va a pasar, pide de 1 a 100 (20 de partida; fuera de rango o vacío no se llama), enseña
+    en el mismo diálogo el resultado (pedidos, sacados, procesados, duplicados, fallidos, cuántos quedan,
+    por qué paró y qué fue de cada mensaje) y relee las colas; un error se dice con el diálogo abierto, sin
+    releer. Nada lo repite solo.
+  - **Entregas** (`GET /admin/deliveries`): paginadas (50), filtradas (estado, canal escrito entero y
+    notificación por su id) y ordenadas en el servicio; lo que no se filtra no viaja. Un id de
+    notificación a medias no pide nada: el campo se marca y la lista sigue con el último filtro bien
+    formado (`isUuid`). «Reintentar» solo en una fallida o una omitida (`canRetryDelivery`, copiado del
+    servicio; lo demás, también un estado desconocido, sería su 409 `DLV-409`), sin confirmación, y la
+    lista se relee salga bien o no.
+  - **Reglas** (`GET /admin/rules`): de solo lectura (se cambian en el YAML del servicio), enteras, con
+    filtro local sin mayúsculas ni tildes. Sin gravedad, «La del evento»; el freno, «Uno cada 30 min por
+    …», con la duración ISO en días, horas y minutos, o tal cual si no se sabe leer.
+  - **Avisos manuales**: no pide nada al abrirse. El correo de prueba (`POST /admin/test-email {to}`,
+    202) exige una dirección con forma de email, sin confirmación; el aviso general
+    (`POST /admin/broadcasts`, 201; su `Location` no se usa) ofrece solo lo que el servicio acepta (las
+    cuatro clases de audiencia, una por línea como `CLASE:clave`; los dos canales; las tres gravedades),
+    comprueba lo evidente antes de llamar (título, al menos una audiencia bien formada con la regla del
+    servicio, al menos un canal, un enlace que la bandeja sepa seguir) y **se confirma antes de enviarse**,
+    diciendo a quién va y por dónde: llega a personas de verdad. Lo vacío no viaja, las audiencias van sin
+    repetir y los canales en el orden `inbox`, `email`. Los errores del servicio van a su campo
+    (`audiences[0]`, al de las audiencias), con el diálogo abierto; tras enviar, las entregas se releen si
+    su pestaña ya se abrió, y la pestaña dice lo último enviado.
+  - Sus códigos se dicen por lo que son, sin pedir recargar: `DLV-404`, `DLV-409`, `SRC-404`, `SRC-409`
+    (con el detalle del servicio), `SRC-503` y `NTF-422` (con su detalle).
 - **Un trabajo se lanza y se sigue; no se espera.**
   - Lanzar responde 202 con el trabajo, o 429 con el trabajo ya rechazado y un `Retry-After`
     (`rejectedJobOf`): se apunta como rechazado y el aviso dice cuándo reintentar, no es un fallo.

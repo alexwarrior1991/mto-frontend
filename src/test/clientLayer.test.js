@@ -33,6 +33,7 @@ import {
     deleteLov,
     listLovs,
     lovEntryWithEnabled,
+    lovRevisionsPath,
     newLovEntry,
     updateLov,
 } from '../api/configuration/lovs.js'
@@ -48,6 +49,7 @@ import {
     disconnectorsOf,
     masterBody,
     masterFilter,
+    masterRevisionsPath,
     trackSchematic,
     updateMaster,
 } from '../api/configuration/masters.js'
@@ -92,6 +94,16 @@ import {
     taskTypeEquipmentPatch,
     teamRequest,
     updateTeam,
+    activeTemplateOf,
+    baseTemplateOf,
+    createInspectionTemplate,
+    hasTemplateLock,
+    isWritableTemplate,
+    patchInspectionTemplate,
+    templateActivePatch,
+    templateRenamePatch,
+    templateRequest,
+    templatesAreWritable,
 } from '../api/maintenance/catalogs.js'
 import {
     createDefect,
@@ -217,7 +229,42 @@ import {
     searchAccess,
     searchActivity,
 } from '../api/notification/activity.js'
-import {ACCESS_OUTCOME, ACTIVITY_CATEGORY, ACTIVITY_SEVERITY, activityCategories, ACTOR_KIND} from '../api/notification/enums.js'
+import {
+    audienceProblem,
+    audiencesOf,
+    audiencesProblem,
+    BROADCAST_CHANNELS,
+    broadcastRequest,
+    canRetryDelivery,
+    DEAD_LETTER_PEEK,
+    deadLetterQueues,
+    DELIVERIES_PAGE_SIZE,
+    deliveryRecipient,
+    emailProblem,
+    hasMessages,
+    linkProblem,
+    loadedRules,
+    peekDeadLetters,
+    reprocessDeadLetters,
+    retryDelivery,
+    searchDeliveries,
+    sendBroadcast,
+    sendTestEmail,
+    sourcesStatus,
+} from '../api/notification/admin.js'
+import {
+    ACCESS_OUTCOME,
+    ACTIVITY_CATEGORY,
+    ACTIVITY_SEVERITY,
+    activityCategories,
+    ACTOR_KIND,
+    DELIVERY_SCOPE,
+    DELIVERY_STATUS,
+    INBOX_MESSAGE_STATUS,
+    REPROCESS_OUTCOME,
+    REPROCESS_STOP,
+    SOURCE_CURSOR_KIND,
+} from '../api/notification/enums.js'
 import {INBOX_PAGE_SIZE, markAllRead, markRead, searchInbox, unreadCount, unreadCountText} from '../api/notification/inbox.js'
 import {notificationTarget} from '../api/notification/links.js'
 import {actorText, subjectText} from '../api/notification/values.js'
@@ -957,6 +1004,20 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
         expect(errorMessage(new TooManyRequestsError(429))).toBe('Error inesperado (429).')
         expect(errorMessage(new Error('otra cosa'))).toBe('Error inesperado.')
     })
+
+    it('la administración de notificaciones: cada código dice lo que pasó, antes del mensaje genérico de su estado y sin pedir recargar', () => {
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'DLV-404', detail: 'Delivery d-1 was not found'})}))).toBe('Esa entrega ya no existe.')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'DLV-409', detail: 'Delivery d-1 is SENT'})})))
+            .toBe('La entrega ya no admite el reintento: solo se reintenta una fallida o una omitida.')
+        expect(errorMessage(new NotFoundError(404, {problem: problem({code: 'SRC-404', detail: 'Source nope is not configured'})})))
+            .toBe('Esa fuente no existe en mto-notification.')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'SRC-409', detail: 'Queue q.dlq does not exist'})})))
+            .toBe('RabbitMQ está apagado en este despliegue, o esa cola de mensajes muertos no existe en el broker. Queue q.dlq does not exist')
+        expect(errorMessage(new UnavailableError(503, {problem: problem({code: 'SRC-503', detail: 'Broker unavailable'})})))
+            .toBe('RabbitMQ no responde ahora: la cola se queda como estaba. Inténtalo más tarde.')
+        expect(errorMessage(new ValidationError(422, {problem: problem({code: 'NTF-422', detail: 'Unknown audience kind TEAM'})})))
+            .toBe('El aviso nombra una audiencia o un canal que el servicio no conoce. Unknown audience kind TEAM')
+    })
 })
 
 describe('ui/errors/serverValidation.js: los errores del servicio campo a campo', () => {
@@ -1548,6 +1609,82 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(lovRef(null)).toBeNull()
         expect(JSON.stringify({poleType: CLEARED_LOV_REF, portal: null})).toBe('{"poleType":{},"portal":null}')
         expect(Object.isFrozen(CLEARED_LOV_REF)).toBe(true)
+    })
+
+    it('el historial de un maestro llega paginado, la más reciente primero, con la fila tal como quedó', async () => {
+        useToken('token-1')
+        const profile = {
+            id: 7, profileId: 'P-007', kp: '12.345', trackId: 3, profileStatus: {id: 2, code: 'OK'}, span: '55.000',
+            cantilevers: [{id: 70, cantileverType: {id: 4, code: 'CT1'}}], versionNumber: null,
+        }
+        const revisions = record('get', '/api/configuration/:resource/:id/revisions', (request) => HttpResponse.json(
+            new URL(request.url).pathname.includes('/tracks/')
+                ? page([{
+                    revision: {revision: 9, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'MERGED', author: 'system', source: 'BATCH',
+                        correlationId: null},
+                    entity: {id: 3, name: 'VIA 1', executionPackageId: 100, stationIds: [12], profiles: null, enabled: true,
+                        versionNumber: null},
+                }], 1, 5, 6)
+                : page([
+                    {
+                        revision: {revision: 4217, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'UPDATED', author: 'config.responsable',
+                            source: 'HTTP', correlationId: '5f0c', userId: 'u-1', requestMethod: 'PUT', requestUri: '/api/v1/x'},
+                        entity: profile,
+                    },
+                    {revision: {revision: 4100, operation: 'CREATED', author: 'system', source: 'SYSTEM', correlationId: null}, entity: null},
+                ], 0, 20, 2)))
+
+        const history = await listRevisions(masterRevisionsPath('profiles', 7))
+        const tracks = await listRevisions(masterRevisionsPath('tracks', 3), {page: 2, size: 5})
+
+        expect(revisions.map((request) => request.url.pathname + request.url.search)).toEqual([
+            '/api/configuration/profiles/7/revisions?page=0&size=20',
+            '/api/configuration/tracks/3/revisions?page=1&size=5',
+        ])
+        expect(revisions[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(history.totalElements).toBe(2)
+        expect(history.content[0].revision).toMatchObject({revision: 4217, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'UPDATED',
+            author: 'config.responsable', source: 'HTTP', correlationId: '5f0c'})
+        expect(history.content[0].entity.cantilevers).toHaveLength(1)
+        expect(history.content[0].entity.versionNumber).toBeNull()
+        expect(history.content[1].entity).toBeNull()
+        expect(tracks.content[0].entity.profiles).toBeNull()
+        expect(REVISION_OPERATION.parse(tracks.content[0].revision.operation)).toBe(UNKNOWN)
+        expect(REVISION_OPERATION.label(tracks.content[0].revision.operation)).toBe('Desconocido')
+        expect(tracks.content[0].revision.source).toBe('BATCH')
+    })
+
+    it('el historial de una entrada de catálogo trae su tipo, su borrado solo el id, y el 404 y el 403 llegan tipados', async () => {
+        useToken()
+        const problem = (status, code) => HttpResponse.json({status, title: 'x', detail: 'x', code},
+            {status, headers: {'Content-Type': 'application/problem+json'}})
+        record('get', '/api/configuration/:resource/:id/revisions', (request) => {
+            const path = new URL(request.url).pathname
+            if (path.includes('/profile-statuses/')) {
+                return problem(404, 'NOT-001')
+            }
+            if (path.includes('/portals/')) {
+                return problem(403, 'SEC-003')
+            }
+            return HttpResponse.json(page([
+                {revision: {revision: 12, operation: 'DELETED', author: 'config.responsable', source: 'HTTP'},
+                    entity: {id: 5, code: null, description: null, enabled: false, versionNumber: null}},
+                {revision: {revision: 8, operation: 'CREATED', author: 'config.responsable', source: 'HTTP'},
+                    entity: {id: 5, code: 'C-1', description: 'Cimentación 1', enabled: true, foundationType: {id: 2, code: 'FT-OLD'},
+                        versionNumber: null}},
+            ], 0, 20, 2))
+        })
+
+        const history = await listRevisions(lovRevisionsPath('foundations', 5))
+        const none = await failure(listRevisions(lovRevisionsPath('profile-statuses', 1)))
+        const forbidden = await failure(listRevisions(lovRevisionsPath('portals', 1)))
+
+        expect(lovRevisionsPath('foundations', 5)).toBe('/api/configuration/foundations/5/revisions')
+        expect(history.content[0].entity).toEqual({id: 5, code: null, description: null, enabled: false, versionNumber: null})
+        expect(history.content[1].entity.foundationType.code).toBe('FT-OLD')
+        expect(none).toBeInstanceOf(NotFoundError)
+        expect(none.code).toBe('NOT-001')
+        expect(forbidden).toBeInstanceOf(ForbiddenError)
     })
 })
 
@@ -2689,6 +2826,85 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(json(puts[0])).toEqual({code: 'EQ-01', name: 'Brigada norte', baseName: null, vehicle: null, active: false, executionPackageIds: [3, 5]})
         expect(types[0].url.search).toBe('?functionalGroup=OVERHEAD_CONDUCTORS')
         expect(templates[0].items[0].code).toBe('P-01')
+    })
+
+    it('las plantillas de inspección se versionan y se parchean con su lockVersion, nunca con su número de versión', async () => {
+        useToken()
+        const item = (code, orderIndex, extra = {}) => ({id: `i-${code}`, code, label: `Punto ${code}`, unit: null, minValue: null,
+            maxValue: null, requiresMeasure: false, orderIndex, ...extra})
+        const audit = {createdAt: '2026-11-13T08:40:00Z', updatedAt: '2026-11-13T08:40:00Z', createdBy: 'config.responsable',
+            updatedBy: 'config.responsable'}
+        const active = {id: 'tpl2', assetType: 'PROFILE', version: 2, name: 'Perfil', active: true, items: [item('P-01', 1)], lockVersion: 4, audit}
+        const previous = {id: 'tpl1', assetType: 'PROFILE', version: 1, name: 'Perfil', active: false, items: [], lockVersion: 5, audit}
+        const old = {id: 'tpl9', assetType: 'SWITCH_HEATER', version: 1, name: 'Calefactor', active: true, items: []}
+        record('get', `${BASE}/inspection-templates`, () => HttpResponse.json([active, previous, old]))
+        const posts = record('post', `${BASE}/inspection-templates`, (_request, call) => {
+            if (call === 1) {
+                return HttpResponse.json({...active, id: 'tpl3', version: 3, lockVersion: 0}, {status: 201, headers: {Location: '/api/v1/x'}})
+            }
+            return call === 2
+                ? maintenanceError(409, 'CON-001', 'The active template of TRACK_SECTION is not version null')
+                : maintenanceError(400, 'REQ-VALIDATION', 'Validation failed', [
+                    {field: 'items[1].code', message: 'must match "[A-Z0-9][A-Z0-9_.-]*"'}, {field: 'items', message: 'size must be between 1 and 100'}])
+        })
+        const patches = record('patch', `${BASE}/inspection-templates/:id`, (request) => (new URL(request.url).pathname.endsWith('/nope')
+            ? maintenanceError(404, 'TPL-404', 'Inspection template nope was not found')
+            : HttpResponse.json({...active, lockVersion: 5})))
+
+        const templates = await listInspectionTemplates()
+        const created = await createInspectionTemplate(templateRequest({
+            assetType: 'PROFILE', name: '  Perfil 2027 ', replacesVersion: activeTemplateOf(templates, 'PROFILE').version,
+            items: [
+                {key: 7, code: ' P-02 ', label: ' Estado de la ménsula ', unit: '  ', minValue: '', maxValue: '', requiresMeasure: false,
+                    orderIndex: 9, id: 'x', version: 1},
+                {code: 'P-01', label: 'Altura del hilo', unit: ' mm ', minValue: '-5.5', maxValue: '5700', requiresMeasure: true},
+            ],
+        }))
+        const conflict = await failure(createInspectionTemplate(templateRequest({
+            assetType: 'TRACK_SECTION', name: 'Tramo', replacesVersion: activeTemplateOf(templates, 'TRACK_SECTION')?.version ?? null,
+            items: [{code: 'T-1', label: 'Balasto', requiresMeasure: false}],
+        })))
+        const invalid = await failure(createInspectionTemplate({assetType: 'PROFILE', name: 'x', items: []}))
+        await patchInspectionTemplate('tpl2', templateRenamePatch(active, ' Perfil 2027 '))
+        await patchInspectionTemplate('tpl1', templateActivePatch(previous, false))
+        const missing = await failure(patchInspectionTemplate('nope', templateActivePatch(active, true)))
+
+        // version es el número de la versión; el bloqueo es lockVersion.
+        expect(templates[0]).toMatchObject({version: 2, lockVersion: 4, audit: {createdBy: 'config.responsable'}})
+        expect(templates.map(hasTemplateLock)).toEqual([true, true, false])
+        expect(templates.map(isWritableTemplate)).toEqual([true, true, false])
+        expect(ASSET_TYPE.label(old.assetType)).toBe('Desconocido')
+        expect(templatesAreWritable(templates)).toBe(false)
+        expect(templatesAreWritable([active, previous])).toBe(true)
+        expect(templatesAreWritable([])).toBe(true)
+        expect(isWritableTemplate({...old, lockVersion: 0})).toBe(false)
+        expect(baseTemplateOf([previous, {...active, active: false}], 'PROFILE').version).toBe(2)
+        expect(baseTemplateOf(templates, 'TRACK_SECTION')).toBeNull()
+
+        expect(posts[0].headers.get('content-type')).toBe('application/json')
+        expect(json(posts[0])).toStrictEqual({
+            assetType: 'PROFILE', name: 'Perfil 2027', replacesVersion: 2,
+            items: [
+                {code: 'P-02', label: 'Estado de la ménsula', requiresMeasure: false},
+                {code: 'P-01', label: 'Altura del hilo', unit: 'mm', minValue: -5.5, maxValue: 5700, requiresMeasure: true},
+            ],
+        })
+        expect(created).toMatchObject({id: 'tpl3', version: 3, lockVersion: 0})
+        expect(json(posts[1])).toStrictEqual({assetType: 'TRACK_SECTION', name: 'Tramo', items: [{code: 'T-1', label: 'Balasto', requiresMeasure: false}]})
+        expect(conflict).toBeInstanceOf(ConflictError)
+        expect(conflict.code).toBe('CON-001')
+        expect(invalid).toBeInstanceOf(ValidationError)
+        expect(invalid.fieldErrors.map((error) => error.field)).toEqual(['items[1].code', 'items'])
+
+        expect(patches.map((request) => [request.url.pathname, request.headers.get('content-type'), json(request)])).toStrictEqual([
+            [`${BASE}/inspection-templates/tpl2`, MERGE_PATCH, {name: 'Perfil 2027', lockVersion: 4}],
+            [`${BASE}/inspection-templates/tpl1`, MERGE_PATCH, {active: false, lockVersion: 5}],
+            [`${BASE}/inspection-templates/nope`, MERGE_PATCH, {active: true, lockVersion: 4}],
+        ])
+        expect(templateRenamePatch(active, ' Perfil ')).toBeNull()
+        expect(missing).toBeInstanceOf(NotFoundError)
+        expect(missing.code).toBe('TPL-404')
+        expect(errorMessage(missing)).toBe('Esa versión de la plantilla de inspección no existe: recarga la lista.')
     })
 
     it('el equipo exigido de un tipo de tarea viaja como conjunto con su versión, quitarlo todo es null y lo desconocido se conserva', async () => {
@@ -4067,5 +4283,254 @@ describe('notification/*.js: la bandeja, el registro y los accesos de mto-notifi
         expect(sortWithTieBreak({field: 'createdAt', direction: 'asc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['createdAt,asc'])
         expect(sortWithTieBreak({field: 'title', direction: 'desc'}, 'createdAt,desc', 'createdAt,desc')).toEqual(['title,desc', 'createdAt,desc'])
         expect(sortWithTieBreak(null, ['trackId,asc', 'startKp,asc'])).toEqual(['trackId,asc', 'startKp,asc', 'id,asc'])
+    })
+
+    it('la administración: las reglas cargadas y el estado de las fuentes se leen como los da el servicio', async () => {
+        useToken('token-1')
+        const rules = record('get', `${BASE}/admin/rules`, () => HttpResponse.json({
+            source: 'classpath:notification-rules.yml',
+            variables: {'large-burst-threshold': 50},
+            rules: [
+                {key: 'maintenance-order-urgent', events: ['maintenance.order.created'], when: "payload.type == 'URGENT'", severity: 'CRITICAL',
+                    audiences: ['PROFILE:mto-maintenance-manager', 'USER:#{payload.assignedUser}'], channels: ['inbox', 'email'],
+                    title: 'Orden urgente', body: 'Cuerpo', link: '/mantenimiento/ordenes/#{event.subjectId}', throttleWindow: 'PT30M',
+                    throttleKey: '#{payload.code}', keyOfTomorrow: 1},
+                {key: 'rara', events: null, when: null, severity: 'FATAL', audiences: null, channels: null, title: null, link: null},
+            ],
+        }))
+        const sources = record('get', `${BASE}/admin/sources`, () => HttpResponse.json({
+            cursors: [
+                {kind: 'KEYCLOAK_LOGIN', lastEventTime: '2026-09-28T06:07:00Z', leaseOwner: 'pod-1', leaseUntil: '2026-09-28T06:08:00Z',
+                    lastPollAt: '2026-09-28T06:07:10Z', lastSuccessAt: '2026-09-28T06:07:10Z', lastError: null},
+                {kind: 'KEYCLOAK_WEBHOOK', lastEventTime: null},
+            ],
+            inbox: [{sourceService: 'mto-maintenance', status: 'PROCESSED', total: 1204}, {sourceService: 'mto-stock', status: 'PARKED', total: 2}],
+            openBursts: 3,
+            deliveries: {PENDING: 1, SENT: 40, DEFERRED: 7},
+        }))
+
+        const loaded = await loadedRules()
+        const status = await sourcesStatus()
+
+        expect(rules[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(loaded.source).toBe('classpath:notification-rules.yml')
+        expect(loaded.variables).toEqual({'large-burst-threshold': 50})
+        expect(loaded.rules[0]).toMatchObject({key: 'maintenance-order-urgent', throttleWindow: 'PT30M', channels: ['inbox', 'email']})
+        expect(ACTIVITY_SEVERITY.label(loaded.rules[1].severity)).toBe('Desconocido')
+        expect(loaded.rules[1]).toMatchObject({events: [], audiences: [], channels: []})
+        expect(sources[0].url.pathname).toBe(`${BASE}/admin/sources`)
+        expect(status.cursors.map((cursor) => SOURCE_CURSOR_KIND.label(cursor.kind))).toEqual(['Accesos de Keycloak', 'Desconocido'])
+        expect(SOURCE_CURSOR_KIND.label('KEYCLOAK_ADMIN')).toBe('Administración de Keycloak')
+        expect(status.inbox.map((count) => INBOX_MESSAGE_STATUS.label(count.status))).toEqual(['Procesado', 'Desconocido'])
+        expect(INBOX_MESSAGE_STATUS.selectable().map((option) => option.label)).toEqual(['Recibido', 'En proceso', 'Procesado', 'Fallido'])
+        expect(status.openBursts).toBe(3)
+        expect(status.deliveries).toEqual({PENDING: 1, SENT: 40, DEFERRED: 7})
+    })
+
+    it('la administración: las entregas se filtran y se ordenan en el servicio, y solo una fallida o una omitida se reintenta', async () => {
+        useToken()
+        const delivery = (id, status, scope = 'RECIPIENT') => ({
+            id, notificationId: N1, channel: 'email', scope, audienceKey: 'PROFILE:mto-ops', recipient: 'ops@mto.local',
+            recipientUsername: 'config.ops', status, attempts: 3, maxAttempts: 5, nextAttemptAt: null, sentAt: null,
+            lastError: 'Connection refused', createdAt: '2026-09-28T06:07:00Z',
+        })
+        const lists = record('get', `${BASE}/admin/deliveries`, (_request, call) => HttpResponse.json(call === 1
+            ? page([delivery('d-1', 'FAILED'), delivery('d-2', 'BOUNCED', 'TOPIC')], {size: 50})
+            : page([], {size: 50})))
+        const retries = record('post', `${BASE}/admin/deliveries/:id/retry`, (request) => {
+            const id = new URL(request.url).pathname.split('/').at(-2)
+            if (id === 'd-sent') {
+                return notificationError(409, 'DLV-409', 'Delivery d-sent is SENT')
+            }
+            return id === 'd-gone' ? notificationError(404, 'DLV-404', 'Delivery d-gone was not found') : HttpResponse.json(delivery(id, 'PENDING'))
+        })
+
+        const filtered = await searchDeliveries({status: 'FAILED', channel: ' email ', notificationId: ` ${N1} `,
+            sort: {field: 'status', direction: 'asc'}})
+        await searchDeliveries()
+        await searchDeliveries({sort: {field: 'createdAt', direction: 'asc'}, page: 2})
+        const retried = await retryDelivery('d-1')
+        const conflict = await failure(retryDelivery('d-sent'))
+        const gone = await failure(retryDelivery('d-gone'))
+
+        expect(lists[0].url.search).toBe(`?status=FAILED&channel=email&notificationId=${N1}&page=0&size=50&sort=status%2Casc&sort=createdAt%2Cdesc`)
+        expect(lists[1].url.search).toBe('?page=0&size=50&sort=createdAt%2Cdesc')
+        expect(lists[2].url.search).toBe('?page=1&size=50&sort=createdAt%2Casc')
+        expect(DELIVERIES_PAGE_SIZE).toBe(50)
+        // Un id a medias no llega al servicio, que respondería 400.
+        await expect(searchDeliveries({notificationId: '5e6f7a8b-0000'})).rejects.toThrow(/No es el id/)
+        expect(lists).toHaveLength(3)
+
+        expect(filtered.content.map((row) => DELIVERY_STATUS.label(row.status))).toEqual(['Fallida', 'Desconocido'])
+        expect(filtered.content.map((row) => DELIVERY_SCOPE.label(row.scope))).toEqual(['Destinatario', 'Desconocido'])
+        expect(DELIVERY_STATUS.selectable().map((option) => option.label)).toEqual(['Pendiente', 'En curso', 'Enviada', 'Fallida', 'Omitida'])
+        expect(['PENDING', 'IN_PROGRESS', 'SENT', 'FAILED', 'SKIPPED', 'BOUNCED', null].map(canRetryDelivery))
+            .toEqual([false, false, false, true, true, false, false])
+        expect(deliveryRecipient(filtered.content[0])).toBe('ops@mto.local (config.ops)')
+        expect(deliveryRecipient({recipient: 'ops@mto.local', recipientUsername: null})).toBe('ops@mto.local')
+        expect(deliveryRecipient({recipient: null, audienceKey: 'PROFILE:mto-ops'})).toBe('PROFILE:mto-ops')
+
+        expect(retries[0].method).toBe('POST')
+        expect(retries[0].url.pathname).toBe(`${BASE}/admin/deliveries/d-1/retry`)
+        expect(retries[0].body).toBe('')
+        expect(retried.status).toBe('PENDING')
+        expect(conflict).toBeInstanceOf(ConflictError)
+        expect(conflict.code).toBe('DLV-409')
+        expect(gone).toBeInstanceOf(NotFoundError)
+        expect(gone.code).toBe('DLV-404')
+    })
+
+    it('la administración: las colas de mensajes muertos se cuentan, se miran y se reprocesan, y sus errores llegan tipados', async () => {
+        useToken()
+        const queue = (source, messages) => ({source, queue: `mto.notification.${source}.queue`,
+            deadLetterQueue: `mto.notification.${source}.queue.dlq`, messages})
+        const lists = record('get', `${BASE}/admin/dead-letters`, (_request, call) => HttpResponse.json(call === 1
+            ? {enabled: true, queues: [queue('maintenance', 3), queue('stock', 0), queue('field', null)]}
+            : {enabled: false, queues: null}))
+        const peeks = record('get', `${BASE}/admin/dead-letters/:source`, (request) => {
+            const source = new URL(request.url).pathname.split('/').at(-1)
+            if (source !== 'maintenance') {
+                return notificationError(404, 'SRC-404', `Source ${source} is not configured`)
+            }
+            return HttpResponse.json({
+                source, deadLetterQueue: 'mto.notification.maintenance.queue.dlq', messages: 3,
+                peeked: [
+                    {
+                        message: {messageId: 'm-1', sourceService: 'mto-maintenance', eventType: 'MAINTENANCE_ORDER_CREATED',
+                            aggregateType: 'order', aggregateId: 'o-1', exchange: 'mto.maintenance.exchange',
+                            routingKey: 'mto.maintenance.order.created', deathReason: 'rejected', deathCount: 2,
+                            deadLetteredAt: '2026-09-28T06:07:00Z', payloadBytes: 812, problem: null},
+                        inbox: {status: 'FAILED', attempts: 3, failedAt: '2026-09-28T06:07:00Z', failureReason: 'No rule engine'},
+                    },
+                    {message: {messageId: null, problem: 'The body is not an envelope'}, inbox: null},
+                ],
+            })
+        })
+        const runs = record('post', `${BASE}/admin/dead-letters/:source/reprocess`, (request, call) => {
+            const source = new URL(request.url).pathname.split('/').at(-2)
+            if (source === 'field') {
+                return notificationError(409, 'SRC-409', 'The queue does not exist')
+            }
+            if (source === 'stock') {
+                return notificationError(503, 'SRC-503', 'The broker is unavailable')
+            }
+            return HttpResponse.json(call === 1
+                ? {source, deadLetterQueue: 'q.dlq', requested: 10, fetched: 3, processed: 1, duplicates: 1, failed: 1, remaining: 1,
+                    stoppedBy: 'EMPTY', results: [
+                        {messageId: 'm-1', eventType: 'X', routingKey: 'k', outcome: 'PROCESSED', reason: null},
+                        {messageId: 'm-2', eventType: 'X', routingKey: 'k', outcome: 'PARKED', reason: 'later'},
+                    ]}
+                : {source, deadLetterQueue: 'q.dlq', requested: 20, fetched: 0, stoppedBy: 'BROKER_GONE', remaining: null, results: null})
+        })
+
+        const queues = await deadLetterQueues()
+        const off = await deadLetterQueues()
+        const peek = await peekDeadLetters('maintenance', {max: 5})
+        await peekDeadLetters('maintenance')
+        const unknownSource = await failure(peekDeadLetters('nope'))
+        const first = await reprocessDeadLetters('maintenance', 10)
+        const second = await reprocessDeadLetters('maintenance', 20)
+        const noQueue = await failure(reprocessDeadLetters('field', 20))
+        const broker = await failure(reprocessDeadLetters('stock', 20))
+
+        expect(lists[0].url.pathname).toBe(`${BASE}/admin/dead-letters`)
+        expect(queues.enabled).toBe(true)
+        expect(queues.queues.map(hasMessages)).toEqual([true, false, false])
+        expect(off).toEqual({enabled: false, queues: []})
+
+        expect(peeks.map((request) => request.url.pathname + request.url.search)).toEqual([
+            `${BASE}/admin/dead-letters/maintenance?max=5`, `${BASE}/admin/dead-letters/maintenance?max=${DEAD_LETTER_PEEK}`,
+            `${BASE}/admin/dead-letters/nope?max=20`])
+        expect(peek.peeked[0].message).toMatchObject({messageId: 'm-1', deathCount: 2, payloadBytes: 812})
+        expect(INBOX_MESSAGE_STATUS.label(peek.peeked[0].inbox.status)).toBe('Fallido')
+        expect(peek.peeked[1]).toEqual({message: {messageId: null, problem: 'The body is not an envelope'}, inbox: null})
+        expect(unknownSource).toBeInstanceOf(NotFoundError)
+        expect(unknownSource.code).toBe('SRC-404')
+
+        expect(runs[0].method).toBe('POST')
+        expect(runs[0].url.pathname + runs[0].url.search).toBe(`${BASE}/admin/dead-letters/maintenance/reprocess?max=10`)
+        expect(runs[0].body).toBe('')
+        expect(first).toMatchObject({requested: 10, fetched: 3, processed: 1, duplicates: 1, failed: 1, remaining: 1, stoppedBy: 'EMPTY'})
+        expect(first.results.map((result) => REPROCESS_OUTCOME.label(result.outcome))).toEqual(['Procesado', 'Desconocido'])
+        expect(REPROCESS_STOP.label(first.stoppedBy)).toBe('la cola se quedó sin mensajes')
+        expect(REPROCESS_STOP.isKnown(second.stoppedBy)).toBe(false)
+        expect(second.remaining).toBeNull()
+        expect(second.results).toEqual([])
+        expect(noQueue).toBeInstanceOf(ConflictError)
+        expect(noQueue.code).toBe('SRC-409')
+        expect(broker).toBeInstanceOf(UnavailableError)
+        expect(broker.code).toBe('SRC-503')
+
+        // Fuera de 1..100 no se llama: el servicio respondería 400 VAL-001.
+        for (const max of [0, 101, 2.5, '', null]) {
+            await expect(reprocessDeadLetters('maintenance', max)).rejects.toThrow(/de 1 a 100/)
+        }
+        expect(runs).toHaveLength(4)
+    })
+
+    it('la administración: un correo de prueba y un aviso general viajan con su cuerpo, y sus rechazos llegan tipados', async () => {
+        useToken()
+        const created = (ruleKey, audiences) => ({id: N1, ruleKey, category: 'SYSTEM', severity: 'INFO', title: 'x', audiences,
+            createdAt: '2026-09-28T06:07:00Z', createdBy: 'notificacion.responsable'})
+        const mails = record('post', `${BASE}/admin/test-email`, (_request, call) => (call === 1
+            ? HttpResponse.json(created('test-email', ['USER:notificacion.responsable']), {status: 202})
+            : notificationError(400, 'REQ-VALIDATION', 'Validation failed', [{field: 'to', message: 'must be a well-formed email address'}])))
+        const broadcasts = record('post', `${BASE}/admin/broadcasts`, (_request, call) => (call === 1
+            ? HttpResponse.json(created('manual-broadcast', ['PROFILE:mto-ops']), {status: 201, headers: {Location: '/api/v1/x'}})
+            : notificationError(422, 'NTF-422', 'Unknown audience kind TEAM')))
+
+        const mail = await sendTestEmail('  ops@mto.local ')
+        const badMail = await failure(sendTestEmail('ops@'))
+        const request = broadcastRequest({
+            title: '  Parada programada del sábado ', body: '   ', link: '', severity: 'WARNING',
+            audiences: 'PROFILE:mto-ops\n\n  CLIENT_ROLE:mto-notification-api:notification-inbox \nPROFILE:mto-ops',
+            channels: ['email', 'inbox'],
+        })
+        const sent = await sendBroadcast(request)
+        const rejected = await failure(sendBroadcast({...request, audiences: ['TEAM:a']}))
+
+        expect(JSON.parse(mails[0].body)).toEqual({to: 'ops@mto.local'})
+        expect(mail.ruleKey).toBe('test-email')
+        expect(badMail).toBeInstanceOf(ValidationError)
+        expect(badMail.fieldErrors).toEqual([expect.objectContaining({field: 'to', message: 'must be a well-formed email address'})])
+        expect(JSON.parse(broadcasts[0].body)).toEqual({
+            title: 'Parada programada del sábado', severity: 'WARNING',
+            audiences: ['PROFILE:mto-ops', 'CLIENT_ROLE:mto-notification-api:notification-inbox'], channels: ['inbox', 'email'],
+        })
+        expect(sent.audiences).toEqual(['PROFILE:mto-ops'])
+        expect(broadcastRequest({title: 'a', body: ' b ', link: ' /notificaciones ', severity: 'INFO', audiences: 'USER:a', channels: ['inbox']}))
+            .toEqual({title: 'a', body: 'b', link: '/notificaciones', severity: 'INFO', audiences: ['USER:a'], channels: ['inbox']})
+        expect(rejected).toBeInstanceOf(ValidationError)
+        expect(rejected.code).toBe('NTF-422')
+        expect(rejected.hasFieldErrors).toBe(false)
+    })
+
+    it('la administración: una audiencia se comprueba con la regla del servicio antes de viajar', () => {
+        for (const valid of ['USER:nombre.de.usuario', 'USER_ID:9f1c', 'PROFILE:mto-admin', 'CLIENT_ROLE:mto-stock-api:stock-read',
+            'profile:mto-admin', 'user-id:9f1c', ' client-role : mto-stock-api:stock-read ']) {
+            expect(audienceProblem(valid), valid).toBeNull()
+        }
+        expect(audienceProblem('mto-admin')).toBe('«mto-admin» no es CLASE:clave')
+        expect(audienceProblem(':mto-admin')).toBe('«:mto-admin» no es CLASE:clave')
+        expect(audienceProblem('PROFILE:  ')).toBe('«PROFILE:» no es CLASE:clave')
+        expect(audienceProblem('TEAM:a')).toBe('«TEAM:a»: la clase es USER, USER_ID, PROFILE o CLIENT_ROLE')
+        expect(audienceProblem('CLIENT_ROLE:stock-read')).toBe('«CLIENT_ROLE:stock-read»: un rol de cliente es CLIENT_ROLE:cliente:rol')
+        expect(audienceProblem(`USER:${'a'.repeat(300)}`)).toBe('Una audiencia tiene como mucho 300 caracteres')
+
+        expect(audiencesOf(' USER:a \r\n\nPROFILE:b\nUSER:a')).toEqual(['USER:a', 'PROFILE:b'])
+        expect(audiencesProblem(' \n ')).toBe('Al menos una audiencia')
+        expect(audiencesProblem('USER:a\nTEAM:b\nmal')).toBe('«TEAM:b»: la clase es USER, USER_ID, PROFILE o CLIENT_ROLE')
+        expect(audiencesProblem('USER:a\nPROFILE:b')).toBeNull()
+        expect(BROADCAST_CHANNELS).toEqual([{value: 'inbox', label: 'Bandeja'}, {value: 'email', label: 'Correo'}])
+
+        expect(emailProblem('  ')).toBe('La dirección es obligatoria')
+        expect(emailProblem('ops@')).toBe('No tiene forma de email')
+        expect(emailProblem(`${'a'.repeat(315)}@mto.local`)).toBe('Como mucho 320 caracteres')
+        expect(emailProblem(' ops@mto.local ')).toBeNull()
+        expect(linkProblem('')).toBeNull()
+        expect(linkProblem('/notificaciones')).toBeNull()
+        expect(linkProblem('https://estado.example/x')).toBeNull()
+        expect(linkProblem('notificaciones')).toBe('Una ruta de la aplicación (/notificaciones) o una dirección http(s)')
+        expect(linkProblem(`/${'a'.repeat(500)}`)).toBe('Como mucho 500 caracteres')
     })
 })

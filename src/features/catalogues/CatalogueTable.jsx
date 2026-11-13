@@ -1,18 +1,19 @@
 import {ActionIcon, Checkbox, Group, Loader, Table, Text, Tooltip, UnstyledButton, VisuallyHidden} from '@mantine/core'
-import {IconChevronDown, IconChevronUp, IconPencil, IconSelector, IconTrash} from '@tabler/icons-react'
+import {IconChevronDown, IconChevronUp, IconHistory, IconPencil, IconSelector, IconTrash} from '@tabler/icons-react'
 import {formatDateTime} from '../../ui/format.js'
 
 /**
  * Las filas de un catalogo: codigo, descripcion, el tipo en los tres que lo llevan, si esta activa y
  * quien la toco por ultima vez. Las casillas (para los lotes) y las acciones de cada fila salen solo
- * con su permiso; esconderlas es cortesia, porque quien manda es el 403 del servicio.
+ * con su permiso; esconderlas es cortesia, porque quien manda es el 403 del servicio. La columna de
+ * acciones existe si hay algo que ofrecer: modificar, el historial o borrar, en ese orden.
  *
  * @param {object|null} selection {selected: Set de ids, toggle(id), toggleAll()} o null sin lotes
  * @param {string|null} emptyText lo que se dice cuando no hay filas que ensenar
  */
-export default function CatalogueTable({resource, rows, loading, emptyText, sort, onSort, selection, onEdit, onDelete}) {
+export default function CatalogueTable({resource, rows, loading, emptyText, sort, onSort, selection, onEdit, onHistory, onDelete}) {
     const parent = resource.parent ?? null
-    const withActions = Boolean(onEdit || onDelete)
+    const withActions = Boolean(onEdit || onHistory || onDelete)
     const columns = 5 + (parent ? 1 : 0) + (selection ? 1 : 0) + (withActions ? 1 : 0)
     const selectedShown = selection ? rows.filter((row) => selection.selected.has(row.id)).length : 0
 
@@ -35,7 +36,7 @@ export default function CatalogueTable({resource, rows, loading, emptyText, sort
                         <Table.Th>Activo</Table.Th>
                         <Table.Th>Modificado</Table.Th>
                         <Table.Th>Por</Table.Th>
-                        {withActions && <Table.Th w={80}><VisuallyHidden>Acciones</VisuallyHidden></Table.Th>}
+                        {withActions && <Table.Th w={110}><VisuallyHidden>Acciones</VisuallyHidden></Table.Th>}
                     </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -70,6 +71,14 @@ export default function CatalogueTable({resource, rows, loading, emptyText, sort
                                                 <ActionIcon variant="subtle" aria-label={`Modificar ${row.code}`}
                                                             onClick={() => onEdit(row)}>
                                                     <IconPencil size={16}/>
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
+                                        {onHistory && (
+                                            <Tooltip label="Historial" withArrow>
+                                                <ActionIcon variant="subtle" aria-label={`Historial de ${row.code}`}
+                                                            onClick={() => onHistory(row)}>
+                                                    <IconHistory size={16}/>
                                                 </ActionIcon>
                                             </Tooltip>
                                         )}

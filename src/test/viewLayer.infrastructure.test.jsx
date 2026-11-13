@@ -3,10 +3,13 @@ import {http, HttpResponse} from 'msw'
 import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
+import {MASTER_HISTORY} from '../features/infrastructure/masterHistory.js'
+import {buildReferenceCatalog} from '../features/infrastructure/references.js'
 import {
     armDirection, DISCONNECTOR_STEP, DISCONNECTOR_Y, disconnectorY, insulatorX, MARGIN, normalizeSchematic, schematicSummary, STEP,
     width, xOf,
 } from '../features/infrastructure/schematicLayout.js'
+import {formatDateTime} from '../ui/format.js'
 import {renderRoute} from './render.jsx'
 import {server} from './server.js'
 import {loginAs, sessionWith} from './session.js'
@@ -17,7 +20,7 @@ import {loginAs, sessionWith} from './session.js'
  * la modificación sobre la fila leída, con lo desconocido, la versión y los hijos a null; los errores
  * del servicio; el borrado; el alta y las ménsulas de un perfil; las agujas de un aislador; el perfil
  * de un seccionador; los puntos de acceso a la vía, con sus cifras comprobadas con su columna; y el
- * esquema de una vía. Y lo que el backoffice no hacía: vaciar una referencia a catálogo de verdad ({}) y
+ * esquema de una vía; y el historial de una fila, solo con config-audit y config-read. Y lo que el backoffice no hacía: vaciar una referencia a catálogo de verdad ({}) y
  * no ofrecer cambiar el seccionador desde el perfil.
  */
 
@@ -154,6 +157,47 @@ function firstColumn(name) {
 function rowOf(name, text) {
     return within(table(name)).getAllByRole('row')
         .find((row) => within(row).queryAllByRole('cell').some((cell) => cell.textContent === text))
+}
+
+/** Los nombres de las acciones de una fila, en su orden. */
+function actionsOf(row) {
+    return within(row).queryAllByRole('button').map((button) => button.getAttribute('aria-label'))
+}
+
+/** Las celdas de cada fila con datos de una tabla, como texto. */
+function cellsOf(name) {
+    return within(table(name)).getAllByRole('row').slice(1)
+        .map((row) => within(row).queryAllByRole('cell'))
+        .filter((cells) => cells.length > 1)
+        .map((cells) => cells.map((cell) => cell.textContent))
+}
+
+function revision(number, operation, entity, {author = 'config.responsable', source = 'HTTP', correlationId = `corr-${number}`} = {}) {
+    return {revision: {revision: number, revisionAt: '2026-11-13T07:29:37.512Z', operation, author, source, correlationId}, entity}
+}
+
+/**
+ * El historial de las filas de un maestro en el gateway simulado: respond(id) da las revisiones de la
+ * fila, de la más reciente a la más antigua, o una respuesta de error. Pagina como el servicio y apunta
+ * cada petición.
+ */
+function serveRevisions(path, respond) {
+    const requests = []
+    server.use(http.get(`${BASE}/${path}/:id/revisions`, ({request, params}) => {
+        const url = new URL(request.url)
+        requests.push(url)
+        const all = respond(Number(params.id))
+        if (!Array.isArray(all)) {
+            return all
+        }
+        const number = Number(url.searchParams.get('page'))
+        const size = Number(url.searchParams.get('size'))
+        return HttpResponse.json({
+            content: all.slice(number * size, number * size + size),
+            page: {number, size, totalElements: all.length, totalPages: Math.ceil(all.length / size)},
+        })
+    }))
+    return requests
 }
 
 async function open(path, session, tableName, expected) {
@@ -1070,6 +1114,154 @@ describe('los puntos de acceso a la vía', () => {
         await user.click(within(confirm).getByRole('button', {name: 'Borrar'}))
         expect(await screen.findByText('Borrado Acceso km 110+176')).toBeInTheDocument()
         expect(deletes).toEqual([null])
+    })
+})
+
+describe('el historial de una fila', () => {
+    const AUDITOR = [P.CONFIG_READ, P.CONFIG_AUDIT]
+
+    it('se ofrece solo con config-audit y config-read juntos, detrás de las acciones del maestro y antes de borrar', async () => {
+        serveGateway()
+        const revisions = serveRevisions('tracks', () => [])
+
+        // Un rol de realm que se llame igual no lo da.
+        const reader = await open('/infraestructura/vias', sessionWith([P.CONFIG_READ], {realmRoles: ['config-audit']}), 'Vías', 3)
+        expect(actionsOf(rowOf('Vías', 'VIA 1'))).toEqual(['Esquema VIA 1'])
+        reader.unmount()
+
+        const auditor = await open('/infraestructura/vias', sessionWith(AUDITOR), 'Vías', 3)
+        expect(actionsOf(rowOf('Vías', 'VIA 1'))).toEqual(['Esquema VIA 1', 'Historial de VIA 1'])
+        expect(screen.queryByRole('button', {name: 'Nuevo'})).not.toBeInTheDocument()
+        auditor.unmount()
+
+        await open('/infraestructura/vias', sessionWith([...MANAGER, P.CONFIG_AUDIT]), 'Vías', 3)
+        expect(actionsOf(rowOf('Vías', 'VIA 1'))).toEqual(['Modificar VIA 1', 'Esquema VIA 1', 'Historial de VIA 1', 'Borrar VIA 1'])
+        // Pintar la lista no pide ningún historial.
+        expect(revisions).toHaveLength(0)
+    })
+
+    it('se pagina en el servicio, la más reciente primero, y nombra sus referencias', async () => {
+        serveGateway()
+        const track = (extra = {}) => ({id: 3, name: 'VIA 1', executionPackageId: 100, stationIds: [12, 99], profiles: null, enabled: true,
+            versionNumber: null, ...extra})
+        const all = Array.from({length: 30}, (_, index) => {
+            const number = 30 - index
+            if (number === 30) {
+                return revision(30, 'DELETED', track({enabled: false}))
+            }
+            if (number === 29) {
+                return revision(29, 'MERGED', null, {author: 'system', source: 'SYSTEM', correlationId: null})
+            }
+            return revision(number, number === 1 ? 'CREATED' : 'UPDATED', track())
+        })
+        const revisions = serveRevisions('tracks', () => all)
+        const details = []
+        server.use(http.get(`${BASE}/tracks/3`, ({request}) => {
+            details.push(request.url)
+            return HttpResponse.json({})
+        }))
+        const {user} = await open('/infraestructura/vias', sessionWith(AUDITOR), 'Vías', 3)
+
+        await user.click(screen.getByRole('button', {name: 'Historial de VIA 1'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Historial de VIA 1'})
+        expect(await within(dialog).findByText('30 revisiones, la más reciente primero')).toBeInTheDocument()
+
+        const rows = cellsOf('Historial de VIA 1')
+        expect(rows).toHaveLength(20)
+        expect(rows[0]).toEqual(['30', formatDateTime('2026-11-13T07:29:37.512Z'), 'Baja', 'config.responsable', 'HTTP',
+            'VIA 1 · EP4 · estaciones: ATOCHA (EP4), #99 · inactiva', 'corr-30'])
+        expect(rows[1]).toEqual(['29', expect.any(String), 'Desconocido', 'system', 'SYSTEM', 'Sin datos de la fila en esta revisión', ''])
+        expect(rows[2][5]).toBe('VIA 1 · EP4 · estaciones: ATOCHA (EP4), #99 · activa')
+
+        await user.click(within(dialog).getByRole('button', {name: 'Página 2'}))
+        await waitFor(() => expect(cellsOf('Historial de VIA 1')).toHaveLength(10))
+        expect(cellsOf('Historial de VIA 1').at(-1)[2]).toBe('Alta')
+        expect(revisions.map((url) => url.pathname + url.search)).toEqual([
+            `${BASE}/tracks/3/revisions?page=0&size=20`, `${BASE}/tracks/3/revisions?page=1&size=20`])
+        expect(details).toHaveLength(0)
+        expect(screen.queryByText(/Referencia:/)).not.toBeInTheDocument()
+
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
+    it('cada maestro dice cómo quedó su fila, sin separadores sueltos por lo que falta', () => {
+        const references = buildReferenceCatalog({
+            packages: PACKAGES,
+            stations: STATIONS,
+            tracks: threeTracks(),
+            companies: [{id: 1, name: 'ACME', identificationNumber: 'B-1'}],
+        })
+        const line = (path, entity) => MASTER_HISTORY[path](entity, references)
+
+        expect(line('execution-packages', {name: 'EP4', companyId: 1, startDate: '2026-01-15', endDate: null, length: 120000,
+            initialPackage: true, enabled: true})).toBe('EP4 · ACME (B-1) · inicio 15/01/2026 · longitud 120000 · inicial · activo')
+        expect(line('execution-packages', {name: 'EP5', companyId: null, startDate: null, endDate: '2026-12-31', length: null,
+            initialPackage: false, enabled: false})).toBe('EP5 · fin 31/12/2026 · inactivo')
+        expect(line('stations', {name: 'ATOCHA', executionPackageId: 100})).toBe('ATOCHA · EP4')
+        expect(line('tracks', {name: 'VIA 1', executionPackageId: 100, stationIds: [12, 99], enabled: true}))
+            .toBe('VIA 1 · EP4 · estaciones: ATOCHA (EP4), #99 · activa')
+        expect(line('tracks', {name: 'VIA 9', executionPackageId: null, stationIds: [], enabled: null})).toBe('VIA 9')
+        expect(line('profiles', {profileId: 'P-007', kp: '12.345', trackId: 3, profileStatus: {id: 2, code: 'PT1'},
+            poleType: {id: 5, code: 'HEB'}, span: '55.000', cantilevers: [{id: 1}]}))
+            .toBe('P-007 · KP 12.345 · VIA 1 (EP4) · estado PT1 · poste HEB · vano 55.000 m · 1 ménsula')
+        expect(line('profiles', {profileId: 'P-008', kp: '13.000', trackId: 3, cantilevers: null})).toBe('P-008 · KP 13.000 · VIA 1 (EP4)')
+        expect(line('profiles', {profileId: 'P-009', kp: '14.000', trackId: 77, cantilevers: [{}, {}]})).toBe('P-009 · KP 14.000 · #77 · 2 ménsulas')
+        expect(line('disconnectors', {name: 'SEC-40', stationId: 12, disconnectorFunction: {id: 9, code: 'Disc'}, profileId: 7,
+            profileCode: 'P-007', profileKp: '12.345', onLoad: true, normallyOpen: false, driveType: 'MOTOR', trackId: null,
+            connectedTrackId: 4}))
+            .toBe('SEC-40 · ATOCHA (EP4) · Disc · perfil P-007 (kp 12.345) · en carga · normalmente cerrado · accionamiento motor · vía conectada VIA 2 (EP4)')
+        expect(line('disconnectors', {name: 'SEC-40', stationId: null, disconnectorFunction: null, profileId: null, kp: '110176.000',
+            onLoad: false, normallyOpen: null, driveType: null, trackId: 3, connectedTrackId: null}))
+            .toBe('SEC-40 · sin poste, KP 110176.000 · sin carga · vía propia VIA 1 (EP4)')
+        expect(line('disconnectors', {name: 'SEC-41', disconnectorFunction: {code: 'FEED', description: 'Alimentación'}, profileId: 8,
+            onLoad: null, driveType: 'HIDRAULICO'})).toBe('SEC-41 · FEED - Alimentación · perfil #8 · accionamiento hidraulico')
+        expect(line('section-insulators', {name: 'AIS-50', stationId: 12, kp: '15.000', installationType: 'TRACK_CONNECTION', trackId: 3,
+            connectedTrackId: 4, switches: [{}, {}], enabled: true}))
+            .toBe('AIS-50 · ATOCHA (EP4) · KP 15.000 · Conexión de vías · VIA 1 (EP4) · vía conectada VIA 2 (EP4) · 2 agujas · activo')
+        expect(line('section-insulators', {name: 'AIS-51', kp: 15.5, installationType: 'IN_TRACK', trackId: 3, switches: [{}], enabled: false}))
+            .toBe('AIS-51 · KP 15.5 · En una vía · VIA 1 (EP4) · 1 aguja · inactivo')
+        // Un tipo de acceso que esta pantalla no conoce se enseña crudo.
+        expect(line('track-access-points', {name: 'Acceso km 110+176', trackId: 3, stationId: 12, kp: '110176.000', kind: 'FERRY',
+            side: 'LEFT', roadRailAccess: false, enabled: false}))
+            .toBe('Acceso km 110+176 · VIA 1 (EP4) · ATOCHA (EP4) · KP 110176.000 · FERRY · Izquierda · sin biviales · inactivo')
+        expect(Object.keys(MASTER_HISTORY)).toEqual(['execution-packages', 'stations', 'tracks', 'profiles', 'disconnectors',
+            'section-insulators', 'track-access-points'])
+    })
+
+    it('una fila sin revisiones lo dice sin aviso, y cualquier otro fallo se avisa y deja la tabla vacía', async () => {
+        serveGateway()
+        serveRevisions('tracks', (id) => (id === 3
+            ? problem(404, {status: 404, title: 'Not found', detail: 'No revisions', code: 'NOT-001', traceId: 'ref-404'})
+            : problem(403, {status: 403, title: 'Forbidden', detail: 'Access denied', code: 'SEC-003', traceId: 'ref-403'})))
+        const {user} = await open('/infraestructura/vias', sessionWith(AUDITOR), 'Vías', 3)
+
+        await user.click(screen.getByRole('button', {name: 'Historial de VIA 1'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Historial de VIA 1'})
+        expect(await within(dialog).findByText('Sin historial todavía: el servicio no guarda ninguna revisión de esta fila.')).toBeInTheDocument()
+        expect(within(dialog).queryByRole('table')).not.toBeInTheDocument()
+        expect(screen.queryByText(/Referencia:/)).not.toBeInTheDocument()
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Historial de VIA 2'}))
+        dialog = await screen.findByRole('dialog', {name: 'Historial de VIA 2'})
+        expect(await screen.findByText(/No tienes permiso para esta operación/)).toBeInTheDocument()
+        expect(screen.getByText(/Referencia: ref-403/)).toBeInTheDocument()
+        expect(await within(dialog).findByText('No se ha podido leer el historial.')).toBeInTheDocument()
+        expect(within(dialog).queryByText(/Sin historial todavía/)).not.toBeInTheDocument()
+    })
+
+    it('el de un perfil lleva su identificador y su KP en el título', async () => {
+        const profile = {id: 7, profileId: 'P-007', kp: '12.345', trackId: 3, profileStatus: {id: 2, code: 'OK'}, cantilevers: [],
+            disconnector: null, versionNumber: 1}
+        serveGateway({profiles: [profile]})
+        serveRevisions('profiles', () => [revision(2, 'UPDATED', {...profile, span: '55.000', cantilevers: [{id: 1}], versionNumber: null})])
+        const {user} = await open('/infraestructura/perfiles', sessionWith(AUDITOR), 'Perfiles', 1)
+
+        await user.click(screen.getByRole('button', {name: 'Historial de P-007 (kp 12.345)'}))
+        const dialog = await screen.findByRole('dialog', {name: 'Historial de P-007 (kp 12.345)'})
+        expect(await within(dialog).findByText('P-007 · KP 12.345 · VIA 1 (EP4) · estado OK · vano 55.000 m · 1 ménsula')).toBeInTheDocument()
     })
 })
 

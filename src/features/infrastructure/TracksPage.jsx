@@ -55,7 +55,7 @@ export default function TracksPage() {
 
     return (
         <>
-            <MasterPage master={MASTERS.tracks} columns={columns} filters={filters}
+            <MasterPage master={MASTERS.tracks} columns={columns} filters={filters} references={references}
                         rowActions={(row) => (
                             <RowActionButton label={`Esquema ${nameOf(row)}`} tooltip="Esquema" icon={IconTimeline}
                                              onClick={() => void openSchematic(row)}/>

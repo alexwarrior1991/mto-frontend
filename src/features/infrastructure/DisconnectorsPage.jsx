@@ -35,7 +35,7 @@ export default function DisconnectorsPage() {
         ),
     }]
     return (
-        <MasterPage master={MASTERS.disconnectors} columns={columns} filters={filters}
+        <MasterPage master={MASTERS.disconnectors} columns={columns} filters={filters} references={references}
                     renderEditor={({row, onClose}) => <DisconnectorEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }

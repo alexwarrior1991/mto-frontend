@@ -22,6 +22,7 @@ export const MENU_GROUPS = Object.freeze({
     almacen: {label: 'Almacén', icon: 'warehouse'},
     mantenimiento: {label: 'Mantenimiento', icon: 'maintenance'},
     recursos: {label: 'Recursos', icon: 'resources'},
+    notificaciones: {label: 'Notificaciones', icon: 'notifications'},
     actividad: {label: 'Actividad', icon: 'activity'},
 })
 
@@ -87,7 +88,8 @@ export const ROUTES = Object.freeze([
     {path: 'recursos/instrumentos', title: 'Instrumentos', page: 'resourcesInstruments', requires: RESOURCES, menu: {group: 'recursos', order: 77, icon: 'instruments'}},
     {path: 'recursos/discrepancias', title: 'Puestos y perfiles', page: 'resourcesDiscrepancies', requires: RESOURCES, menu: {group: 'recursos', order: 78, icon: 'discrepancies'}},
 
-    {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], menu: {order: 80, icon: 'notifications'}},
+    {path: 'notificaciones', title: 'Notificaciones', page: 'notifications', requires: [P.NOTIFICATION_INBOX], menu: {group: 'notificaciones', order: 80, icon: 'notifications'}},
+    {path: 'notificaciones/administracion', title: 'Administración de notificaciones', page: 'notificationAdmin', requires: [P.NOTIFICATION_ADMIN], menu: {group: 'notificaciones', order: 81, icon: 'notificationAdmin', label: 'Administración'}},
     {path: 'actividad', title: 'Registro de actividad', page: 'activity', requires: [P.NOTIFICATION_ACTIVITY_READ], menu: {group: 'actividad', order: 82, icon: 'activity'}},
     {path: 'actividad/accesos', title: 'Accesos', page: 'access', requires: [P.NOTIFICATION_ACCESS_READ], menu: {group: 'actividad', order: 83, icon: 'access'}},
 ])
