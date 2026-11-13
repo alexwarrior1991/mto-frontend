@@ -2,7 +2,9 @@ import {keepPreviousData, useMutation, useQuery, useQueryClient} from '@tanstack
 import {useEffect, useRef} from 'react'
 import {NotFoundError} from '../../api/errors.js'
 import {createAsset, disableAsset, enableAsset, listAssetOrders, patchAsset, searchAssets} from '../../api/maintenance/assets.js'
-import {createTeam, listInspectionTemplates, listTaskTypes, listTeams, patchTaskType, updateTeam} from '../../api/maintenance/catalogs.js'
+import {
+    createInspectionTemplate, createTeam, listInspectionTemplates, listTaskTypes, listTeams, patchInspectionTemplate, patchTaskType, updateTeam,
+} from '../../api/maintenance/catalogs.js'
 import {listOrderMaterials, patchMaterial, registerMaterial, removeMaterial, syncMaterial} from '../../api/maintenance/materials.js'
 import {createDefect, getDefect, listDefectHistory, patchDefect, searchDefects, transitionDefect} from '../../api/maintenance/defects.js'
 import {isOpenOrder} from '../../api/maintenance/enums.js'
@@ -106,6 +108,41 @@ export function useInspectionTemplates() {
         queryKey: maintenanceKey('templates'),
         queryFn: ({signal}) => listInspectionTemplates({signal}),
         staleTime: NOT_FRESH,
+    })
+}
+
+/**
+ * Las escrituras de las plantillas de inspección. Tras cada una se relee la lista entera: crear o
+ * activar una versión cambia también la fila de la que era activa (su active y su lockVersion).
+ *
+ * - Crear una versión y renombrarla salen de un diálogo, que trata él mismo sus errores y sigue abierto:
+ *   la lista solo se relee si fue bien.
+ * - Activar y desactivar salen de una confirmación que ya está cerrada: el fallo se avisa en el sitio de
+ *   siempre y la lista se relee igualmente, porque un rechazo es que lo leído ya no vale.
+ */
+export function useCreateInspectionTemplate() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (body) => createInspectionTemplate(body),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: maintenanceKey('templates')}),
+    })
+}
+
+export function useRenameInspectionTemplate() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id, patch}) => patchInspectionTemplate(id, patch),
+        meta: {notifyError: false},
+        onSuccess: () => queryClient.invalidateQueries({queryKey: maintenanceKey('templates')}),
+    })
+}
+
+export function useSetInspectionTemplateActive() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({id, patch}) => patchInspectionTemplate(id, patch),
+        onSettled: () => queryClient.invalidateQueries({queryKey: maintenanceKey('templates')}),
     })
 }
 

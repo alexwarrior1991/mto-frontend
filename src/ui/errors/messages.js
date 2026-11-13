@@ -115,6 +115,10 @@ function notFoundMessage(error) {
         // haya llegado. Se relee la lista del desplegable.
         case 'TAP-404':
             return 'Ese punto de acceso ya no existe o aún no ha llegado a Recursos: elige otro o inténtalo en un momento.'
+        // mto-maintenance: una versión de una plantilla de inspección que no existe. Nada se borra, así que
+        // es un id de otro despliegue: releer la lista la enseña como está.
+        case 'TPL-404':
+            return 'Esa versión de la plantilla de inspección no existe: recarga la lista.'
         // mto-notification: el id no dice si existe; ya no va dirigida a mí, o nunca fue.
         case 'NTF-404':
             return 'Esa notificación ya no existe o no va dirigida a ti.'

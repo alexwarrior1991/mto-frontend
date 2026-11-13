@@ -1,5 +1,6 @@
 import {isAssetEnabled, isDisabledAtSource, isDisabledLocally} from '../../api/maintenance/assets.js'
 import {
+    ASSET_TYPE,
     DEFECT_SEVERITY,
     DEFECT_STATUS,
     INSPECTION_KIND,
@@ -107,3 +108,13 @@ export const GENERATION_STILL_RUNNING = 'La generación sigue en el servicio: su
 
 /** Lo que se dice cuando el servicio ya no tiene la operación que se seguía (404: la purgó, o no existe). */
 export const GENERATION_OPERATION_GONE = 'La operación ya no existe en el servicio; comprueba las tareas de la orden.'
+
+/** Lo que va a pasar al guardar, dicho antes: la nueva nace activa y la activa de ahora pasa a anterior. */
+export function templateVersionNotice(assetType, base, active) {
+    const type = ASSET_TYPE.label(assetType)
+    const start = base ? `Parte de los puntos de la versión ${base.version}. ` : `Es la primera versión de ${type}. `
+    const effect = active
+        ? `La nueva versión nace activa y la versión ${active.version}, la activa ahora, pasa a anterior. `
+        : 'La nueva versión nace activa. '
+    return `${start}${effect}Los puntos de una versión no se cambian después. Las inspecciones ya creadas no cambian.`
+}

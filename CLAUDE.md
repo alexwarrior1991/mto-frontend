@@ -117,7 +117,10 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   - `maintenance/assets.js` (la búsqueda, el alta de un tramo, `assetPatch`, desactivar con `DELETE`
     y reactivar; quién lo desactivó, `isDisabledAtSource` e `isDisabledLocally`, y `canReactivate`) y
     `maintenance/catalogs.js` (los equipos, que se escriben enteros, los tipos de tarea y el equipo que
-    exige cada uno, `taskTypeEquipmentPatch`, y las plantillas de inspección);
+    exige cada uno, `taskTypeEquipmentPatch`, y las plantillas de inspección: `createInspectionTemplate` y
+    `patchInspectionTemplate`, cómo viaja una versión nueva, `templateRequest`, sus parches con
+    `lockVersion`, `templateRenamePatch` y `templateActivePatch`, y lo que se ofrece: `activeTemplateOf`,
+    `baseTemplateOf`, `templatesAreWritable` e `isWritableTemplate`);
   - `maintenance/orders.js` (las órdenes, sus transiciones con su cuerpo, `transitionRequest`, y sus
     estados; `orderPatch`, con lo que admite su estado), `maintenance/tasks.js` (las tareas de una
     orden, generarlas, iniciarlas y completarlas, `completeRequest`, y su checklist) y
@@ -293,7 +296,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
     (`DefectEditorModal` y `DefectTransitionModals`);
   - `ReportsPage` (el avance y el mes, con sus descargas) y los catálogos: `TeamsPage` (con
     `TeamEditorModal`), `TaskTypesPage` (con `TaskEquipmentModal`, el equipo que exige un tipo) e
-    `InspectionTemplatesPage`;
+    `InspectionTemplatesPage` (con `InspectionTemplateVersionModal`, la versión nueva con su lista de
+    puntos, e `InspectionTemplateRenameModal`);
   - `MaintenancePickers.jsx` (los activos buscados en el servidor, los equipos y los tipos de tarea),
     `useMaintenance.js` (las claves `['maintenance', …]`,
     las consultas y las escrituras con lo que releen), `useMaintenanceNames.js` (el port de
@@ -711,6 +715,39 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   cada persona con el enlace a su ficha y «Nada» en una sección vacía. Si Keycloak no responde (503
   `KCK-503`), se dice en la pantalla con «Reintentar» y sin aviso aparte; «Actualizar» lo vuelve a pedir.
   Dice, no arregla.
+- **Las plantillas de inspección se mantienen desde su pantalla, y una versión nunca cambia sus
+  puntos** (`mantenimiento/plantillas`, el port de `InspectionTemplatesView`). Una plantilla está
+  versionada por tipo de activo, con una activa por tipo como mucho; una inspección copia los puntos de
+  la activa al crearse, y las ya creadas no cambian.
+  - Quien lee (`maintenance-read`) ve la activa de cada tipo de activo (los cuatro, tengan versiones o
+    no; «Sin plantilla activa»), todas las versiones con quién creó cada una, y los puntos de la que
+    elija; al abrir, los de la primera activa.
+  - Escribir pide `maintenance-supervise` **y** `maintenance-write` (`session.hasAll`), **y que el
+    servicio deje**: si alguna versión leída llega sin `lockVersion` (un `mto-maintenance` anterior, que
+    no tiene `POST` ni `PATCH`), no se ofrece nada a nadie (`templatesAreWritable`); una lista vacía
+    cuenta como escribible. Una versión de un tipo de activo desconocido se lee y no ofrece nada.
+  - **`version` es el número de la versión, no el bloqueo.** El bloqueo es `lockVersion`, que viaja
+    dentro del parche; `version` no se manda nunca (el `PATCH` lo rechaza con 400 `VAL-001`). Por eso
+    estos parches no salen de `buildMergePatch`, que pone `version`.
+  - «Nueva versión» (`POST`, JSON) lleva la lista **entera** de puntos en el orden de la pantalla (añadir,
+    quitar, subir y bajar; 100 como mucho), sin `orderIndex`, `id` ni `version`, y lo vacío no viaja.
+    Parte de la activa del tipo (sin ella, de su versión más alta; sin ninguna, vacía) o de la versión de
+    su fila. `replacesVersion` es siempre el número de la **activa del tipo tal como se leyó**, y no viaja
+    si no hay. Nace activa y la activa pasa a anterior: lo dice el aviso del diálogo, sin un segundo
+    «¿seguro?» («Crear y activar»). Tras crearla, la lista se relee y queda elegida.
+  - Antes de llamar (`templateVersionErrors`): el nombre, al menos un punto, y de cada punto su código
+    (con la forma del servicio y sin repetir: se marca el repetido, no el primero; no se pasa a
+    mayúsculas solo), su texto, y un mínimo y un máximo que sean medidas (con signo, 9 enteros y 3
+    decimales, como las de un checklist) y no estén al revés.
+  - Los errores del servicio, con el diálogo abierto: `name` en el nombre; `items[i].campo` en el campo
+    de la fila `i` (`requiresMeasure`, en su texto); `items` e `items[i]` bajo la lista («Fila 2: …»); lo
+    demás, un aviso con su ruta. Un 400 `VAL-001` sin campos y un 409 `CON-001` se avisan sin releer.
+  - Renombrar (`PATCH` merge-patch, `{name, lockVersion}`; el mismo nombre se cierra sin llamar) deja el
+    diálogo abierto ante un `CON-001` o un `TPL-404`. Activar y desactivar (`{active, lockVersion}`) se
+    confirman diciendo qué pasa (la activa pasa a anterior; el tipo se queda sin plantilla y sus
+    inspecciones nuevas, sin checklist) y **releen la lista salga bien o no**, porque la confirmación ya
+    está cerrada. El 404 `TPL-404` dice que esa versión no existe y pide recargar la lista.
+  - Nada se borra, los puntos de una versión no se editan y no hay historial: las versiones lo son.
 - **El equipo que exige un tipo de tarea lo cambia quien supervisa** (`TaskTypesPage`, columna «Equipo
   exigido» y su botón «Equipo de …», con `maintenance-supervise` **y** `maintenance-write`):
   `PATCH /task-types/{code}` merge-patch con la versión leída, el equipo como conjunto, quitarlo todo

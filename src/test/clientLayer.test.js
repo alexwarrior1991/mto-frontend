@@ -94,6 +94,16 @@ import {
     taskTypeEquipmentPatch,
     teamRequest,
     updateTeam,
+    activeTemplateOf,
+    baseTemplateOf,
+    createInspectionTemplate,
+    hasTemplateLock,
+    isWritableTemplate,
+    patchInspectionTemplate,
+    templateActivePatch,
+    templateRenamePatch,
+    templateRequest,
+    templatesAreWritable,
 } from '../api/maintenance/catalogs.js'
 import {
     createDefect,
@@ -2816,6 +2826,85 @@ describe('maintenance/*.js: el mantenimiento de mto-maintenance', () => {
         expect(json(puts[0])).toEqual({code: 'EQ-01', name: 'Brigada norte', baseName: null, vehicle: null, active: false, executionPackageIds: [3, 5]})
         expect(types[0].url.search).toBe('?functionalGroup=OVERHEAD_CONDUCTORS')
         expect(templates[0].items[0].code).toBe('P-01')
+    })
+
+    it('las plantillas de inspección se versionan y se parchean con su lockVersion, nunca con su número de versión', async () => {
+        useToken()
+        const item = (code, orderIndex, extra = {}) => ({id: `i-${code}`, code, label: `Punto ${code}`, unit: null, minValue: null,
+            maxValue: null, requiresMeasure: false, orderIndex, ...extra})
+        const audit = {createdAt: '2026-11-13T08:40:00Z', updatedAt: '2026-11-13T08:40:00Z', createdBy: 'config.responsable',
+            updatedBy: 'config.responsable'}
+        const active = {id: 'tpl2', assetType: 'PROFILE', version: 2, name: 'Perfil', active: true, items: [item('P-01', 1)], lockVersion: 4, audit}
+        const previous = {id: 'tpl1', assetType: 'PROFILE', version: 1, name: 'Perfil', active: false, items: [], lockVersion: 5, audit}
+        const old = {id: 'tpl9', assetType: 'SWITCH_HEATER', version: 1, name: 'Calefactor', active: true, items: []}
+        record('get', `${BASE}/inspection-templates`, () => HttpResponse.json([active, previous, old]))
+        const posts = record('post', `${BASE}/inspection-templates`, (_request, call) => {
+            if (call === 1) {
+                return HttpResponse.json({...active, id: 'tpl3', version: 3, lockVersion: 0}, {status: 201, headers: {Location: '/api/v1/x'}})
+            }
+            return call === 2
+                ? maintenanceError(409, 'CON-001', 'The active template of TRACK_SECTION is not version null')
+                : maintenanceError(400, 'REQ-VALIDATION', 'Validation failed', [
+                    {field: 'items[1].code', message: 'must match "[A-Z0-9][A-Z0-9_.-]*"'}, {field: 'items', message: 'size must be between 1 and 100'}])
+        })
+        const patches = record('patch', `${BASE}/inspection-templates/:id`, (request) => (new URL(request.url).pathname.endsWith('/nope')
+            ? maintenanceError(404, 'TPL-404', 'Inspection template nope was not found')
+            : HttpResponse.json({...active, lockVersion: 5})))
+
+        const templates = await listInspectionTemplates()
+        const created = await createInspectionTemplate(templateRequest({
+            assetType: 'PROFILE', name: '  Perfil 2027 ', replacesVersion: activeTemplateOf(templates, 'PROFILE').version,
+            items: [
+                {key: 7, code: ' P-02 ', label: ' Estado de la ménsula ', unit: '  ', minValue: '', maxValue: '', requiresMeasure: false,
+                    orderIndex: 9, id: 'x', version: 1},
+                {code: 'P-01', label: 'Altura del hilo', unit: ' mm ', minValue: '-5.5', maxValue: '5700', requiresMeasure: true},
+            ],
+        }))
+        const conflict = await failure(createInspectionTemplate(templateRequest({
+            assetType: 'TRACK_SECTION', name: 'Tramo', replacesVersion: activeTemplateOf(templates, 'TRACK_SECTION')?.version ?? null,
+            items: [{code: 'T-1', label: 'Balasto', requiresMeasure: false}],
+        })))
+        const invalid = await failure(createInspectionTemplate({assetType: 'PROFILE', name: 'x', items: []}))
+        await patchInspectionTemplate('tpl2', templateRenamePatch(active, ' Perfil 2027 '))
+        await patchInspectionTemplate('tpl1', templateActivePatch(previous, false))
+        const missing = await failure(patchInspectionTemplate('nope', templateActivePatch(active, true)))
+
+        // version es el número de la versión; el bloqueo es lockVersion.
+        expect(templates[0]).toMatchObject({version: 2, lockVersion: 4, audit: {createdBy: 'config.responsable'}})
+        expect(templates.map(hasTemplateLock)).toEqual([true, true, false])
+        expect(templates.map(isWritableTemplate)).toEqual([true, true, false])
+        expect(ASSET_TYPE.label(old.assetType)).toBe('Desconocido')
+        expect(templatesAreWritable(templates)).toBe(false)
+        expect(templatesAreWritable([active, previous])).toBe(true)
+        expect(templatesAreWritable([])).toBe(true)
+        expect(isWritableTemplate({...old, lockVersion: 0})).toBe(false)
+        expect(baseTemplateOf([previous, {...active, active: false}], 'PROFILE').version).toBe(2)
+        expect(baseTemplateOf(templates, 'TRACK_SECTION')).toBeNull()
+
+        expect(posts[0].headers.get('content-type')).toBe('application/json')
+        expect(json(posts[0])).toStrictEqual({
+            assetType: 'PROFILE', name: 'Perfil 2027', replacesVersion: 2,
+            items: [
+                {code: 'P-02', label: 'Estado de la ménsula', requiresMeasure: false},
+                {code: 'P-01', label: 'Altura del hilo', unit: 'mm', minValue: -5.5, maxValue: 5700, requiresMeasure: true},
+            ],
+        })
+        expect(created).toMatchObject({id: 'tpl3', version: 3, lockVersion: 0})
+        expect(json(posts[1])).toStrictEqual({assetType: 'TRACK_SECTION', name: 'Tramo', items: [{code: 'T-1', label: 'Balasto', requiresMeasure: false}]})
+        expect(conflict).toBeInstanceOf(ConflictError)
+        expect(conflict.code).toBe('CON-001')
+        expect(invalid).toBeInstanceOf(ValidationError)
+        expect(invalid.fieldErrors.map((error) => error.field)).toEqual(['items[1].code', 'items'])
+
+        expect(patches.map((request) => [request.url.pathname, request.headers.get('content-type'), json(request)])).toStrictEqual([
+            [`${BASE}/inspection-templates/tpl2`, MERGE_PATCH, {name: 'Perfil 2027', lockVersion: 4}],
+            [`${BASE}/inspection-templates/tpl1`, MERGE_PATCH, {active: false, lockVersion: 5}],
+            [`${BASE}/inspection-templates/nope`, MERGE_PATCH, {active: true, lockVersion: 4}],
+        ])
+        expect(templateRenamePatch(active, ' Perfil ')).toBeNull()
+        expect(missing).toBeInstanceOf(NotFoundError)
+        expect(missing.code).toBe('TPL-404')
+        expect(errorMessage(missing)).toBe('Esa versión de la plantilla de inspección no existe: recarga la lista.')
     })
 
     it('el equipo exigido de un tipo de tarea viaja como conjunto con su versión, quitarlo todo es null y lo desconocido se conserva', async () => {

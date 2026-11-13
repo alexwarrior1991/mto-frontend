@@ -57,6 +57,49 @@ export function optionalMeasure(value) {
     return KP.test(text) ? null : 'Un número con punto decimal y hasta tres decimales, como 5250.5'
 }
 
+/**
+ * Lo que una versión nueva de una plantilla de inspección exige antes de llamar, con las reglas del
+ * servicio: el nombre, al menos un punto y cien como mucho, y de cada punto su código (con su forma y
+ * sin repetir: se marca el repetido, no el primero), su texto, y un mínimo y un máximo que sean medidas
+ * (con signo, 9 enteros y 3 decimales) y no estén al revés. El código no se pasa a mayúsculas solo.
+ *
+ * @param {{maxItems: number, codePattern: RegExp}} rules los topes del servicio (api/maintenance/catalogs.js)
+ * @returns {{name: string|null, list: string|null, items: Array<object>, valid: boolean}} un objeto de
+ *          errores por punto, en su orden: {code, label, minValue, maxValue}
+ */
+export function templateVersionErrors({name, items}, {maxItems, codePattern}) {
+    const codes = new Set()
+    const itemErrors = items.map((item) => {
+        const code = String(item.code ?? '').trim()
+        let codeError = null
+        if (!code) {
+            codeError = 'El código es obligatorio'
+        } else if (!codePattern.test(code)) {
+            codeError = "Mayúsculas sin tildes, cifras, '_', '.' y '-', sin espacios y empezando por letra o cifra"
+        } else if (codes.has(code)) {
+            codeError = 'Código repetido en la plantilla'
+        } else {
+            codes.add(code)
+        }
+        const errors = {
+            code: codeError,
+            label: String(item.label ?? '').trim() ? null : 'El texto es obligatorio',
+            minValue: optionalMeasure(item.minValue),
+            maxValue: optionalMeasure(item.maxValue),
+        }
+        const written = (value) => String(value ?? '').trim() !== ''
+        if (!errors.minValue && !errors.maxValue && written(item.minValue) && written(item.maxValue)
+            && Number(item.minValue) > Number(item.maxValue)) {
+            errors.minValue = 'El mínimo no puede ser mayor que el máximo'
+        }
+        return errors
+    })
+    const nameError = String(name ?? '').trim() ? null : 'El nombre es obligatorio'
+    const list = items.length === 0 ? 'Una plantilla lleva al menos un punto' : items.length > maxItems ? `Como mucho ${maxItems} puntos` : null
+    const valid = !nameError && !list && itemErrors.every((errors) => Object.values(errors).every((error) => !error))
+    return {name: nameError, list, items: itemErrors, valid}
+}
+
 /** El kp final de un tramo: mayor que el inicial, si los dos son números. */
 export function kpAfter(startField, message = 'El kp final tiene que ser mayor que el inicial') {
     return (value, values) => {
