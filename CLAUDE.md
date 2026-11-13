@@ -73,15 +73,16 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `sameDecimal`), `dates.js` (también
   `localDateTimeToInstant`, una fecha y hora escritas como Instant, y `instantToLocalDateTime`, el
   camino de vuelta), `revisions.js` (el historial de una fila: `REVISION_OPERATION` tolerante y
-  `listRevisions`, sin `sort`; lo comparten almacén y mantenimiento), `download.js` (fetch + Blob),
+  `listRevisions`, sin `sort`; lo comparten almacén, mantenimiento, recursos y `mto-configuration`), `download.js` (fetch + Blob),
   `services.js` (**los servicios del dominio en un solo sitio**: prefijo, cliente de Keycloak,
   roles, sonda; de aquí salen el catálogo de permisos, las audiencias esperadas y las sondas;
   `AUDIENCE_ONLY`, la audiencia de `mto-field`, que el token lleva aunque aquí no tenga pantallas),
   `probes.js` y un módulo por servicio (`configuration/`, y en cada fase `users/`, `stock/`…):
   `configuration/lovResources.js` (los 17 catálogos, y en tres el tipo que exigen: `parent`) y
   `configuration/lovs.js` (sus endpoints y cómo viaja una entrada: `newLovEntry`, `changedLovEntry`,
-  `lovEntryWithEnabled`) y `configuration/masters.js` (los siete maestros: `filterMasters`, el CRUD,
-  `trackSchematic`, `listBusinessEntities`, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
+  `lovEntryWithEnabled`; y `lovRevisionsPath`, el historial de una entrada) y `configuration/masters.js`
+  (los siete maestros: `filterMasters`, el CRUD, `trackSchematic`, `listBusinessEntities`,
+  `masterRevisionsPath`, el historial de una fila, y cómo viaja uno: `masterBody`, `MASTER_CHILDREN`,
   `lovRef`, `CLEARED_LOV_REF`) y `configuration/jobs.js` (los trabajos en segundo plano: `JOB_TYPE`
   y `JOB_STATUS` tolerantes, `JOB_FAMILIES` y `familyOf`, `isTerminal`, `isDownloadable`,
   `hasErrorReport`, los lanzadores `importProfiles`, `importLovs`, `exportProfiles` y `republish`,
@@ -191,7 +192,8 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   `OffsetPager.jsx` (anteriores y siguientes para una lista sin total), `ServerSearchSelect.jsx` (un
   desplegable que busca en el servidor mientras se escribe y conserva lo elegido: el perfil de un
   seccionador y los desplegables del almacén), `RevisionsModal.jsx` (el port de `RevisionsDialog`: el
-  historial de una fila), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
+  historial de una fila; `whenMissing`, lo que dice de una revisión sin fila, que solo dan los
+  historiales de `mto-configuration`), `ServerSearchMultiSelect.jsx` (varios elegidos buscando en el servidor:
   los seccionadores que abre un turno), `TreeTable.jsx` (un árbol con columnas, `role="treegrid"`: el
   organigrama, porque `Tree` de Mantine no tiene columnas) y `typedDates.js` (las fechas, y fechas y
   horas, escritas en un `DateInput`). `notifySuccess.js` trae además `notifyWarning`, el aviso amarillo
@@ -202,12 +204,14 @@ Bajo `src/`, por capas que vigila ESLint (`no-restricted-imports` por carpeta):
   es el port de `ui/lov`:
   - `CataloguePage`, con `key` por recurso para que cambiar de catálogo empiece de cero;
   - `CatalogueTable`, `CatalogueEditorModal` (`@mantine/form`) y `CatalogueBulkCreateModal`;
-  - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar) y
+  - `bulkLines.js` (el parser del alta múltiple), `catalogueRows.js` (filtrar, ordenar y contar, y
+    `describeRevision`, cómo quedó una entrada en una revisión de su historial) y
     `useCatalogue.js` (la clave `['configuration', 'lovs', recurso]` y las escrituras que releen).
 
   `infrastructure/` es el port de `ui/master`:
   - `MasterPage` (el port de `MasterView`): la lista de un maestro con su búsqueda, sus filtros, sus
-    columnas, «Modificado» y la columna de acciones siempre presente; una página por maestro
+    columnas, «Modificado» y la columna de acciones siempre presente, con el historial de cada fila
+    (`masterHistory.js`, el port de `MasterHistory`: la línea de cada maestro en una revisión); una página por maestro
     (`ExecutionPackagesPage`, `StationsPage`, `TracksPage`, `ProfilesPage`, `DisconnectorsPage`,
     `SectionInsulatorsPage`, `TrackAccessPointsPage`) pone columnas, filtros y editor;
   - `MasterEditorModal` (el marco de cada editor) y un editor por maestro sobre `@mantine/form`, con
@@ -525,6 +529,24 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
 - **El historial de una fila es el del servicio**: paginado, la más reciente primero, sin `sort`. Sin
   revisiones el servicio responde 404, que es «sin historial todavía» y no se avisa
   (`meta.silentNotFound`).
+- **El historial de un maestro y de un catálogo es el de `mto-configuration`, y pide dos permisos.**
+  `GET /{recurso}/{id}/revisions` (los siete maestros y los 17 catálogos; `masterRevisionsPath`,
+  `lovRevisionsPath`), en el mismo `RevisionsModal`, sin pedir nada más.
+  - El botón «Historial de …» de cada fila se ofrece solo con `config-audit` **y** `config-read`
+    (`session.hasAll`): con uno solo el servicio responde 403. En un maestro va detrás de sus acciones
+    propias (el esquema de una vía) y antes de borrar; en un catálogo, entre modificar y borrar, y la
+    columna de acciones existe si hay algo que ofrecer (escribir, borrar o auditar).
+  - «Cómo quedó» la pone `MASTER_HISTORY` por maestro y `describeRevision` para una entrada: sus campos
+    principales y los nombres de sus referencias como en su lista (`#id` lo que ya no está), sin
+    separadores sueltos por lo que falta. Los nombres son los de hoy, también para el servicio. Las
+    cifras se pintan como llegan, sin redondear.
+  - Una fila sin revisiones (sembrada por una migración) es el 404 `NOT-001`: «sin historial todavía»,
+    sin aviso. Una revisión sin fila (`entity: null`) dice «Sin datos de la fila en esta revisión»
+    («de la entrada», en un catálogo: `whenMissing`), y el borrado de una entrada de catálogo, que es
+    físico y solo guarda el id, «Borrada del catálogo: sus datos están en la revisión anterior».
+  - `source` es la cadena leída (`HTTP` o `SYSTEM`); `userId`, `requestMethod` y `requestUri` no se
+    leen. La `entity` de una revisión no es un cuerpo para un `PUT` (`versionNumber` llega a `null`):
+    desde el historial no se edita nada.
 - **Un desplegable del almacén busca en el servidor** (`StockPicker` sobre `ServerSearchSelect`): en
   un diálogo solo ofrece lo activo, porque el servicio rechaza lo retirado; en un filtro y en
   Existencias, también lo retirado, marcado como tal, para encontrar lo de antes.

@@ -20,8 +20,11 @@ const NO_SORT = () => {
  * @param {string} label cómo se llama la fila, para el título («MAT-001 - Hilo de contacto»)
  * @param {string} path la ruta de su historial
  * @param {Function} describe la entidad de una revisión → una línea con cómo quedó
+ * @param {string} [whenMissing] lo que dice «Cómo quedó» en una revisión sin fila (entity: null), que el
+ *        servicio no pudo reconstruir. Solo lo dan los historiales de mto-configuration; en almacén y
+ *        en mantenimiento la celda se queda vacía
  */
-export default function RevisionsModal({label, path, describe, onClose}) {
+export default function RevisionsModal({label, path, describe, whenMissing = '', onClose}) {
     const [page, setPage] = useState(1)
     const revisions = useQuery({
         queryKey: ['revisions', path, page],
@@ -42,7 +45,7 @@ export default function RevisionsModal({label, path, describe, onClose}) {
                     : (
                         <>
                             <Text size="sm" c="dimmed" aria-live="polite">{revisions.data ? countText(total) : ''}</Text>
-                            <ServerDataTable ariaLabel={`Historial de ${label}`} columns={columns(describe)} rows={rows}
+                            <ServerDataTable ariaLabel={`Historial de ${label}`} columns={columns(describe, whenMissing)} rows={rows}
                                              rowKey={(row) => row.revision?.revision} loading={revisions.isPending}
                                              emptyText={revisions.isError ? 'No se ha podido leer el historial.' : 'Sin revisiones.'}
                                              sort={null} onSortChange={NO_SORT} page={page} pageSize={REVISIONS_PAGE_SIZE}
@@ -57,14 +60,14 @@ export default function RevisionsModal({label, path, describe, onClose}) {
     )
 }
 
-function columns(describe) {
+function columns(describe, whenMissing) {
     return [
         {key: 'revision', label: 'Revisión', render: (row) => row.revision?.revision ?? ''},
         {key: 'revisionAt', label: 'Cuándo', render: (row) => formatDateTime(row.revision?.revisionAt)},
         {key: 'operation', label: 'Operación', render: (row) => REVISION_OPERATION.label(row.revision?.operation)},
         {key: 'author', label: 'Quién', render: (row) => row.revision?.author ?? ''},
         {key: 'source', label: 'Origen', render: (row) => row.revision?.source ?? ''},
-        {key: 'entity', label: 'Cómo quedó', render: (row) => (row.entity ? describe(row.entity) : '')},
+        {key: 'entity', label: 'Cómo quedó', render: (row) => (row.entity ? describe(row.entity) : whenMissing)},
         {key: 'correlationId', label: 'Correlación', render: (row) => row.revision?.correlationId ?? ''},
     ]
 }

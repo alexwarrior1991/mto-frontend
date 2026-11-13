@@ -12,7 +12,8 @@ import {loginAs, sessionWith} from './session.js'
  * backoffice: el catalogo de la ruta y su filtro local, lo que ve quien solo lee, el error con su
  * referencia, el alta, los errores del servicio campo a campo, la modificacion con la version leida,
  * la version vieja, el formulario vacio, el borrado confirmado, el lote con la version de cada fila y
- * el alta multiple. Y lo que el backoffice no tenia: el tipo de los tres catalogos que lo exigen.
+ * el alta multiple, y el historial de una entrada. Y lo que el backoffice no tenia: el tipo de los tres
+ * catalogos que lo exigen.
  */
 
 const STATUSES = '/api/configuration/profile-statuses'
@@ -512,5 +513,84 @@ describe('los tres catalogos con tipo', () => {
             {code: 'P1', description: 'Uno', enabled: true, portalType: {id: 8}},
             {code: 'P2', description: 'Dos', enabled: true, portalType: {id: 8}},
         ]])
+    })
+})
+
+describe('el historial de una entrada', () => {
+    const FOUNDATIONS = '/api/configuration/foundations'
+    const AUDITOR = [P.CONFIG_READ, P.CONFIG_AUDIT]
+    const entry = (id, code) => ({id, code, description: 'Cimentación 1', enabled: true, foundationType: {id: 4, code: 'FT1'},
+        versionNumber: 2})
+    const revision = (number, operation, entity) => ({
+        revision: {revision: number, revisionAt: '2026-11-13T07:29:37.512Z', operation, author: 'config.responsable', source: 'HTTP',
+            correlationId: `corr-${number}`},
+        entity,
+    })
+    const actionsOf = (row) => within(row).queryAllByRole('button').map((button) => button.getAttribute('aria-label'))
+
+    it('se ofrece solo con config-audit y config-read juntos, entre modificar y borrar', async () => {
+        serveCatalogue(STATUSES, threeStatuses())
+        const revisions = []
+        server.use(http.get(`${STATUSES}/:id/revisions`, ({request}) => {
+            revisions.push(request.url)
+            return HttpResponse.json({content: [], page: {number: 0, size: 20, totalElements: 0, totalPages: 0}})
+        }))
+
+        // Con solo leer, y un rol de realm que se llame igual, no hay columna de acciones.
+        const reader = await openCatalogue('/catalogos/profile-statuses', sessionWith([P.CONFIG_READ], {realmRoles: ['config-audit']}), 3)
+        expect(actionsOf(rowOf('DRAFT'))).toEqual([])
+        expect(within(table()).getAllByRole('columnheader').map((header) => header.textContent)).not.toContain('Acciones')
+        reader.unmount()
+
+        const auditor = await openCatalogue('/catalogos/profile-statuses', sessionWith(AUDITOR), 3)
+        expect(actionsOf(rowOf('DRAFT'))).toEqual(['Historial de DRAFT'])
+        expect(screen.queryByRole('button', {name: 'Nuevo'})).not.toBeInTheDocument()
+        auditor.unmount()
+
+        await openCatalogue('/catalogos/profile-statuses', sessionWith([...MANAGER, P.CONFIG_AUDIT]), 3)
+        expect(actionsOf(rowOf('DRAFT')).filter((name) => !name.startsWith('Seleccionar')))
+            .toEqual(['Modificar DRAFT', 'Historial de DRAFT', 'Borrar DRAFT'])
+        expect(revisions).toHaveLength(0)
+    })
+
+    it('dice su tipo, un borrado que solo guarda el id y una revisión sin datos; una entrada sembrada no tiene historial', async () => {
+        serveCatalogue(FOUNDATIONS, [entry(5, 'C-1'), entry(6, 'C-2')])
+        const requests = []
+        server.use(http.get(`${FOUNDATIONS}/:id/revisions`, ({request, params}) => {
+            requests.push(new URL(request.url))
+            if (params.id === '6') {
+                return problem(404, {status: 404, title: 'Not found', detail: 'No revisions', code: 'NOT-001', traceId: 'ref-404'})
+            }
+            return HttpResponse.json({
+                content: [
+                    revision(12, 'DELETED', {id: 5, code: null, description: null, enabled: false, versionNumber: null}),
+                    revision(9, 'UPDATED', {id: 5, code: 'C-1', description: 'Cimentación 1', enabled: false,
+                        foundationType: {id: 2, code: 'FT-OLD'}, versionNumber: null}),
+                    revision(8, 'CREATED', null),
+                ],
+                page: {number: 0, size: 20, totalElements: 3, totalPages: 1},
+            })
+        }))
+        const {user} = await openCatalogue('/catalogos/foundations', sessionWith(AUDITOR), 2)
+
+        await user.click(screen.getByRole('button', {name: 'Historial de C-1'}))
+        let dialog = await screen.findByRole('dialog', {name: 'Historial de C-1'})
+        expect(await within(dialog).findByText('3 revisiones, la más reciente primero')).toBeInTheDocument()
+        const lines = within(within(dialog).getByRole('table')).getAllByRole('row').slice(1)
+            .map((row) => within(row).getAllByRole('cell').map((cell) => cell.textContent))
+        expect(lines.map((cells) => [cells[0], cells[2], cells[5]])).toEqual([
+            ['12', 'Baja', 'Borrada del catálogo: sus datos están en la revisión anterior'],
+            ['9', 'Modificación', 'C-1 · Cimentación 1 · tipo FT-OLD · inactivo'],
+            ['8', 'Alta', 'Sin datos de la entrada en esta revisión'],
+        ])
+        expect(requests.map((url) => url.pathname + url.search)).toEqual([`${FOUNDATIONS}/5/revisions?page=0&size=20`])
+        await user.click(within(dialog).getAllByRole('button', {name: 'Cerrar'}).at(-1))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        await user.click(screen.getByRole('button', {name: 'Historial de C-2'}))
+        dialog = await screen.findByRole('dialog', {name: 'Historial de C-2'})
+        expect(await within(dialog).findByText('Sin historial todavía: el servicio no guarda ninguna revisión de esta fila.')).toBeInTheDocument()
+        expect(within(dialog).queryByRole('table')).not.toBeInTheDocument()
+        expect(screen.queryByText(/Referencia:/)).not.toBeInTheDocument()
     })
 })

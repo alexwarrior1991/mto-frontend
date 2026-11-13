@@ -33,6 +33,7 @@ import {
     deleteLov,
     listLovs,
     lovEntryWithEnabled,
+    lovRevisionsPath,
     newLovEntry,
     updateLov,
 } from '../api/configuration/lovs.js'
@@ -48,6 +49,7 @@ import {
     disconnectorsOf,
     masterBody,
     masterFilter,
+    masterRevisionsPath,
     trackSchematic,
     updateMaster,
 } from '../api/configuration/masters.js'
@@ -1548,6 +1550,82 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(lovRef(null)).toBeNull()
         expect(JSON.stringify({poleType: CLEARED_LOV_REF, portal: null})).toBe('{"poleType":{},"portal":null}')
         expect(Object.isFrozen(CLEARED_LOV_REF)).toBe(true)
+    })
+
+    it('el historial de un maestro llega paginado, la más reciente primero, con la fila tal como quedó', async () => {
+        useToken('token-1')
+        const profile = {
+            id: 7, profileId: 'P-007', kp: '12.345', trackId: 3, profileStatus: {id: 2, code: 'OK'}, span: '55.000',
+            cantilevers: [{id: 70, cantileverType: {id: 4, code: 'CT1'}}], versionNumber: null,
+        }
+        const revisions = record('get', '/api/configuration/:resource/:id/revisions', (request) => HttpResponse.json(
+            new URL(request.url).pathname.includes('/tracks/')
+                ? page([{
+                    revision: {revision: 9, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'MERGED', author: 'system', source: 'BATCH',
+                        correlationId: null},
+                    entity: {id: 3, name: 'VIA 1', executionPackageId: 100, stationIds: [12], profiles: null, enabled: true,
+                        versionNumber: null},
+                }], 1, 5, 6)
+                : page([
+                    {
+                        revision: {revision: 4217, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'UPDATED', author: 'config.responsable',
+                            source: 'HTTP', correlationId: '5f0c', userId: 'u-1', requestMethod: 'PUT', requestUri: '/api/v1/x'},
+                        entity: profile,
+                    },
+                    {revision: {revision: 4100, operation: 'CREATED', author: 'system', source: 'SYSTEM', correlationId: null}, entity: null},
+                ], 0, 20, 2)))
+
+        const history = await listRevisions(masterRevisionsPath('profiles', 7))
+        const tracks = await listRevisions(masterRevisionsPath('tracks', 3), {page: 2, size: 5})
+
+        expect(revisions.map((request) => request.url.pathname + request.url.search)).toEqual([
+            '/api/configuration/profiles/7/revisions?page=0&size=20',
+            '/api/configuration/tracks/3/revisions?page=1&size=5',
+        ])
+        expect(revisions[0].headers.get('authorization')).toBe('Bearer token-1')
+        expect(history.totalElements).toBe(2)
+        expect(history.content[0].revision).toMatchObject({revision: 4217, revisionAt: '2026-11-13T07:29:37.512Z', operation: 'UPDATED',
+            author: 'config.responsable', source: 'HTTP', correlationId: '5f0c'})
+        expect(history.content[0].entity.cantilevers).toHaveLength(1)
+        expect(history.content[0].entity.versionNumber).toBeNull()
+        expect(history.content[1].entity).toBeNull()
+        expect(tracks.content[0].entity.profiles).toBeNull()
+        expect(REVISION_OPERATION.parse(tracks.content[0].revision.operation)).toBe(UNKNOWN)
+        expect(REVISION_OPERATION.label(tracks.content[0].revision.operation)).toBe('Desconocido')
+        expect(tracks.content[0].revision.source).toBe('BATCH')
+    })
+
+    it('el historial de una entrada de catálogo trae su tipo, su borrado solo el id, y el 404 y el 403 llegan tipados', async () => {
+        useToken()
+        const problem = (status, code) => HttpResponse.json({status, title: 'x', detail: 'x', code},
+            {status, headers: {'Content-Type': 'application/problem+json'}})
+        record('get', '/api/configuration/:resource/:id/revisions', (request) => {
+            const path = new URL(request.url).pathname
+            if (path.includes('/profile-statuses/')) {
+                return problem(404, 'NOT-001')
+            }
+            if (path.includes('/portals/')) {
+                return problem(403, 'SEC-003')
+            }
+            return HttpResponse.json(page([
+                {revision: {revision: 12, operation: 'DELETED', author: 'config.responsable', source: 'HTTP'},
+                    entity: {id: 5, code: null, description: null, enabled: false, versionNumber: null}},
+                {revision: {revision: 8, operation: 'CREATED', author: 'config.responsable', source: 'HTTP'},
+                    entity: {id: 5, code: 'C-1', description: 'Cimentación 1', enabled: true, foundationType: {id: 2, code: 'FT-OLD'},
+                        versionNumber: null}},
+            ], 0, 20, 2))
+        })
+
+        const history = await listRevisions(lovRevisionsPath('foundations', 5))
+        const none = await failure(listRevisions(lovRevisionsPath('profile-statuses', 1)))
+        const forbidden = await failure(listRevisions(lovRevisionsPath('portals', 1)))
+
+        expect(lovRevisionsPath('foundations', 5)).toBe('/api/configuration/foundations/5/revisions')
+        expect(history.content[0].entity).toEqual({id: 5, code: null, description: null, enabled: false, versionNumber: null})
+        expect(history.content[1].entity.foundationType.code).toBe('FT-OLD')
+        expect(none).toBeInstanceOf(NotFoundError)
+        expect(none.code).toBe('NOT-001')
+        expect(forbidden).toBeInstanceOf(ForbiddenError)
     })
 })
 

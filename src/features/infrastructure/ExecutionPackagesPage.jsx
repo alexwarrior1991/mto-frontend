@@ -24,7 +24,7 @@ export default function ExecutionPackagesPage() {
         ),
     }]
     return (
-        <MasterPage master={MASTERS.executionPackages} columns={columns} filters={filters}
+        <MasterPage master={MASTERS.executionPackages} columns={columns} filters={filters} references={references}
                     renderEditor={({row, onClose}) => <ExecutionPackageEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }

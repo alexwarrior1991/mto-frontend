@@ -14,7 +14,7 @@ export default function StationsPage() {
         },
     ]
     return (
-        <MasterPage master={MASTERS.stations} columns={columns}
+        <MasterPage master={MASTERS.stations} columns={columns} references={references}
                     renderEditor={({row, onClose}) => <StationEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }

@@ -46,3 +46,27 @@ export function parentOptions(rows, current) {
     }
     return options
 }
+
+/** Una revision sin entrada (entity: null): el servicio no la pudo reconstruir. */
+export const NO_ENTITY = 'Sin datos de la entrada en esta revisión'
+
+/** El borrado de una entrada es fisico y su revision solo guarda el id. */
+export const DELETED_ENTRY = 'Borrada del catálogo: sus datos están en la revisión anterior'
+
+/**
+ * Como quedo una entrada en una revision de su historial: su codigo, su descripcion, su tipo en los
+ * tres catalogos que lo tienen y si estaba activa. Una borrada se dice asi, en vez de pintarla como
+ * una entrada vacia e inactiva. Lo que no viene no deja separador suelto.
+ */
+export function describeRevision(resource, entry) {
+    if (isMissing(entry.code) && isMissing(entry.description)) {
+        return DELETED_ENTRY
+    }
+    const type = resource.parent ? entry[resource.parent.field]?.code : null
+    return [entry.code, entry.description, isMissing(type) ? null : `tipo ${type}`, entry.enabled === true ? 'activo' : 'inactivo']
+        .filter((part) => !isMissing(part) && String(part).trim() !== '').join(' · ')
+}
+
+function isMissing(value) {
+    return value === null || value === undefined
+}

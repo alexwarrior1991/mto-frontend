@@ -3,15 +3,16 @@ import {IconCheck, IconListNumbers, IconPlus, IconRefresh, IconSearch, IconX} fr
 import {useMemo, useState} from 'react'
 import {useParams} from 'react-router'
 import {findLovResource} from '../../api/configuration/lovResources.js'
-import {bulkUpdateLovs, deleteLov, lovEntryWithEnabled} from '../../api/configuration/lovs.js'
+import {bulkUpdateLovs, deleteLov, lovEntryWithEnabled, lovRevisionsPath} from '../../api/configuration/lovs.js'
 import {P} from '../../auth/permissions.js'
 import {useSession} from '../../auth/sessionContext.js'
 import ConfirmModal from '../../ui/ConfirmModal.jsx'
 import {notifySuccess} from '../../ui/notifySuccess.js'
+import RevisionsModal from '../../ui/RevisionsModal.jsx'
 import CatalogueBulkCreateModal from './CatalogueBulkCreateModal.jsx'
 import CatalogueEditorModal from './CatalogueEditorModal.jsx'
 import CatalogueTable from './CatalogueTable.jsx'
-import {countText, entriesText, filterRows, sortRows} from './catalogueRows.js'
+import {countText, describeRevision, entriesText, filterRows, NO_ENTITY, sortRows} from './catalogueRows.js'
 import {useCatalogue, useCatalogueMutation} from './useCatalogue.js'
 
 /**
@@ -27,13 +28,15 @@ export default function CataloguePage({title}) {
 /**
  * El catalogo entero llega en una lista (el servicio no pagina), y filtrar y ordenar es local. Los
  * botones siguen los permisos del servicio: crear y modificar piden config-write y lov-manage;
- * borrar, config-delete y lov-manage; los lotes, config-import y lov-manage.
+ * borrar, config-delete y lov-manage; los lotes, config-import y lov-manage; el historial de una
+ * entrada, config-audit y config-read juntos (con uno solo el servicio responde 403).
  */
 function CatalogueScreen({resource, title}) {
     const session = useSession()
     const canWrite = session.hasAll(P.CONFIG_WRITE, P.LOV_MANAGE)
     const canDelete = session.hasAll(P.CONFIG_DELETE, P.LOV_MANAGE)
     const canBulk = session.hasAll(P.CONFIG_IMPORT, P.LOV_MANAGE)
+    const canAudit = session.hasAll(P.CONFIG_AUDIT, P.CONFIG_READ)
 
     const catalogue = useCatalogue(resource.path)
     const [text, setText] = useState('')
@@ -44,6 +47,7 @@ function CatalogueScreen({resource, title}) {
     const [editing, setEditing] = useState(null)
     const [deleting, setDeleting] = useState(null)
     const [bulkCreating, setBulkCreating] = useState(false)
+    const [history, setHistory] = useState(null)
 
     const rows = useMemo(() => (Array.isArray(catalogue.data) ? catalogue.data : []), [catalogue.data])
     const shown = useMemo(() => sortRows(filterRows(rows, {text, onlyEnabled}), sort), [rows, text, onlyEnabled, sort])
@@ -156,7 +160,12 @@ function CatalogueScreen({resource, title}) {
             <CatalogueTable resource={resource} rows={shown} loading={catalogue.isPending} sort={sort} onSort={changeSort}
                             emptyText={emptyText(catalogue, rows)} selection={selection}
                             onEdit={canWrite ? (row) => setEditing({entry: row}) : null}
-                            onDelete={canDelete ? setDeleting : null}/>
+                            onHistory={canAudit ? setHistory : null} onDelete={canDelete ? setDeleting : null}/>
+            {history && (
+                <RevisionsModal label={history.code} path={lovRevisionsPath(resource.path, history.id)}
+                                describe={(entry) => describeRevision(resource, entry)} whenMissing={NO_ENTITY}
+                                onClose={() => setHistory(null)}/>
+            )}
             {editing && (
                 <CatalogueEditorModal resource={resource} catalogueTitle={title} entry={editing.entry}
                                       onClose={() => setEditing(null)}/>

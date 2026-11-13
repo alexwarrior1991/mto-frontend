@@ -40,7 +40,7 @@ export default function SectionInsulatorsPage() {
         },
     ]
     return (
-        <MasterPage master={MASTERS.sectionInsulators} columns={columns} filters={filters}
+        <MasterPage master={MASTERS.sectionInsulators} columns={columns} filters={filters} references={references}
                     renderEditor={({row, onClose}) => <SectionInsulatorEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }

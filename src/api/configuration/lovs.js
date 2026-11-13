@@ -7,7 +7,8 @@ import {prefixOf} from '../services.js'
  * catalogo entero llega en una lista, no en una pagina.
  *
  * Permisos que aplica el servicio: leer pide config-read; crear y modificar, config-write y
- * lov-manage; los lotes (/bulk), config-import y lov-manage; borrar, config-delete y lov-manage.
+ * lov-manage; los lotes (/bulk), config-import y lov-manage; borrar, config-delete y lov-manage; el
+ * historial de una entrada, config-audit y config-read.
  *
  * Como viaja una entrada (README_API.md §5 de mto-configuration):
  * - el alta lleva solo lo que se escribe: ni id ni version, que pone el servicio;
@@ -38,6 +39,16 @@ export function updateLov(resource, entry) {
 
 export function deleteLov(resource, id) {
     return apiFetch(`${base(resource)}/${id}`, {method: 'DELETE', responseType: 'none'})
+}
+
+/**
+ * La ruta del historial de una entrada, para listRevisions: sus revisiones paginadas, la mas reciente
+ * primero. El servicio pide config-audit y config-read juntos, y responde 404 NOT-001 si no tiene
+ * ninguna (las sembradas en una migracion). El borrado de una entrada es fisico: su revision solo
+ * trae el id.
+ */
+export function lovRevisionsPath(resource, id) {
+    return `${base(resource)}/${id}/revisions`
 }
 
 export function bulkCreateLovs(resource, entries) {

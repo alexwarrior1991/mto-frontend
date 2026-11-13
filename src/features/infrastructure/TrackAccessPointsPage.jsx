@@ -48,7 +48,7 @@ export default function TrackAccessPointsPage() {
         },
     ]
     return (
-        <MasterPage master={MASTERS.trackAccessPoints} columns={columns} filters={filters}
+        <MasterPage master={MASTERS.trackAccessPoints} columns={columns} filters={filters} references={references}
                     renderEditor={({row, onClose}) => <TrackAccessPointEditor row={row} references={references} onClose={onClose}/>}/>
     )
 }
