@@ -32,18 +32,23 @@ const SEARCH_DELAY_MS = 400
  * quién lo cambió, y el historial enseña la fila. Con uno solo el servicio responde 403, así que el
  * botón no se ofrece. Va detrás de las acciones propias del maestro y antes de borrar.
  *
+ * Un borrado que el servicio rechaza (409 BUS-002: de la fila cuelga algo vivo) cierra la confirmación
+ * y se avisa con el detalle del servicio, que dice qué cuelga y cuánto.
+ *
  * @param {object} master la entrada de MASTERS
  * @param {Array} columns las columnas propias; «Modificado» la añade esta pantalla
  * @param {Array<{key: string, initial?: *, render: Function}>} [filters] los filtros propios:
  *        render(valor, cambiar) pinta el control
  * @param {Function} [rowActions] fila → acciones de lectura, entre modificar y el historial
+ * @param {Function} [deleteActions] fila → otras formas de borrar, detrás de «Borrar» y solo con
+ *        config-delete (borrar una vía entera)
  * @param {object} references los nombres de las referencias, con los que el historial dice cómo quedó
  *        la fila en cada revisión
  * @param {Function} renderEditor ({row, onClose}) → el editor; row es null en un alta, o una copia de
  *        la fila
  * @param {Function} [labelOf] cómo se nombra una fila en los mensajes
  */
-export default function MasterPage({master, columns, filters = [], rowActions = null, references, renderEditor, labelOf = nameOf}) {
+export default function MasterPage({master, columns, filters = [], rowActions = null, deleteActions = null, references, renderEditor, labelOf = nameOf}) {
     const session = useSession()
     const canWrite = session.has(P.CONFIG_WRITE)
     const canDelete = session.has(P.CONFIG_DELETE)
@@ -103,6 +108,7 @@ export default function MasterPage({master, columns, filters = [], rowActions = 
                 <RowActionButton label={`Borrar ${labelOf(row)}`} tooltip="Borrar" icon={IconTrash} color="red"
                                  onClick={() => setDeleting(row)}/>
             )}
+            {canDelete && deleteActions?.(row)}
         </>
     )
 

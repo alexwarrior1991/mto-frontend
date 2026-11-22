@@ -4,6 +4,7 @@ import {describe, expect, it} from 'vitest'
 import {buildMenu} from '../app/navigation.js'
 import {P} from '../auth/permissions.js'
 import {MASTER_HISTORY} from '../features/infrastructure/masterHistory.js'
+import {deleteWarning, MASTERS} from '../features/infrastructure/masterResources.js'
 import {buildReferenceCatalog} from '../features/infrastructure/references.js'
 import {
     armDirection, DISCONNECTOR_STEP, DISCONNECTOR_Y, disconnectorY, insulatorX, MARGIN, normalizeSchematic, schematicSummary, STEP,
@@ -18,7 +19,7 @@ import {loginAs, sessionWith} from './session.js'
  * Las pantallas de infraestructura (infraestructura/*) con los casos de maestros de ViewLayerTest del
  * backoffice: la lista paginada, buscada, filtrada y ordenada en el servicio; lo que ve quien solo lee;
  * la modificación sobre la fila leída, con lo desconocido, la versión y los hijos a null; los errores
- * del servicio; el borrado; el alta y las ménsulas de un perfil; las agujas de un aislador; el perfil
+ * del servicio; el borrado, el que el servicio rechaza por lo que cuelga y el de una vía entera; el alta y las ménsulas de un perfil; las agujas de un aislador; el perfil
  * de un seccionador; los puntos de acceso a la vía, con sus cifras comprobadas con su columna; y el
  * esquema de una vía; y el historial de una fila, solo con config-audit y config-read. Y lo que el backoffice no hacía: vaciar una referencia a catálogo de verdad ({}) y
  * no ofrecer cambiar el seccionador desde el perfil.
@@ -325,6 +326,7 @@ describe('la lista de un maestro', () => {
         expect(screen.queryByRole('button', {name: 'Nuevo'})).not.toBeInTheDocument()
         expect(screen.queryByRole('button', {name: 'Modificar VIA 1'})).not.toBeInTheDocument()
         expect(screen.queryByRole('button', {name: 'Borrar VIA 1'})).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', {name: 'Borrar la vía entera VIA 1'})).not.toBeInTheDocument()
         expect(screen.getByRole('button', {name: 'Esquema VIA 1'})).toBeInTheDocument()
         await user.dblClick(rowOf('Vías', 'VIA 1'))
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -390,7 +392,7 @@ describe('el editor de un maestro', () => {
         expect(within(dialog).getByRole('textbox', {name: 'Nombre'})).toHaveValue('VIA PRINCIPAL')
     })
 
-    it('borrar pide confirmación y dice lo que pasa: desaparece de las listas y lo que cuelga se queda', async () => {
+    it('borrar pide confirmación y dice lo que pasa: desaparece de las listas, y con algo colgando el servicio no la borra', async () => {
         serveGateway()
         const deletes = recordWrites('delete', `${BASE}/tracks/3`, () => new HttpResponse(null, {status: 204}))
         const {user} = await open('/infraestructura/vias', sessionWith(MANAGER), 'Vías', 3)
@@ -398,12 +400,107 @@ describe('el editor de un maestro', () => {
         await user.click(screen.getByRole('button', {name: 'Borrar VIA 1'}))
         const confirm = await screen.findByRole('dialog', {name: 'Borrar vía VIA 1'})
         expect(confirm).toHaveTextContent('Desaparece de las listas: el servicio la marca como borrada y desde aquí no se puede recuperar.')
-        expect(confirm).toHaveTextContent('Lo que cuelga de ella no se borra: sus perfiles.')
+        expect(confirm).toHaveTextContent('Si tiene perfiles, seccionadores, aisladores o accesos a vía, el servicio no la borra: '
+            + 'para borrarla con todo lo suyo está «Borrar la vía entera».')
         expect(deletes).toHaveLength(0)
         await user.click(within(confirm).getByRole('button', {name: 'Borrar'}))
 
         expect(await screen.findByText('Borrada VIA 1')).toBeInTheDocument()
         expect(deletes).toEqual([null])
+    })
+
+    it('la confirmación de cada maestro dice lo que se va con él y lo que impide borrarlo', () => {
+        const base = (it, deleted) => `Desaparece de las listas: el servicio ${it} marca como ${deleted} y desde aquí no se puede recuperar.`
+        expect(deleteWarning(MASTERS.executionPackages)).toBe(`${base('lo', 'borrado')} Si tiene vías o estaciones, el servicio no lo borra.`)
+        expect(deleteWarning(MASTERS.stations)).toBe(`${base('la', 'borrada')} Si tiene vías enlazadas, seccionadores, aisladores o accesos a vía, `
+            + 'el servicio no la borra.')
+        expect(deleteWarning(MASTERS.profiles)).toBe(`${base('lo', 'borrado')} Se borran con él sus ménsulas y los brazos de ellas. `
+            + 'Si tiene seccionadores en su poste, el servicio no lo borra.')
+        expect(deleteWarning(MASTERS.sectionInsulators)).toBe(`${base('lo', 'borrado')} Se borran con él sus agujas.`)
+        expect(deleteWarning(MASTERS.disconnectors)).toBe(base('lo', 'borrado'))
+        expect(deleteWarning(MASTERS.trackAccessPoints)).toBe(base('lo', 'borrado'))
+    })
+
+    it('una vía con algo colgando no se borra (409 BUS-002): el aviso es el detalle del servicio, que dice qué cuelga y cuánto', async () => {
+        serveGateway()
+        const detail = 'No se puede borrar la vía: tiene 412 perfiles, 3 seccionadores y 1 aislador. Bórralos antes, o borra la vía entera '
+            + 'con todo lo suyo: DELETE /tracks/{id}?cascade=true.'
+        const deletes = recordWrites('delete', `${BASE}/tracks/3`, () => problem(409, {
+            title: 'Conflicto', status: 409, code: 'BUS-002', traceId: 't-hang', detail,
+            dependents: [{type: 'profiles', count: 412}, {type: 'disconnectors', count: 3}, {type: 'sectionInsulators', count: 1}],
+        }))
+        const {user} = await open('/infraestructura/vias', sessionWith(MANAGER), 'Vías', 3)
+
+        await user.click(screen.getByRole('button', {name: 'Borrar VIA 1'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Borrar vía VIA 1'})
+        await user.click(within(confirm).getByRole('button', {name: 'Borrar'}))
+
+        expect(await screen.findByText(detail)).toBeInTheDocument()
+        expect(screen.getByText('Referencia: t-hang')).toBeInTheDocument()
+        expect(screen.queryByText(/recarga/)).not.toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        expect(deletes).toHaveLength(1)
+        expect(firstColumn('Vías')).toContain('VIA 1')
+    })
+
+    it('«Borrar la vía entera» dice qué se lleva, pide escribir su nombre, llama con cascade=true y relee la lista', async () => {
+        const tracks = threeTracks()
+        const requests = serveGateway({tracks})
+        const deletes = []
+        server.use(http.delete(`${BASE}/tracks/3`, ({request}) => {
+            deletes.push(new URL(request.url).search)
+            tracks.splice(tracks.findIndex((track) => track.id === 3), 1)
+            return new HttpResponse(null, {status: 204})
+        }))
+        const {user} = await open('/infraestructura/vias', sessionWith(MANAGER), 'Vías', 3)
+        const listed = listRequests(requests.tracks).length
+
+        await user.click(screen.getByRole('button', {name: 'Borrar la vía entera VIA 1'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Borrar la vía entera VIA 1'})
+        expect(confirm).toHaveTextContent('Se borra la vía con todo lo suyo: sus perfiles con sus ménsulas y sus brazos, sus seccionadores, '
+            + 'sus aisladores con sus agujas y sus accesos a vía. No se puede deshacer.')
+        expect(confirm).toHaveTextContent('Si algo de otra vía la usa, el servicio no borra nada y dice qué lo impide.')
+        expect(confirm).toHaveTextContent('puede tardar varios segundos: si la respuesta no llega, recarga la lista antes de repetirlo.')
+        const button = within(confirm).getByRole('button', {name: 'Borrar la vía entera'})
+        expect(button).toBeDisabled()
+
+        const name = within(confirm).getByRole('textbox', {name: 'Escribe el nombre de la vía para confirmar'})
+        await user.type(name, 'VIA 2')
+        expect(button).toBeDisabled()
+        await user.clear(name)
+        await user.type(name, 'VIA 1')
+        expect(button).toBeEnabled()
+        expect(deletes).toHaveLength(0)
+        await user.click(button)
+
+        expect(await screen.findByText('Borrada la vía entera VIA 1')).toBeInTheDocument()
+        expect(deletes).toEqual(['?cascade=true'])
+        await waitFor(() => expect(firstColumn('Vías')).toEqual(['VIA 2', 'VIA MUERTA']))
+        expect(listRequests(requests.tracks).length).toBeGreaterThan(listed)
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('la vía entera no se borra si algo de otra vía la usa (409 BUS-002): el detalle del servicio, y la lista releída', async () => {
+        const requests = serveGateway()
+        const detail = 'No se puede borrar la vía entera: desde otras vías la usan 2 seccionadores. Cambia antes esas referencias o bórralos: '
+            + 'lo que no es de la vía no se toca.'
+        server.use(http.delete(`${BASE}/tracks/3`, () => problem(409, {
+            title: 'Conflicto', status: 409, code: 'BUS-002', traceId: 't-other', detail, dependents: [{type: 'disconnectors', count: 2}],
+        })))
+        const {user} = await open('/infraestructura/vias', sessionWith(MANAGER), 'Vías', 3)
+        const listed = listRequests(requests.tracks).length
+
+        await user.click(screen.getByRole('button', {name: 'Borrar la vía entera VIA 1'}))
+        const confirm = await screen.findByRole('dialog', {name: 'Borrar la vía entera VIA 1'})
+        await user.type(within(confirm).getByRole('textbox', {name: 'Escribe el nombre de la vía para confirmar'}), 'VIA 1')
+        await user.click(within(confirm).getByRole('button', {name: 'Borrar la vía entera'}))
+
+        expect(await screen.findByText(detail)).toBeInTheDocument()
+        expect(screen.getByText('Referencia: t-other')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        // De una respuesta que no llega no se sabe si el servicio terminó: tras un fallo la lista se relee.
+        await waitFor(() => expect(listRequests(requests.tracks).length).toBeGreaterThan(listed))
+        expect(firstColumn('Vías')).toContain('VIA 1')
     })
 
     it('alta de un paquete con su empresa, sus fechas escritas DD/MM/AAAA y lo obligatorio antes de llamar', async () => {
@@ -1135,7 +1232,7 @@ describe('el historial de una fila', () => {
         auditor.unmount()
 
         await open('/infraestructura/vias', sessionWith([...MANAGER, P.CONFIG_AUDIT]), 'Vías', 3)
-        expect(actionsOf(rowOf('Vías', 'VIA 1'))).toEqual(['Modificar VIA 1', 'Esquema VIA 1', 'Historial de VIA 1', 'Borrar VIA 1'])
+        expect(actionsOf(rowOf('Vías', 'VIA 1'))).toEqual(['Modificar VIA 1', 'Esquema VIA 1', 'Historial de VIA 1', 'Borrar VIA 1', 'Borrar la vía entera VIA 1'])
         // Pintar la lista no pide ningún historial.
         expect(revisions).toHaveLength(0)
     })

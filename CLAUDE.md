@@ -402,7 +402,8 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   respuesta, si no el id que se mandó.
 - **Los errores se tipan en `api/errors.js`**, no en las pantallas, y se dicen en
   `ui/errors/messages.js` con la tabla de `UiErrors` del backoffice (`CON-001` pide recargar y
-  `BUS-002`, `USR-409` y el código repetido de un catálogo del almacén, `MAT-409`, `WH-409`,
+  `BUS-002` —que, con `dependents`, es un maestro del que cuelga algo y se dice con el detalle del
+  servicio—, `USR-409` y el código repetido de un catálogo del almacén, `MAT-409`, `WH-409`,
   `SUP-409`, `PRJ-409` o `ASM-409`, o de recursos, `QTY-409` o `INT-409`, no; tampoco `QUA-001` ni
   `VDO-409`, lo que una persona o un vehículo ya tienen; los 409 de estado de mantenimiento no piden recargar; un 422
   sin errores por campo es una regla de negocio; `NTF-404` y `ACT-404` dicen que esa notificación o
@@ -505,7 +506,27 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
     seis decimales) van juntas, y el error cae en la que falta, como el 400 del servicio. Un nombre
     repetido en su vía es el 409 `BUS-002`, con el diálogo abierto. Se republica acotado por vía,
     como los perfiles.
-  - Borrar es lógico y lo que cuelga se queda, y la confirmación lo dice. Las listas se paginan en el
+  - Borrar es lógico, y la confirmación de cada maestro dice lo que pasa (`deleteWarning`, con
+    `goesWith` y `blockedBy` de `masterResources.js`): un perfil se lleva sus ménsulas y los brazos de
+    ellas, y un aislador, sus agujas; y un maestro del que cuelga algo vivo (un paquete con vías o
+    estaciones, una estación con vías enlazadas, seccionadores, aisladores o accesos, una vía con
+    perfiles, seccionadores, aisladores o accesos, un perfil con seccionadores en su poste) no se borra:
+    el servicio responde 409 `BUS-002` sin escribir nada, con `dependents [{type, count}]`
+    (`problem.dependents`) y un `detail` que dice qué cuelga y cuánto. Ese `BUS-002` con `dependents`
+    se avisa con el detalle del servicio, tal cual y sin pedir recargar, y la confirmación se cierra;
+    sin `dependents` (un valor repetido, una entrada de catálogo en uso) sigue el texto de siempre.
+    Vale igual para un hijo quitado dentro del `PUT` de su padre.
+  - **Una vía se borra entera con «Borrar la vía entera»** (`TracksPage`, `TrackWholeDeleteModal`;
+    `deleteWholeTrack`: `DELETE /tracks/{id}?cascade=true`), una acción de fila detrás de «Borrar» y
+    con su mismo permiso (`config-delete`; `deleteActions` de `MasterPage`). Su confirmación dice qué
+    se lleva (la vía, sus perfiles con sus ménsulas y sus brazos, sus seccionadores, sus aisladores con
+    sus agujas y sus accesos a vía), que no se deshace y que puede tardar, y su botón no se activa
+    hasta escribir el nombre de la vía; mientras corre, carga y el diálogo no se cierra. Al acabar
+    bien se avisa («Borrada la vía entera …») y se releen las listas. Si algo de otra vía la usa, el
+    servicio no borra nada (409 `BUS-002`, con su detalle); cualquier fallo cierra la confirmación,
+    se avisa como siempre y relee la lista, porque de una respuesta que no llegó (el gateway corta a
+    los 15 s) no se sabe si el servicio terminó. El borrado normal no cambia: sin parámetro.
+  - Las listas se paginan en el
     servicio (`POST /filter`, 50 por página); paquetes, estaciones y vías se cargan enteros (1000
     filas) solo para nombrar las referencias.
 - **El error de un maestro llega con la ruta de su campo, y ninguno se pierde.** `mto-configuration`

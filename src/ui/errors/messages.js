@@ -16,7 +16,8 @@ import {
  * con el mismo orden (gana la primera que casa) y ahora con tildes.
  *
  * Los codigos que se distinguen son de los servicios: CON-001 es una version vieja (recargar lo
- * arregla) y BUS-002 un valor repetido o una entrada en uso (recargar no lo arregla); los 409 de
+ * arregla) y BUS-002 un valor repetido o una entrada en uso (recargar no lo arregla), y con dependents,
+ * un maestro del que cuelga algo vivo, que se dice con el detalle del servicio; los 409 de
  * estado de mto-maintenance no piden recargar; un 422 sin errores por campo es una regla de negocio.
  */
 export function errorMessage(error) {
@@ -172,7 +173,12 @@ function conflictMessage(error) {
         case 'CON-001':
             return 'Conflicto con otro cambio: recarga y vuelve a intentarlo.'
         // Un valor unico repetido o una entrada en uso: recargar no lo arregla, asi que no se pide.
+        // Con dependents es otra cosa: un maestro (o un hijo quitado de su padre) del que cuelga algo vivo.
+        // El servicio no borra nada, y su detalle dice qué cuelga y cuánto: es lo que se enseña.
         case 'BUS-002':
+            if (error.problem.dependents?.length > 0) {
+                return detail(error).trim() || 'No se puede borrar: tiene cosas colgando. Bórralas o muévelas antes.'
+            }
             return 'Ya existe otro registro con ese valor (un código que no se puede repetir), o la entrada está en uso.'
         case 'TRN-001':
             return 'El estado actual no permite esta operación.' + detail(error)

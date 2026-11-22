@@ -21,7 +21,10 @@ import {prefixOf} from '../services.js'
  *   que el editor no toca viaja a null («de esta no digo nada»), y la que toca va entera.
  * - Una referencia a catálogo se resuelve por su código. En un perfil, null es «no la toques» y {}
  *   (sin código) la quita.
- * - Borrar es lógico: la fila desaparece de las listas y lo que cuelga de ella se queda.
+ * - Borrar es lógico: la fila desaparece de las listas. Se lleva lo que no existe sin ella (las
+ *   ménsulas de un perfil con sus brazos, las agujas de un aislador), y si de ella cuelga algo vivo el
+ *   servicio no borra nada: 409 BUS-002, con qué cuelga y cuánto en detail y en dependents[{type,
+ *   count}]. Una vía se puede borrar entera, con todo lo suyo (deleteWholeTrack).
  * - Las cifras de un aislador y de un punto de acceso (su KP, sus pesos, sus coordenadas) viajan como
  *   números JSON; las de un perfil y el KP propio de un seccionador, como texto (README_API.md §4
  *   quinquies: el texto lo obligaba la caché de esos maestros).
@@ -79,6 +82,16 @@ export function updateMaster(resource, dto) {
 
 export function deleteMaster(resource, id) {
     return apiFetch(`${base(resource)}/${id}`, {method: 'DELETE', responseType: 'none'})
+}
+
+/**
+ * Borra una vía entera (DELETE /tracks/{id}?cascade=true, con config-delete como el borrado normal):
+ * la vía con sus perfiles (y sus ménsulas y brazos), sus seccionadores, sus aisladores (y sus agujas)
+ * y sus puntos de acceso, en una sola transacción. No toca nada de otra vía: si algo de otra vía la
+ * usa, 409 BUS-002 y no se borra nada. Con miles de perfiles tarda varios segundos.
+ */
+export function deleteWholeTrack(id) {
+    return apiFetch(`${base('tracks')}/${id}`, {method: 'DELETE', query: {cascade: true}, responseType: 'none'})
 }
 
 /**

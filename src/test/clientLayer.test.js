@@ -41,6 +41,7 @@ import {
     CLEARED_LOV_REF,
     createMaster,
     deleteMaster,
+    deleteWholeTrack,
     filterMasters,
     getMaster,
     listBusinessEntities,
@@ -861,6 +862,18 @@ describe('ui/errors/messages.js: lo que se le dice a la persona', () => {
             .toBe('Conflicto con otro cambio: recarga y vuelve a intentarlo.')
         expect(errorMessage(new ConflictError(409, {problem: problem({code: 'BUS-002'})})))
             .toBe('Ya existe otro registro con ese valor (un código que no se puede repetir), o la entrada está en uso.')
+        // Sin dependents, el detalle de un valor repetido no se enseña: sigue el texto de siempre.
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'BUS-002', detail: "El valor del campo 'name' está repetido"})})))
+            .toBe('Ya existe otro registro con ese valor (un código que no se puede repetir), o la entrada está en uso.')
+    })
+
+    it('un maestro del que cuelga algo (409 BUS-002 con dependents) se dice con el detalle del servicio, sin pedir recargar', () => {
+        const dependents = [{type: 'profiles', count: 412}]
+        expect(errorMessage(new ConflictError(409, {problem: problem({
+            code: 'BUS-002', detail: 'No se puede borrar la vía: tiene 412 perfiles. Bórralos antes.', dependents,
+        })}))).toBe('No se puede borrar la vía: tiene 412 perfiles. Bórralos antes.')
+        expect(errorMessage(new ConflictError(409, {problem: problem({code: 'BUS-002', dependents})})))
+            .toBe('No se puede borrar: tiene cosas colgando. Bórralas o muévelas antes.')
     })
 
     it('los 409 de estado de mantenimiento no piden recargar y llevan el detalle', () => {
@@ -1546,6 +1559,36 @@ describe('configuration/masters.js: los maestros de infraestructura', () => {
         expect(schematic.profiles[0].disconnectors[0].track).toBe('VIA 3')
         expect(entities[0].identificationNumber).toBe('A12345678')
         expect(companies[0].headers.get('authorization')).toBe('Bearer token-1')
+    })
+
+    it('una vía se borra entera con cascade=true, y el 409 de lo que cuelga trae su detalle y sus dependents', async () => {
+        useToken()
+        const detail = 'No se puede borrar la vía: tiene 412 perfiles y 3 seccionadores. Bórralos antes, o borra la vía entera con todo lo suyo: '
+            + 'DELETE /tracks/{id}?cascade=true.'
+        const hanging = () => HttpResponse.json({
+            title: 'Conflicto', status: 409, code: 'BUS-002', traceId: 't-hang', detail,
+            dependents: [{type: 'profiles', count: 412}, {type: 'disconnectors', count: 3}, 'roto', {type: 'deMañana'}],
+        }, {status: 409, headers: {'Content-Type': 'application/problem+json'}})
+        const whole = record('delete', '/api/configuration/tracks/3', () => new HttpResponse(null, {status: 204}))
+        const refused = record('delete', '/api/configuration/tracks/4', hanging)
+
+        await expect(deleteWholeTrack(3)).resolves.toBeNull()
+        const plain = await failure(deleteMaster('tracks', 4))
+        const cascade = await failure(deleteWholeTrack(4))
+
+        expect(whole[0].url.search).toBe('?cascade=true')
+        expect(whole[0].body).toBe('')
+        // El borrado normal no cambia: sin parámetro.
+        expect(refused.map((request) => request.url.search)).toEqual(['', '?cascade=true'])
+        expect(plain).toBeInstanceOf(ConflictError)
+        expect([plain.code, plain.reference, plain.problem.detail]).toEqual(['BUS-002', 't-hang', detail])
+        // Lo que no es un {type, count} se ignora, y un tipo nuevo se lee igual.
+        expect(plain.problem.dependents).toEqual([
+            {type: 'profiles', count: 412}, {type: 'disconnectors', count: 3}, {type: 'deMañana', count: null},
+        ])
+        expect(errorMessage(plain)).toBe(detail)
+        expect(errorMessage(cascade)).toBe(detail)
+        expect(emptyProblem().dependents).toEqual([])
     })
 
     it('los seccionadores de un perfil: la lista del servicio, o el de un servicio anterior como una lista de uno', () => {
