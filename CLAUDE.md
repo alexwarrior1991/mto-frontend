@@ -990,7 +990,9 @@ necesita y no recorre en pantalla (un token del password grant local, y `/api` p
 SPA): así valen en una plataforma recién levantada. `coexistence.spec.js` salta al backoffice y vuelve,
 con la misma ruta, su filtro y el mismo SSO (también el organigrama), e `infrastructure.spec.js` dibuja
 el esquema de su vía con un perfil y su ménsula en las dos aplicaciones, y da de alta en pantalla un
-punto de acceso en una vía de usar y tirar que sale en la lista de las dos aplicaciones. `resources.spec.js` crea un
+punto de acceso en una vía de usar y tirar que sale en la lista de las dos aplicaciones. También pone por la API una vía con
+un perfil y un punto de acceso: «Borrar» no la borra y avisa de qué cuelga, y «Borrar la vía entera», con su nombre
+escrito, se la lleva con todo lo suyo (solo en la SPA). `resources.spec.js` crea un
 equipo con la regla de 2 a 6, un modelo bivial 9A y un vehículo puesto en vía que sale en el tablero, y
 lleva un equipo de `mto-resources` a un turno de mantenimiento que, al cerrarse, deja su vehículo
 aparcado como del turno en `mto-resources` (`expect.poll`, porque llega por evento); usa códigos E2E,
