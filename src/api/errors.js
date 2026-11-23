@@ -6,7 +6,8 @@ import {CORRELATION_HEADER} from './correlation.js'
  * ApiErrorDecoder y ApiProblem del backoffice.
  *
  * Llegan cinco formatos, y todos se leen igual:
- * - mto-configuration: problem+json con code, traceId, retryable y errors[{field, code, message}];
+ * - mto-configuration: problem+json con code, traceId, retryable y errors[{field, code, message}]; y, en
+ *   el 409 de borrar algo de lo que cuelgan cosas vivas, dependents[{type, count}]: qué cuelga y cuánto;
  * - mto-users: problem+json con errorCode, correlationId y validationErrors[{field, message}];
  * - mto-stock, mto-maintenance y mto-notification: JSON con error, message, errorCode, correlationId
  *   y validationErrors (mas path y method);
@@ -31,6 +32,7 @@ export function emptyProblem() {
         retryable: null,
         service: null,
         errors: [],
+        dependents: [],
     }
 }
 
@@ -80,6 +82,9 @@ function problemFrom(body) {
         retryable: typeof body.retryable === 'boolean' ? body.retryable : null,
         service: textOrNull(body.service),
         errors,
+        dependents: asArray(body.dependents)
+            .filter((item) => item && typeof item === 'object')
+            .map((item) => ({type: textOrNull(item.type), count: typeof item.count === 'number' ? item.count : null})),
     }
 }
 

@@ -1,4 +1,4 @@
-import {IconTimeline} from '@tabler/icons-react'
+import {IconTimeline, IconTrashX} from '@tabler/icons-react'
 import {useQueryClient} from '@tanstack/react-query'
 import {useState} from 'react'
 import {trackSchematic} from '../../api/configuration/masters.js'
@@ -9,16 +9,22 @@ import {MASTERS, nameOf} from './masterResources.js'
 import MasterPage from './MasterPage.jsx'
 import TrackEditor from './TrackEditor.jsx'
 import TrackSchematicModal from './TrackSchematicModal.jsx'
+import TrackWholeDeleteModal from './TrackWholeDeleteModal.jsx'
 import {useReferenceCatalog} from './useMasters.js'
 
 /**
  * infraestructura/vias: cada vía con su paquete, las estaciones que atraviesa y si está activa. Cada
  * fila ofrece su esquema, también a quien solo lee: es una consulta.
+ *
+ * «Borrar» no borra una vía de la que cuelga algo (409 BUS-002, con qué y cuánto). Para eso está, con
+ * el mismo permiso (config-delete), «Borrar la vía entera», que se la lleva con todo lo suyo y tiene
+ * su propia confirmación (TrackWholeDeleteModal).
  */
 export default function TracksPage() {
     const references = useReferenceCatalog({stations: true})
     const queryClient = useQueryClient()
     const [schematic, setSchematic] = useState(null)
+    const [deletingWhole, setDeletingWhole] = useState(null)
 
     // Una llamada, y lo que se ve es lo que llegó en ella: la proyección ya viene ordenada y cacheada
     // en el servicio. Si falla, el aviso lo da queryClient.js y no se abre ninguna ventana.
@@ -60,8 +66,13 @@ export default function TracksPage() {
                             <RowActionButton label={`Esquema ${nameOf(row)}`} tooltip="Esquema" icon={IconTimeline}
                                              onClick={() => void openSchematic(row)}/>
                         )}
+                        deleteActions={(row) => (
+                            <RowActionButton label={`Borrar la vía entera ${nameOf(row)}`} tooltip="Borrar la vía entera"
+                                             icon={IconTrashX} color="red" onClick={() => setDeletingWhole(row)}/>
+                        )}
                         renderEditor={({row, onClose}) => <TrackEditor row={row} references={references} onClose={onClose}/>}/>
             {schematic && <TrackSchematicModal schematic={schematic} onClose={() => setSchematic(null)}/>}
+            {deletingWhole && <TrackWholeDeleteModal track={deletingWhole} onClose={() => setDeletingWhole(null)}/>}
         </>
     )
 }
