@@ -21,6 +21,11 @@ import {signIn} from './keycloak.js'
  * Aparte, un punto de acceso a la vía (el maestro de V28 de mto-configuration) se da de alta en pantalla
  * en una vía de usar y tirar que se pone por la API, sale en su lista en la SPA y en el backoffice, y se
  * borra; la vía y su paquete se quitan al acabar.
+ *
+ * Y una vía de usar y tirar con algo colgando (un perfil con su ménsula y un punto de acceso, puestos por
+ * la API): «Borrar» no la borra y el aviso es el detalle del servicio, que dice qué cuelga; «Borrar la vía
+ * entera», con su nombre escrito, se la lleva con todo lo suyo. Solo en la SPA: el backoffice lo prueban
+ * sus tests de vista.
  */
 
 const SUFFIX = Date.now().toString(36).toUpperCase()
@@ -66,7 +71,7 @@ async function catalogueEntry(api, catalogue, code, description) {
 }
 
 /** El perfil del esquema en la vía, con su ménsula: el estado y el tipo viajan por su código. */
-async function createProfile(api, trackName) {
+async function createProfile(api, trackName, code = PROFILE.code) {
     const [track] = (await api.post('/api/configuration/tracks/filter?page=0&size=1', {searchText: trackName})).content
     if (!track) {
         throw new Error(`La vía ${trackName} no sale en su lista`)
@@ -74,7 +79,7 @@ async function createProfile(api, trackName) {
     const status = await catalogueEntry(api, 'profile-statuses', PROFILE.status, 'Estado de las pruebas e2e')
     const armType = await catalogueEntry(api, 'cantilever-types', PROFILE.armType, 'Ménsula de las pruebas e2e')
     const profile = await api.post('/api/configuration/profiles', {
-        profileId: PROFILE.code, kp: PROFILE.kp, trackId: track.id,
+        profileId: code, kp: PROFILE.kp, trackId: track.id,
         profileStatus: {id: status.id, code: status.code},
         cantilevers: [{cantileverType: {id: armType.id, code: armType.code}}],
     })
@@ -248,6 +253,72 @@ test('un punto de acceso de usar y tirar: alta en pantalla en su vía, en la lis
                 await api.delete(`/api/configuration/${path}/${entry.id}`).catch(() => undefined)
             }
         }
+        await api.dispose()
+    }
+})
+
+test('una vía con algo colgando no se borra, y «Borrar la vía entera» se la lleva con su perfil y su punto de acceso', async ({page, playwright}) => {
+    test.setTimeout(120_000)
+    const packageName = `E2E-WEP-${SUFFIX}`
+    const trackName = `E2E-WTR-${SUFFIX}`
+    const api = await apiAs(playwright, 'config.responsable')
+    const created = {}
+    // Lo que ya se borró responde 404: la limpieza no falla por eso.
+    const remove = (path, entry) => (entry ? api.delete(`/api/configuration/${path}/${entry.id}`).catch(() => undefined) : undefined)
+    try {
+        const [company] = await api.get('/api/configuration/business-entities')
+        created.package = await api.post('/api/configuration/execution-packages', {
+            name: packageName, companyId: company.id, length: 1000, startDate: '2026-01-01', endDate: '2026-12-31', initialPackage: false,
+            enabled: true, tracks: null, stations: null,
+        })
+        created.track = await api.post('/api/configuration/tracks', {
+            name: trackName, executionPackageId: created.package.id, stationIds: [], enabled: true, profiles: null,
+        })
+        created.profile = (await createProfile(api, trackName, `E2E-WP-${SUFFIX}`)).profile
+        created.accessPoint = await api.post('/api/configuration/track-access-points', {
+            name: `E2E-WAP-${SUFFIX}`, trackId: created.track.id, kp: 900.1, kind: 'PREPARED_ACCESS', side: 'LEFT',
+            roadRailAccess: true, enabled: true,
+        })
+
+        await page.goto('/infraestructura/vias')
+        await signIn(page, 'config.responsable')
+        await expect(page.getByRole('heading', {name: 'Vías'})).toBeVisible()
+        await page.getByRole('textbox', {name: 'Buscar'}).fill(trackName)
+        const cell = page.getByRole('cell', {name: trackName, exact: true})
+        await expect(cell).toBeVisible()
+
+        // El borrado normal: el servicio no borra nada y dice qué cuelga y cuánto.
+        await page.getByRole('button', {name: `Borrar ${trackName}`, exact: true}).click()
+        const confirm = page.getByRole('dialog', {name: `Borrar vía ${trackName}`})
+        await expect(confirm).toContainText('para borrarla con todo lo suyo está «Borrar la vía entera»')
+        await confirm.getByRole('button', {name: 'Borrar', exact: true}).click()
+        await expect(page.getByText(/No se puede borrar la vía: tiene 1 perfil y 1 punto de acceso\./)).toBeVisible()
+        await expect(confirm).toBeHidden()
+        await expect(cell).toBeVisible()
+
+        // La vía entera: el botón no se activa hasta escribir su nombre.
+        await page.getByRole('button', {name: `Borrar la vía entera ${trackName}`, exact: true}).click()
+        const whole = page.getByRole('dialog', {name: `Borrar la vía entera ${trackName}`})
+        await expect(whole).toContainText('No se puede deshacer.')
+        const button = whole.getByRole('button', {name: 'Borrar la vía entera', exact: true})
+        await expect(button).toBeDisabled()
+        await whole.getByRole('textbox', {name: 'Escribe el nombre de la vía para confirmar'}).fill(trackName)
+        await expect(button).toBeEnabled()
+        await button.click()
+        await expect(page.getByText(`Borrada la vía entera ${trackName}`)).toBeVisible()
+        await expect(whole).toBeHidden()
+        await expect(cell).toHaveCount(0)
+
+        // Lo suyo se fue con ella: ni el perfil ni el punto de acceso se pueden leer ya.
+        for (const [path, entry] of [['tracks', created.track], ['profiles', created.profile], ['track-access-points', created.accessPoint]]) {
+            await expect(api.get(`/api/configuration/${path}/${entry.id}`)).rejects.toThrow(/: 404 /)
+        }
+    } finally {
+        // En el orden que el servicio acepta, por si la prueba se quedó a medias.
+        await remove('profiles', created.profile)
+        await remove('track-access-points', created.accessPoint)
+        await remove('tracks', created.track)
+        await remove('execution-packages', created.package)
         await api.dispose()
     }
 })
