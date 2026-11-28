@@ -92,7 +92,8 @@ Noveno repositorio del dominio, hermano e independiente de [`mto-configuration`]
     «Activo». Un proyecto sincronizado desde `mto-configuration` no se modifica aquí.
   - Las existencias de un material, en un almacén o en todos, con las cifras del servicio, su libro
     y los materiales bajo mínimo.
-  - El libro entero con sus filtros, y las cuatro operaciones: entrada, salida, transferencia y
+  - El libro entero con sus filtros («Registrado por» es el nombre de usuario entero y exacto, con
+    sus mayúsculas: lo compara el servicio), y las cuatro operaciones: entrada, salida, transferencia y
     ajuste (este último, con `stock-adjust`).
   - Las reservas: alta, modificación, la salida que las consume con referencia y notas, consumir,
     liberar y cancelar (con `stock-delete`), solo en las activas.

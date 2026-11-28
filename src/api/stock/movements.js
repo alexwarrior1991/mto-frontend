@@ -44,7 +44,9 @@ export const BY_LATEST = 'occurredAt,desc'
 
 /**
  * Una página del libro entero, con sus filtros. Desde y hasta son días (YYYY-MM-DD) y cubren los dos
- * extremos enteros. La página empieza en 1.
+ * extremos enteros. La página empieza en 1. user es el nombre de usuario exacto de quien registró el
+ * apunte (su audit.createdBy), que el servicio compara entero y distinguiendo mayúsculas: un trozo da
+ * una página vacía. Viaja recortado, y en blanco no viaja.
  */
 export async function searchMovements({
     type = null, warehouseId = null, projectId = null, materialId = null, fromDay = null, toDay = null, user = '',

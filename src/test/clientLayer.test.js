@@ -2438,7 +2438,7 @@ describe('stock/*.js: el almacén de mto-stock', () => {
         const searches = record('get', '/api/stock/movements', () => HttpResponse.json(page([MOVEMENT])))
 
         await searchMovements({
-            type: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, fromDay: '2026-09-01', toDay: '2026-09-30', user: ' ana ',
+            type: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, fromDay: '2026-09-01', toDay: '2026-09-30', user: ' almacen.operario ',
             page: 3, size: 20, sort: {field: 'quantity', direction: 'asc'},
         })
         await searchMovements()
@@ -2446,7 +2446,7 @@ describe('stock/*.js: el almacén de mto-stock', () => {
         const filters = searches[0].url.searchParams
         expect(Object.fromEntries(['movementType', 'warehouseId', 'projectId', 'materialId', 'user', 'page', 'size']
             .map((name) => [name, filters.get(name)])))
-            .toEqual({movementType: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, user: 'ana', page: '2', size: '20'})
+            .toEqual({movementType: 'ENTRY', warehouseId: WH, projectId: PRJ, materialId: MAT, user: 'almacen.operario', page: '2', size: '20'})
         expect(filters.get('dateFrom')).toBe(new Date(2026, 8, 1).toISOString())
         expect(filters.get('dateTo')).toBe(new Date(new Date(2026, 9, 1).getTime() - 1).toISOString())
         expect(filters.getAll('sort')).toEqual(['quantity,asc', 'id,asc'])

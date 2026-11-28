@@ -526,9 +526,12 @@ describe('los movimientos', () => {
         await choose(user, document.body, 'Almacén', 'WH-000 - Central')
         await typeInto(user, document.body, 'Desde', '01/09/2026')
         await typeInto(user, document.body, 'Hasta', '30/09/2026')
-        await typeInto(user, document.body, 'Registrado por', 'ana')
+        // El usuario se escribe entero y exacto: se compara en el servicio, y aquí solo se recorta.
+        expect(screen.getByRole('textbox', {name: 'Registrado por'}))
+            .toHaveAccessibleDescription('El nombre de usuario entero y exacto, con sus mayúsculas')
+        await typeInto(user, document.body, 'Registrado por', ' Almacen.Operario ')
 
-        await waitFor(() => expect(param(lists().at(-1), 'user')).toBe('ana'))
+        await waitFor(() => expect(param(lists().at(-1), 'user')).toBe('Almacen.Operario'))
         const filtered = lists().at(-1)
         expect(Object.fromEntries(['movementType', 'warehouseId', 'page'].map((name) => [name, param(filtered, name)])))
             .toEqual({movementType: 'ENTRY', warehouseId: WH1, page: '0'})
