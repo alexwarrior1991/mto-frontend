@@ -11,6 +11,7 @@ import {countText} from './stockTexts.js'
 import {useMovementList} from './useStock.js'
 
 const TYPING_DELAY_MS = 400
+const USER_HELP = 'El nombre de usuario entero y exacto, con sus mayúsculas'
 
 /**
  * El libro de movimientos entero (el port de MovementsView), paginado en el servidor. Se filtra por
@@ -20,6 +21,11 @@ const TYPING_DELAY_MS = 400
  *
  * El tipo no ofrece «Desconocido»: un apunte de un tipo que esta versión no conoce se pinta así, pero
  * no se puede pedir. Los desplegables ofrecen también lo retirado, para encontrar lo de antes.
+ *
+ * «Registrado por» es el nombre de usuario entero y exacto, con sus mayúsculas, como sale en la columna
+ * «Usuario» de cada apunte (audit.createdBy): mto-stock lo compara tal cual, y un trozo o con otras
+ * mayúsculas no encuentra nada. Aquí no se comprueba contra nada: viaja recortado tras una pausa al
+ * escribir, como los tipos y los orígenes del registro de actividad, que también se escriben enteros.
  */
 export default function MovementsPage({title}) {
     const [type, setType] = useState(null)
@@ -62,7 +68,7 @@ export default function MovementsPage({title}) {
                            value={fromDay} onChange={setFromDay}/>
                 <DateInput label="Hasta" w={140} clearable valueFormat={DATE_FORMAT} dateParser={parseTypedDate} placeholder="DD/MM/AAAA"
                            value={toDay} onChange={setToDay}/>
-                <TextInput label="Registrado por" placeholder="Usuario" w={180} value={user}
+                <TextInput label="Registrado por" description={USER_HELP} placeholder="almacen.operario" w={300} value={user}
                            onChange={(event) => setUser(event.currentTarget.value)}
                            rightSection={user ? <CloseButton size="sm" aria-label="Borrar el usuario" onClick={() => setUser('')}/> : null}/>
             </Group>

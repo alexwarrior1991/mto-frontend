@@ -592,6 +592,13 @@ arrancar), `Dockerfile`, `compose.yaml` (solo la aplicación, en la red de `mto-
   - `source` es la cadena leída (`HTTP` o `SYSTEM`); `userId`, `requestMethod` y `requestUri` no se
     leen. La `entity` de una revisión no es un cuerpo para un `PUT` (`versionNumber` llega a `null`):
     desde el historial no se edita nada.
+- **El usuario del libro se escribe entero y exacto, y se compara en el servicio.** «Registrado por»
+  (`MovementsPage`; el libro de un material en Existencias no lo ofrece) es el parámetro `user` de
+  `mto-stock`: el nombre de usuario de `audit.createdBy` (`almacen.operario`,
+  `service-account-mto-maintenance-svc`, `system`), comparado entero y distinguiendo mayúsculas. Un
+  trozo u otras mayúsculas dan una página vacía, no un error, y la ayuda del campo lo dice. Aquí no se
+  comprueba contra nada: viaja recortado (en blanco no viaja) tras la pausa al escribir, como los
+  tipos y los orígenes del registro de actividad.
 - **Un desplegable del almacén busca en el servidor** (`StockPicker` sobre `ServerSearchSelect`): en
   un diálogo solo ofrece lo activo, porque el servicio rechaza lo retirado; en un filtro y en
   Existencias, también lo retirado, marcado como tal, para encontrar lo de antes.
